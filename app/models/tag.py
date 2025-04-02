@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from app.extensions import db
+from sqlalchemy.dialects.postgresql import ENUM
 
 class TagType:
     SYSTEM = 'system'
@@ -10,9 +11,9 @@ class Tag(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True, nullable=False)
-    tag_type = db.Column(db.String(20), default=TagType.USER)
+    tag_type = db.Column(ENUM('system', 'user', name='tag_type_enum', create_type=False), default=TagType.USER)
     description = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     
     def to_dict(self):
         return {
