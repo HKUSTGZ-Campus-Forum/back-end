@@ -57,7 +57,7 @@ def get_posts():
     valid_sort_fields = {
         'created_at': Post.created_at,
         'updated_at': Post.updated_at,
-        'views_count': Post.views_count,
+        'view_count': Post.view_count,
         'comment_count': Post.comment_count,
         'reaction_count': Post.reaction_count
     }
@@ -260,10 +260,10 @@ def get_hot_posts():
         query = query.filter(Post.created_at >= three_days_ago)
         # This is a simplified version - a real trending algorithm would be more complex
         query = query.order_by(desc(
-            (3 * Post.reaction_count + 2 * Post.comment_count + Post.views_count)
+            (3 * Post.reaction_count + 2 * Post.comment_count + Post.view_count)
         ))
     elif algorithm == 'most_viewed':
-        query = query.order_by(desc(Post.views_count))
+        query = query.order_by(desc(Post.view_count))
     elif algorithm == 'most_reacted':
         query = query.order_by(desc(Post.reaction_count))
     elif algorithm == 'most_commented':
