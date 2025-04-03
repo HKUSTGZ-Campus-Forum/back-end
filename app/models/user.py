@@ -32,8 +32,9 @@ class User(db.Model):
     # Add constraint for unique username among active users
     __table_args__ = (
         db.UniqueConstraint('username', name='unique_active_username', 
-                          sqlite_where=db.text("NOT is_deleted"), 
-                          postgresql_where=db.text("NOT is_deleted")),
+                        #   sqlite_where=db.text("NOT is_deleted"), 
+                        #   postgresql_where=db.text("NOT is_deleted")
+                        ),
     )
 
     def set_password(self, password):
