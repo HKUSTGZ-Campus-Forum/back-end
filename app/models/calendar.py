@@ -21,7 +21,6 @@ class UserCalendar(db.Model):
         db.Index(
             'idx_user_calendar_user_recent',
             'user_id', 'date',
-            postgresql_where=db.text("date >= CURRENT_DATE - INTERVAL '30 days'")
         ),
     )
     
