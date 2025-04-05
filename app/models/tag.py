@@ -11,7 +11,7 @@ class Tag(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), unique=True, nullable=False)
-    tag_type = db.Column(ENUM('system', 'user', name='tag_type_enum', create_type=False), default=TagType.USER)
+    tag_type = db.Column(ENUM('system', 'user', name='tag_type_enum', create_if_not_exists=True), default=TagType.USER)
     description = db.Column(db.Text)
     created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     
