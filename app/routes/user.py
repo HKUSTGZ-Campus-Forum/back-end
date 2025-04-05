@@ -31,54 +31,59 @@ def validate_phone(phone):
         return False, "Phone number must be 10-15 digits, optionally with a + prefix"
     return True, ""
 
+# Add a try-except block to the create_user function
 @bp.route('', methods=['POST'])
 def create_user():
-    data = request.get_json() or {}
-    
-    # Required fields
-    if not data.get('username'):
-        return jsonify({"msg": "Username is required"}), 400
-    if not data.get('password'):  # Changed from password_hash
-        return jsonify({"msg": "Password is required"}), 400
-    
-    # Validate username format
-    is_valid, error_msg = validate_username(data['username'])
-    if not is_valid:
-        return jsonify({"msg": error_msg}), 400
-    
-    # Validate email format if provided
-    is_valid, error_msg = validate_email(data.get('email', ''))
-    if not is_valid:
-        return jsonify({"msg": error_msg}), 400
-    
-    # Validate phone format if provided
-    is_valid, error_msg = validate_phone(data.get('phone_number', ''))
-    if not is_valid:
-        return jsonify({"msg": error_msg}), 400
-    
-    # Check if username already exists
-    if User.query.filter_by(username=data['username'], is_deleted=False).first():
-        return jsonify({"msg": "Username already exists"}), 400
-    
-    # Get default role_id (regular user)
-    default_role = UserRoleModel.query.filter_by(name=UserRoleModel.USER).first()
-    if not default_role:
-        return jsonify({"msg": "Default user role not found in database"}), 500
-    
-    # Create new user
-    user = User(
-        username=data['username'],
-        email=data.get('email', ''),
-        phone_number=data.get('phone_number', ''),
-        profile_picture_url=data.get('profile_picture_url', ''),
-        role_id=data.get('role_id', default_role.id)  # Use role_id from role table
-    )
-    user.set_password(data['password'])  # Changed from password_hash
-    
-    db.session.add(user)
-    db.session.commit()
-    
-    return jsonify(user.to_dict(include_contact=True)), 201
+    try:
+        data = request.get_json() or {}
+        
+        # Required fields
+        if not data.get('username'):
+            return jsonify({"msg": "Username is required"}), 400
+        if not data.get('password'):  # Changed from password_hash
+            return jsonify({"msg": "Password is required"}), 400
+        
+        # Validate username format
+        is_valid, error_msg = validate_username(data['username'])
+        if not is_valid:
+            return jsonify({"msg": error_msg}), 400
+        
+        # Validate email format if provided
+        is_valid, error_msg = validate_email(data.get('email', ''))
+        if not is_valid:
+            return jsonify({"msg": error_msg}), 400
+        
+        # Validate phone format if provided
+        is_valid, error_msg = validate_phone(data.get('phone_number', ''))
+        if not is_valid:
+            return jsonify({"msg": error_msg}), 400
+        
+        # Check if username already exists
+        if User.query.filter_by(username=data['username'], is_deleted=False).first():
+            return jsonify({"msg": "Username already exists"}), 400
+        
+        # Get default role_id (regular user)
+        default_role = UserRoleModel.query.filter_by(name=UserRoleModel.USER).first()
+        if not default_role:
+            return jsonify({"msg": "Default user role not found in database"}), 500
+        
+        # Create new user
+        user = User(
+            username=data['username'],
+            email=data.get('email', ''),
+            phone_number=data.get('phone_number', ''),
+            profile_picture_url=data.get('profile_picture_url', ''),
+            role_id=data.get('role_id', default_role.id)  # Use role_id from role table
+        )
+        user.set_password(data['password'])  # Changed from password_hash
+        
+        db.session.add(user)
+        db.session.commit()
+        
+        return jsonify(user.to_dict(include_contact=True)), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"msg": f"An error occurred: {str(e)}"}), 500
 
 @bp.route('/<int:user_id>', methods=['GET'])
 @jwt_required()

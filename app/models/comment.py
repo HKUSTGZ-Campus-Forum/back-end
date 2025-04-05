@@ -36,3 +36,16 @@ class Comment(db.Model):
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat()
         }
+    
+    # Add these constraints to the model
+    __table_args__ = (
+        db.Index(
+            'idx_comments_post_id_active',
+            'post_id',
+            postgresql_where=db.text("is_deleted IS FALSE")
+        ),
+        db.CheckConstraint(
+            'parent_comment_id IS NULL OR parent_comment_id != id',
+            name='ck_comments_valid_parent'
+        ),
+    )

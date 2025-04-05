@@ -12,8 +12,17 @@ class UserCalendar(db.Model):
     updated_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
                            onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
+    # Update the __table_args__ section
     __table_args__ = (
-        db.UniqueConstraint('user_id', 'date', name='unique_status_per_day'),
+        db.UniqueConstraint(
+            'user_id', 'date',
+            name='uq_user_calendar_user_date'
+        ),
+        db.Index(
+            'idx_user_calendar_user_recent',
+            'user_id', 'date',
+            postgresql_where=db.text("date >= CURRENT_DATE - INTERVAL '30 days'")
+        ),
     )
     
     def to_dict(self):
@@ -24,4 +33,4 @@ class UserCalendar(db.Model):
             "date": self.date.isoformat(),
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat()
-        } 
+        }

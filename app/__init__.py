@@ -22,4 +22,6 @@ def create_app(config_class=Config):
     # Initialize in create_app()
     migrate.init_app(app, db)
 
+    limiter.init_app(app)
+
     return app

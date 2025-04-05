@@ -4,9 +4,10 @@ from app.models.tag import Tag
 from app.models.reaction import Reaction
 from app.extensions import db
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from sqlalchemy import func, desc, asc
+from sqlalchemy import func, desc, asc, text
 from datetime import datetime, timedelta
 import json
+import bleach
 
 bp = Blueprint('post', __name__, url_prefix='/posts')
 
@@ -333,10 +334,11 @@ def get_hot_posts():
 
 @bp.route('/search', methods=['GET'])
 def search_posts():
-    # Get search parameters
-    query_string = request.args.get('q')
+    query_string = bleach.clean(request.args.get('q', ''))
     if not query_string:
         return jsonify({"error": "Search query is required"}), 400
+
+    safe_query = f"%{query_string.replace('%', r'\%').replace('_', r'\_')}%"
     
     search_type = request.args.get('search_type', 'keyword')
     page = request.args.get('page', 1, type=int)
@@ -346,8 +348,8 @@ def search_posts():
     if search_type == 'keyword':
         # Simple keyword search in title and content
         search_query = Post.query.filter(
-            (Post.title.ilike(f'%{query_string}%')) | 
-            (Post.content.ilike(f'%{query_string}%'))
+            (Post.title.ilike(safe_query, escape='\\')) | 
+            (Post.content.ilike(safe_query, escape='\\'))
         )
     elif search_type == 'semantic':
         # For semantic search, normally you would:

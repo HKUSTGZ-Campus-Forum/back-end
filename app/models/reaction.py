@@ -12,9 +12,17 @@ class Reaction(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     __table_args__ = (
-        db.UniqueConstraint('user_id', 'post_id', 'comment_id', 'emoji_id', name='unique_reaction'),
-        db.CheckConstraint('(post_id IS NULL AND comment_id IS NOT NULL) OR (post_id IS NOT NULL AND comment_id IS NULL)', 
-                         name='valid_target'),
+        db.UniqueConstraint(
+            'user_id', 'post_id', 'comment_id', 'emoji_id',
+            name='uq_reactions_user_target_emoji',
+            postgresql_where=db.text("post_id IS NOT NULL OR comment_id IS NOT NULL")
+        ),
+        db.CheckConstraint(
+            '(post_id IS NULL AND comment_id IS NOT NULL) OR (post_id IS NOT NULL AND comment_id IS NULL)',
+            name='ck_reactions_valid_target'
+        ),
+        db.Index('idx_reactions_post_id', 'post_id', postgresql_where=db.text("post_id IS NOT NULL")),
+        db.Index('idx_reactions_comment_id', 'comment_id', postgresql_where=db.text("comment_id IS NOT NULL")),
     )
     
     def to_dict(self):
@@ -25,4 +33,4 @@ class Reaction(db.Model):
             "comment_id": self.comment_id,
             "emoji_id": self.emoji_id,
             "created_at": self.created_at.isoformat()
-        } 
+        }

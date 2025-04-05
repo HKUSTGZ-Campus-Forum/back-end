@@ -24,4 +24,13 @@ class ReactionEmoji(db.Model):
             "display_order": self.display_order,
             "is_active": self.is_active,
             "created_at": self.created_at.isoformat()
-        } 
+        }
+    
+    # Add these constraints to the model
+    __table_args__ = (
+        db.Index(
+            'idx_reaction_emojis_active',
+            'display_order',
+            postgresql_where=db.text("is_active IS TRUE")
+        )
+    )
