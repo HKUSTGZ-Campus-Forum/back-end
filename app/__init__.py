@@ -1,6 +1,6 @@
 from flask import Flask
 from .config import Config
-from .extensions import db, jwt, migrate, limiter
+from .extensions import db, jwt, migrate#, limiter
 from .routes import register_blueprints
 
 
@@ -22,6 +22,6 @@ def create_app(config_class=Config):
     # Initialize in create_app()
     migrate.init_app(app, db)
 
-    limiter.init_app(app)
+    # limiter.init_app(app)
 
     return app

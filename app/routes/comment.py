@@ -3,7 +3,7 @@ from app.models.post import Post
 from app.models.comment import Comment
 from app.models.user import User
 from app.models.reaction import Reaction
-from app.extensions import db, limiter
+from app.extensions import db#, limiter
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func, desc, asc
 from datetime import datetime, timezone
@@ -51,7 +51,7 @@ def get_comments():
 # Create a new comment
 @bp.route('', methods=['POST'])
 @jwt_required()
-@limiter.limit("20 per minute")
+# @limiter.limit("20 per minute")
 def create_comment():
     try:
         data = request.get_json() or {}
@@ -101,7 +101,7 @@ def create_comment():
 
 # Get a specific comment
 @bp.route('/<int:comment_id>', methods=['GET'])
-@limiter.limit("60 per minute")
+# @limiter.limit("60 per minute")
 def get_comment(comment_id):
     comment = Comment.query.get_or_404(comment_id)
     include_replies = request.args.get('include_replies', 'false').lower() == 'true'
@@ -116,7 +116,7 @@ def get_comment(comment_id):
 # Update a comment
 @bp.route('/<int:comment_id>', methods=['PUT'])
 @jwt_required()
-@limiter.limit("20 per minute")
+# @limiter.limit("20 per minute")
 def update_comment(comment_id):
     try:
         comment = Comment.query.get_or_404(comment_id)
@@ -145,7 +145,7 @@ def update_comment(comment_id):
 # Delete a comment (soft delete)
 @bp.route('/<int:comment_id>', methods=['DELETE'])
 @jwt_required()
-@limiter.limit("10 per minute")
+# @limiter.limit("10 per minute")
 def delete_comment(comment_id):
     try:
         comment = Comment.query.get_or_404(comment_id)
@@ -174,7 +174,7 @@ def delete_comment(comment_id):
 
 # Get comments for a specific post
 @bp.route('/post/<int:post_id>', methods=['GET'])
-@limiter.limit("60 per minute")
+# @limiter.limit("60 per minute")
 def get_post_comments(post_id):
     # Check if post exists
     post = Post.query.get_or_404(post_id)

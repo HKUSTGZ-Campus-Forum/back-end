@@ -3,7 +3,7 @@ from app.models.reaction import Reaction
 from app.models.reaction_emoji import ReactionEmoji
 from app.models.post import Post
 from app.models.comment import Comment
-from app.extensions import db, limiter
+from app.extensions import db#, limiter
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func, desc
 from datetime import datetime, timezone
@@ -12,7 +12,7 @@ bp = Blueprint('reaction', __name__, url_prefix='/reactions')
 
 # Get all available emojis
 @bp.route('/emojis', methods=['GET'])
-@limiter.limit("60 per minute")
+# @limiter.limit("60 per minute")
 def get_emojis():
     """Get all available reaction emojis"""
     # Get active emojis ordered by display_order
@@ -25,7 +25,7 @@ def get_emojis():
 
 # Get a specific emoji
 @bp.route('/emojis/<int:emoji_id>', methods=['GET'])
-@limiter.limit("60 per minute")
+# @limiter.limit("60 per minute")
 def get_emoji(emoji_id):
     """Get a specific emoji by ID"""
     emoji = ReactionEmoji.query.get_or_404(emoji_id)
@@ -34,7 +34,7 @@ def get_emoji(emoji_id):
 
 # Get reactions for a post
 @bp.route('/posts/<int:post_id>/reactions', methods=['GET'])
-@limiter.limit("60 per minute")
+# @limiter.limit("60 per minute")
 def get_post_reactions(post_id):
     """Get all reactions for a specific post"""
     # Check if post exists
@@ -91,7 +91,7 @@ def get_post_reactions(post_id):
 # Add a reaction to a post
 @bp.route('/posts/<int:post_id>/reactions', methods=['POST'])
 @jwt_required()
-@limiter.limit("30 per minute")
+# @limiter.limit("30 per minute")
 def add_post_reaction(post_id):
     """Add a reaction to a post"""
     try:
@@ -147,7 +147,7 @@ def add_post_reaction(post_id):
 # Remove a reaction from a post
 @bp.route('/posts/<int:post_id>/reactions', methods=['DELETE'])
 @jwt_required()
-@limiter.limit("30 per minute")
+# @limiter.limit("30 per minute")
 def remove_post_reaction(post_id):
     """Remove a reaction from a post"""
     try:
@@ -187,7 +187,7 @@ def remove_post_reaction(post_id):
 
 # Get reactions for a comment
 @bp.route('/comments/<int:comment_id>/reactions', methods=['GET'])
-@limiter.limit("60 per minute")
+# @limiter.limit("60 per minute")
 def get_comment_reactions(comment_id):
     """Get all reactions for a specific comment"""
     # Check if comment exists
@@ -244,7 +244,7 @@ def get_comment_reactions(comment_id):
 # Add a reaction to a comment
 @bp.route('/comments/<int:comment_id>/reactions', methods=['POST'])
 @jwt_required()
-@limiter.limit("30 per minute")
+# @limiter.limit("30 per minute")
 def add_comment_reaction(comment_id):
     """Add a reaction to a comment"""
     try:
@@ -296,7 +296,7 @@ def add_comment_reaction(comment_id):
 # Remove a reaction from a comment
 @bp.route('/comments/<int:comment_id>/reactions', methods=['DELETE'])
 @jwt_required()
-@limiter.limit("30 per minute")
+# @limiter.limit("30 per minute")
 def remove_comment_reaction(comment_id):
     """Remove a reaction from a comment"""
     try:
@@ -332,7 +332,7 @@ def remove_comment_reaction(comment_id):
 
 # Get user's reactions
 @bp.route('/users/<int:user_id>', methods=['GET'])
-@limiter.limit("30 per minute")
+# @limiter.limit("30 per minute")
 def get_user_reactions(user_id):
     """Get all reactions by a specific user"""
     # Get filter parameters
