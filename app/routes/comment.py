@@ -13,7 +13,7 @@ bp = Blueprint('comment', __name__, url_prefix='/comments')
 
 # Get a list of comments with pagination and filtering
 @bp.route('', methods=['GET'])
-@limiter.limit("60 per minute")
+# @limiter.limit("60 per minute")
 def get_comments():
     # Get pagination parameters
     page = request.args.get('page', 1, type=int)
