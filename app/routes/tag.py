@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from app.models.tag import Tag, TagType, post_tags
 from app.models.post import Post
-from app.extensions import db, limiter
+from app.extensions import db#, limiter
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func, desc, asc
 from datetime import datetime, timezone, timedelta
@@ -10,7 +10,7 @@ import bleach
 bp = Blueprint('tag', __name__, url_prefix='/tags')
 
 @bp.route('', methods=['GET'])
-@limiter.limit("60 per minute")
+# @limiter.limit("60 per minute")
 def get_tags():
     """List all tags with optional filtering and sorting"""
     # Get filter parameters
@@ -89,7 +89,7 @@ def get_tags():
 
 @bp.route('', methods=['POST'])
 @jwt_required()
-@limiter.limit("20 per minute")
+# @limiter.limit("20 per minute")
 def create_tag():
     """Create a new tag"""
     try:
@@ -139,7 +139,7 @@ def create_tag():
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 @bp.route('/<int:tag_id>', methods=['GET'])
-@limiter.limit("60 per minute")
+# @limiter.limit("60 per minute")
 def get_tag(tag_id):
     """Get a specific tag by ID"""
     tag = Tag.query.get_or_404(tag_id)
@@ -165,7 +165,7 @@ def get_tag(tag_id):
 
 @bp.route('/<int:tag_id>', methods=['PUT'])
 @jwt_required()
-@limiter.limit("20 per minute")
+# @limiter.limit("20 per minute")
 def update_tag(tag_id):
     """Update an existing tag"""
     try:
@@ -213,7 +213,7 @@ def update_tag(tag_id):
 
 @bp.route('/<int:tag_id>', methods=['DELETE'])
 @jwt_required()
-@limiter.limit("10 per minute")
+# @limiter.limit("10 per minute")
 def delete_tag(tag_id):
     """Delete a tag"""
     try:
@@ -233,7 +233,7 @@ def delete_tag(tag_id):
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 @bp.route('/popular', methods=['GET'])
-@limiter.limit("60 per minute")
+# @limiter.limit("60 per minute")
 def get_popular_tags():
     """Get most popular tags based on usage"""
     limit = request.args.get('limit', 10, type=int)
@@ -266,7 +266,7 @@ def get_popular_tags():
     return jsonify(result), 200
 
 @bp.route('/<int:tag_id>/posts', methods=['GET'])
-@limiter.limit("60 per minute")
+# @limiter.limit("60 per minute")
 def get_tag_posts(tag_id):
     """Get posts with a specific tag"""
     # Check if tag exists
@@ -300,7 +300,7 @@ def get_tag_posts(tag_id):
     return jsonify(response), 200
 
 @bp.route('/post/<int:post_id>', methods=['GET'])
-@limiter.limit("60 per minute")
+# @limiter.limit("60 per minute")
 def get_post_tags(post_id):
     """Get all tags for a specific post"""
     # Check if post exists
@@ -330,7 +330,7 @@ def get_post_tags(post_id):
     return jsonify(result), 200
 
 @bp.route('/trending', methods=['GET'])
-@limiter.limit("60 per minute")
+# @limiter.limit("60 per minute")
 def get_trending_tags():
     """Get trending tags based on usage in a specific time period"""
     # Get parameters
@@ -384,7 +384,7 @@ def get_trending_tags():
 # Add endpoint for managing tags on a post
 @bp.route('/post/<int:post_id>/tags', methods=['POST'])
 @jwt_required()
-@limiter.limit("20 per minute")
+# @limiter.limit("20 per minute")
 def add_tags_to_post(post_id):
     """Add tags to a post"""
     try:
@@ -437,7 +437,7 @@ def add_tags_to_post(post_id):
 
 @bp.route('/post/<int:post_id>/tags/<int:tag_id>', methods=['DELETE'])
 @jwt_required()
-@limiter.limit("20 per minute")
+# @limiter.limit("20 per minute")
 def remove_tag_from_post(post_id, tag_id):
     """Remove a tag from a post"""
     try:
