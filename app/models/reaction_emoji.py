@@ -32,5 +32,5 @@ class ReactionEmoji(db.Model):
             'idx_reaction_emojis_active',
             'display_order',
             postgresql_where=db.text("is_active IS TRUE")
-        )
+        ),
     )
