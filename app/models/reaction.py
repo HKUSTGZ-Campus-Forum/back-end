@@ -15,7 +15,7 @@ class Reaction(db.Model):
         db.UniqueConstraint(
             'user_id', 'post_id', 'comment_id', 'emoji_id',
             name='uq_reactions_user_target_emoji',
-            postgresql_where=db.text("post_id IS NOT NULL OR comment_id IS NOT NULL")
+            # postgresql_where=db.text("post_id IS NOT NULL OR comment_id IS NOT NULL")
         ),
         db.CheckConstraint(
             '(post_id IS NULL AND comment_id IS NOT NULL) OR (post_id IS NOT NULL AND comment_id IS NULL)',

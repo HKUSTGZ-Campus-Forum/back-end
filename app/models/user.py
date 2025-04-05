@@ -34,7 +34,7 @@ class User(db.Model):
         db.UniqueConstraint(
             'username', 
             name='uq_users_username_active', 
-            postgresql_where=(db.text("is_deleted IS FALSE"))
+            # postgresql_where=(db.text("is_deleted IS FALSE"))
         ),
     )
 
