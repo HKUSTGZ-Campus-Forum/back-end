@@ -30,7 +30,7 @@ def get_tags():
     
     # Apply search if provided
     if search_query:
-        safe_query = f"%{search_query.replace('%', r'\%').replace('_', r'\_')}%"
+        safe_query = "%" + search_query.replace('%', r'\%').replace('_', r'\_') + "%"
         query = query.filter(Tag.name.ilike(safe_query, escape='\\'))
     
     # Apply sorting

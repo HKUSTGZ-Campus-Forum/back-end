@@ -338,7 +338,7 @@ def search_posts():
     if not query_string:
         return jsonify({"error": "Search query is required"}), 400
 
-    safe_query = f"%{query_string.replace('%', r'\%').replace('_', r'\_')}%"
+    safe_query = "%" + query_string.replace('%', r'\%').replace('_', r'\_') + "%"
     
     search_type = request.args.get('search_type', 'keyword')
     page = request.args.get('page', 1, type=int)
