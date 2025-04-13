@@ -6,5 +6,6 @@ psycopg2-binary
 python-dotenv
 bleach
 flask_limiter
+flask-cors
 
 gunicorn
