@@ -32,7 +32,5 @@ jobs:
 
           sudo systemctl restart dev-unikorn-api.service
           echo "server service restarted."
-          # Optional: restart your backend service
-          # e.g. systemctl restart unikorn-dev.service
 
           echo "Deployment complete."
