@@ -30,7 +30,7 @@ jobs:
           pip install -r requirements.txt
           echo "python packages installed."
 
-          sudo systemctl restart dev-unikorn-api.service
+          sudo /usr/bin/systemctl restart dev-unikorn-api.service
           echo "server service restarted."
 
           echo "Deployment complete."
