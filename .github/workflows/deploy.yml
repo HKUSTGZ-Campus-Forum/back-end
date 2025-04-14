@@ -3,7 +3,7 @@ name: Deploy to Dev Server
 on:
   push:
     branches:
-      - main  # change this to 'dev' or another branch if needed
+      - main
 
 jobs:
   deploy:
