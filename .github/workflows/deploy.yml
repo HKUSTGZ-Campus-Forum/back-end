@@ -1,0 +1,38 @@
+name: Deploy to Dev Server
+
+on:
+  push:
+    branches:
+      - main  # change this to 'dev' or another branch if needed
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout the code
+      uses: actions/checkout@v3
+
+    - name: Deploy via SSH
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.DEV_HOST }}
+        username: ${{ secrets.DEV_USER }}
+        key: ${{ secrets.DEV_SSH_KEY }}
+        script: |
+          echo "Start deploying..."
+          cd cd /data/dev_unikorn/back-end/
+          git pull origin main
+          echo "Pulled latest code."
+
+          echo "Installing python packages..."
+          . venv/bin/activate
+          pip install -r requirements.txt
+          echo "python packages installed."
+
+          sudo systemctl restart dev-unikorn-api.service
+          echo "server service restarted."
+          # Optional: restart your backend service
+          # e.g. systemctl restart unikorn-dev.service
+
+          echo "Deployment complete."
