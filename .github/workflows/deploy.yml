@@ -21,12 +21,12 @@ jobs:
         key: ${{ secrets.DEV_SSH_KEY }}
         script: |
           echo "Start deploying..."
-          cd cd /data/dev_unikorn/back-end/
+          cd /data/dev_unikorn/back-end/
           git pull origin main
           echo "Pulled latest code."
 
           echo "Installing python packages..."
-          . venv/bin/activate
+          source venv/bin/activate
           pip install -r requirements.txt
           echo "python packages installed."
 
