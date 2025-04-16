@@ -64,8 +64,8 @@ def login():
         return jsonify({"msg": "Invalid username or password"}), 401
 
     # Create both access and refresh tokens
-    access_token = create_access_token(identity=user.id)
-    refresh_token = create_refresh_token(identity=user.id)
+    access_token = create_access_token(identity=str(user.id))
+    refresh_token = create_refresh_token(identity=str(user.id))
     
     # Return both tokens and user information
     return jsonify({
