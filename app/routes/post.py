@@ -194,6 +194,7 @@ def get_post(post_id):
         "id": post.id,
         "title": post.title,
         "content": post.content,
+        "author_id": post.user_id,  # Added author_id to the response
         "reaction_list": reactions,
         "view_count": post.view_count,
         "background_url": "",  # Placeholder for background image
