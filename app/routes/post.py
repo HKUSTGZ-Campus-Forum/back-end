@@ -195,7 +195,7 @@ def get_post(post_id):
         "title": post.title,
         "content": post.content,
         "reaction_list": reactions,
-        "view_count": post.views_count,
+        "view_count": post.view_count,
         "background_url": "",  # Placeholder for background image
         "time": post.created_at.isoformat(),
         "tags": tags,
@@ -309,7 +309,7 @@ def get_hot_posts():
             "title": post.title,
             "content_preview": content_preview,
             "comment_count": post.comment_count,
-            "click_count": post.views_count,
+            "click_count": post.view_count,
             "time": post.created_at.isoformat(),
             "background_url": "",  # Placeholder for background image
             "tags": tags,
