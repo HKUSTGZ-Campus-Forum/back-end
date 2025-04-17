@@ -6,18 +6,26 @@ def init_roles():
     """Initialize the user roles table"""
     app = create_app()
     with app.app_context():
-        # Check if roles already exist
-        if UserRole.query.count() == 0:
-            roles = [
-                UserRole(name=UserRole.ADMIN, description="Administrator with full privileges"),
-                UserRole(name=UserRole.MODERATOR, description="Moderator with content management privileges"),
-                UserRole(name=UserRole.USER, description="Regular user with standard privileges")
-            ]
-            db.session.add_all(roles)
+        # Define the required roles
+        required_roles = [
+            (UserRole.ADMIN, "Administrator with full privileges"),
+            (UserRole.MODERATOR, "Moderator with content management privileges"),
+            (UserRole.USER, "Regular user with standard privileges")
+        ]
+        
+        # Check each role and add if missing
+        roles_added = 0
+        for role_name, description in required_roles:
+            if not UserRole.query.filter_by(name=role_name).first():
+                role = UserRole(name=role_name, description=description)
+                db.session.add(role)
+                roles_added += 1
+        
+        if roles_added > 0:
             db.session.commit()
-            print("User roles initialized successfully.")
+            print(f"{roles_added} user roles added successfully.")
         else:
-            print("User roles already exist.")
+            print("All required user roles already exist.")
 
 if __name__ == "__main__":
     init_roles()

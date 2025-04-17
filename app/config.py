@@ -19,8 +19,9 @@ class Config:
     JWT_BLACKLIST_ENABLED = True
     JWT_BLACKLIST_TOKEN_CHECKS = ['access', 'refresh']
     
-    # Add OSS and other Alibaba Cloud configuration here, e.g.:
-    # OSS_ACCESS_KEY = os.environ.get('OSS_ACCESS_KEY')
-    # OSS_SECRET_KEY = os.environ.get('OSS_SECRET_KEY')
-    # OSS_ENDPOINT = os.environ.get('OSS_ENDPOINT')
-    # OSS_BUCKET_NAME = os.environ.get('OSS_BUCKET_NAME')
+    # OSS Configuration
+    OSS_ROLE_ARN = os.getenv('OSS_ROLE_ARN')
+    OSS_BUCKET_NAME = os.getenv('OSS_BUCKET_NAME')
+    OSS_ENDPOINT = os.getenv('OSS_ENDPOINT')
+    OSS_REGION_ID = os.getenv('OSS_REGION_ID', 'cn-hangzhou')
+    OSS_TOKEN_DURATION = int(os.getenv('OSS_TOKEN_DURATION', 3600))

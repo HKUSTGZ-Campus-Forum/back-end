@@ -2,6 +2,8 @@ from flask import Flask
 from .config import Config
 from .extensions import db, jwt, migrate#, limiter
 from .routes import register_blueprints
+from app.tasks.sts_pool import init_pool_maintenance
+from app.scripts import init_roles, init_scripts
 
 
 def create_app(config_class=Config):
@@ -23,5 +25,10 @@ def create_app(config_class=Config):
     migrate.init_app(app, db)
 
     # limiter.init_app(app)
+    
+    # Initialize pool maintenance
+    init_pool_maintenance(app)
 
+    init_roles()
+    
     return app

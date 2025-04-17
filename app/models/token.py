@@ -3,7 +3,7 @@ from app.extensions import db
 
 class TokenBlacklist(db.Model):
     """Model for storing revoked tokens"""
-    __tablename__ = 'token_blacklist'
+    __tablename__ = 'jwt_token_blacklist'
     
     id = db.Column(db.Integer, primary_key=True)
     jti = db.Column(db.String(36), unique=True, nullable=False)
@@ -25,4 +25,20 @@ class TokenBlacklist(db.Model):
     @classmethod
     def is_token_revoked(cls, jti):
         """Check if a token is in the blacklist"""
-        return cls.query.filter_by(jti=jti).first() is not None 
+        return cls.query.filter_by(jti=jti).first() is not None
+    
+    
+class STSTokenPool(db.Model):
+    """Model for managing shared STS tokens pool"""
+    __tablename__ = 'sts_token_pool'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    access_key_id = db.Column(db.String(64), nullable=False, unique=True)
+    access_key_secret = db.Column(db.String(64), nullable=False)
+    security_token = db.Column(db.Text, nullable=False)
+    expiration = db.Column(db.DateTime(timezone=True), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=datetime.now(timezone.utc))
+    
+    @property
+    def is_valid(self):
+        return self.expiration > datetime.now(timezone.utc) + timedelta(minutes=5)
