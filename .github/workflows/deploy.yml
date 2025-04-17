@@ -27,13 +27,17 @@ jobs:
 
           echo "Installing python packages..."
           source venv/bin/activate
-          pip install -r requirements.txt
+          pip install -r requirements.txt --timeout 600
           echo "python packages installed."
 
           echo "performing database migrations..."
           flask db migrate
           flask db upgrade
           echo "database migrations completed."
+          
+          echo "executing init scripts..."
+          python -m app.scripts.init_roles
+          echo "executed."
 
           sudo /usr/bin/systemctl restart dev-unikorn-api.service
           echo "server service restarted."
