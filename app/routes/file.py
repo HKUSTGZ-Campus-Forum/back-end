@@ -3,9 +3,9 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.services.file_service import OSSService
 from app.models.user import User
 
-bp = Blueprint('file', __name__, url_prefix='/api/files')
+bp = Blueprint('file', __name__, url_prefix='/files')
 
-@bp.route('/upload-url', methods=['POST'])
+@bp.route('/upload', methods=['POST'])
 @jwt_required()
 def generate_upload_url():
     user_id = get_jwt_identity()
