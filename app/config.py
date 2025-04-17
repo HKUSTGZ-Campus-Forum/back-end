@@ -19,6 +19,9 @@ class Config:
     JWT_BLACKLIST_ENABLED = True
     JWT_BLACKLIST_TOKEN_CHECKS = ['access', 'refresh']
     
+    # Base Alibaba Cloud Credentials (Needed for STS client)
+    ALIBABA_CLOUD_ACCESS_KEY_ID = os.getenv('ALIBABA_CLOUD_ACCESS_KEY_ID')
+    ALIBABA_CLOUD_ACCESS_KEY_SECRET = os.getenv('ALIBABA_CLOUD_ACCESS_KEY_SECRET')
     # OSS Configuration
     OSS_ROLE_ARN = os.getenv('OSS_ROLE_ARN')
     OSS_BUCKET_NAME = os.getenv('OSS_BUCKET_NAME')
