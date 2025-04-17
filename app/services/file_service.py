@@ -5,6 +5,8 @@ from app.models.token import STSTokenPool
 from app.extensions import db
 from datetime import datetime, timedelta, timezone
 import json
+import uuid
+import os
 
 class OSSService:
     MIN_POOL_SIZE = 10
@@ -68,5 +70,12 @@ class OSSService:
         auth = Auth(token.access_key_id, token.access_key_secret, token.security_token)
         bucket = Bucket(auth, current_app.config['OSS_ENDPOINT'], current_app.config['OSS_BUCKET_NAME'])
         
-        object_name = f"user_upload/{user_id}/{int(datetime.now().timestamp())}_{filename}"
+        # Format timestamp as YYYYMMDD_HHMMSS for better readability
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        file_extension = os.path.splitext(filename)[1] if '.' in filename else ''
+        random_name = str(uuid.uuid4())
+        
+        object_name = f"user_upload/{user_id}/{timestamp}_{random_name}{file_extension}"
         return bucket.sign_url("PUT", object_name, current_app.config['OSS_TOKEN_DURATION']), object_name
+
+        

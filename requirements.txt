@@ -7,8 +7,11 @@ python-dotenv
 bleach
 flask_limiter
 flask-cors
+
 aliyun-python-sdk-core
 aliyun-python-sdk-sts
 oss2
+
+APScheduler
 
 gunicorn
