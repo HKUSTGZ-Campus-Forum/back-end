@@ -10,3 +10,4 @@ def register_blueprints(app):
     app.register_blueprint(comment.bp)
     app.register_blueprint(tag.bp)
     app.register_blueprint(reaction.bp)
+    app.register_blueprint(file.bp)

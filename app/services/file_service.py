@@ -9,6 +9,7 @@ import uuid # Moved import to top
 import os   # Moved import to top
 from flask import current_app # Added import
 from sqlalchemy.sql import func # Added import
+from app.models.file import File # Ensure File is imported
 
 class OSSService:
     MIN_POOL_SIZE = 10
@@ -94,32 +95,164 @@ class OSSService:
         # Commit happens in the calling task function (sts_pool.maintain_pool)
 
     @staticmethod
-    def generate_signed_url(user_id, filename):
+    def generate_signed_url(user_id, filename, file_type=File.GENERAL, entity_type=None, entity_id=None, callback_url=None): # Added categorization params
         token = OSSService.get_available_token()
         # Handle case where token could not be obtained
         if not token:
-             raise Exception("Could not obtain a valid STS token for signing URL.") # Or return an error response
+             current_app.logger.error(f"User {user_id} failed to obtain STS token.")
+             raise Exception("Could not obtain a valid STS token for signing URL.")
 
         auth = Auth(token.access_key_id, token.access_key_secret, token.security_token)
         bucket = Bucket(auth, current_app.config['OSS_ENDPOINT'], current_app.config['OSS_BUCKET_NAME'])
-        
+
         # Format timestamp as YYYYMMDD_HHMMSS for better readability
-        timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S') # Use UTC time
+        timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
         file_extension = os.path.splitext(filename)[1] if '.' in filename else ''
         random_name = str(uuid.uuid4())
-        
+
+        # Include file_type in the object path for better organization in OSS
         object_name = f"user_upload/{user_id}/{timestamp}_{random_name}{file_extension}"
-        
-        try: # Add try/except for signing
-            signed_url = bucket.sign_url(
-                 "PUT", 
-                 object_name, 
-                 current_app.config['OSS_TOKEN_DURATION'],
-                 headers={'Content-Type': 'application/octet-stream'} # Example header, adjust as needed
-            )
-            return signed_url, object_name
+
+        # Create a file record in pending status with categorization
+        file_record = File(
+            user_id=user_id,
+            object_name=object_name,
+            original_filename=filename,
+            status='pending',
+            file_type=file_type,      # Save file_type
+            entity_type=entity_type,  # Save entity_type
+            entity_id=entity_id       # Save entity_id
+        )
+        db.session.add(file_record)
+        # Commit here to get the file_record.id for the callback
+        try:
+            db.session.commit()
         except Exception as e:
-             current_app.logger.error(f"Error signing OSS URL: {e}")
-             raise # Re-raise the exception to be handled by the route
+            db.session.rollback()
+            current_app.logger.error(f"Database error creating file record for user {user_id}: {e}")
+            raise Exception("Failed to create file record before signing URL.")
+
+
+        # Set up callback if URL is provided
+        callback_params = None
+        if callback_url:
+            # Ensure file_id is available after commit
+            if not file_record.id:
+                 current_app.logger.error(f"File record ID not available after commit for user {user_id}.")
+                 raise Exception("Failed to get file record ID for callback setup.")
+
+            # Customize callback body - ensure variables match OSS documentation
+            # Common variables: ${object}, ${etag}, ${size}, ${mimeType}, ${imageInfo.height}, ${imageInfo.width}
+            # Custom variables via callback-var are also possible if needed.
+            callback_body_parts = [
+                f'object_name=${{object}}', # Use object, not filename, as it's the final name in OSS
+                f'size=${{size}}',
+                f'mimeType=${{mimeType}}',
+                f'file_id={file_record.id}' # Pass our database ID
+            ]
+            # Add image dimensions if needed (requires OSS Image Processing)
+            # callback_body_parts.append('height=${imageInfo.height}')
+            # callback_body_parts.append('width=${imageInfo.width}')
+
+            callback_body = '&'.join(callback_body_parts)
+
+            callback_dict = {
+                'callbackUrl': callback_url,
+                'callbackBody': callback_body,
+                'callbackBodyType': 'application/x-www-form-urlencoded'
+                # Optional: Add callbackHost, callback-var for custom headers/variables
+            }
+            callback_params = base64.b64encode(json.dumps(callback_dict).encode('utf-8')) # OSS expects base64 encoded JSON
+
+        try:
+            # Generate the signed URL with optional callback
+            # Note: Content-Type might be set by the client during PUT,
+            # or you can enforce it here if needed.
+            headers = {} # Let client set Content-Type usually
+            signed_url = bucket.sign_url(
+                "PUT",
+                object_name,
+                current_app.config['OSS_TOKEN_DURATION'],
+                headers=headers,
+                params={'callback': callback_params} if callback_params else None # Pass callback params correctly
+            )
+            current_app.logger.info(f"Generated signed URL for user {user_id}, file_id {file_record.id}, object {object_name}")
+            return signed_url, object_name, file_record.id
+        except Exception as e:
+            current_app.logger.error(f"Error signing OSS URL for user {user_id}, file_id {file_record.id}: {e}")
+            # Attempt to mark the file record as error, but don't let this fail the request
+            try:
+                 file_record = File.query.get(file_record.id)
+                 if file_record:
+                     file_record.status = 'error'
+                     db.session.commit()
+            except Exception as db_err:
+                 db.session.rollback()
+                 current_app.logger.error(f"Failed to mark file record {file_record.id} as error: {db_err}")
+            raise # Re-raise the signing exception
+
+    @staticmethod
+    def update_file_status(file_id, status, object_name=None, file_size=None, mime_type=None): # Added object_name for verification
+        """Update file status after callback"""
+        file_record = File.query.get(file_id)
+        if file_record:
+             # Optional verification: Check if object_name from callback matches record
+             if object_name and file_record.object_name != object_name:
+                 current_app.logger.warning(f"Callback object name mismatch for file_id {file_id}. Expected '{file_record.object_name}', got '{object_name}'.")
+                 # Decide how to handle mismatch - log, set status to error, etc.
+                 # For now, we'll proceed but log a warning.
+
+             file_record.status = status
+             if file_size is not None: # Check for None explicitly
+                 try:
+                     file_record.file_size = int(file_size)
+                 except (ValueError, TypeError):
+                      current_app.logger.warning(f"Invalid file size '{file_size}' received for file_id {file_id}.")
+                      file_record.file_size = None # Or 0, or keep existing if any
+             if mime_type:
+                 file_record.mime_type = mime_type
+
+             try:
+                 db.session.commit()
+                 current_app.logger.info(f"Updated file status to '{status}' for file_id {file_id}.")
+                 return file_record
+             except Exception as e:
+                 db.session.rollback()
+                 current_app.logger.error(f"Database error updating file status for file_id {file_id}: {e}")
+                 return None # Indicate failure
+        else:
+             current_app.logger.warning(f"File record not found for file_id {file_id} during callback processing.")
+             return None
+
+    @staticmethod
+    def delete_file(file_id, user_id):
+        """Soft delete a file record and potentially delete from OSS."""
+        file_record = File.query.filter_by(id=file_id, user_id=user_id, is_deleted=False).first()
+        if not file_record:
+            return None # Not found or already deleted
+
+        file_record.is_deleted = True
+
+        # TODO: Implement actual deletion from OSS (potentially in a background task)
+        # try:
+        #     token = OSSService.get_available_token()
+        #     auth = Auth(token.access_key_id, token.access_key_secret, token.security_token)
+        #     bucket = Bucket(auth, current_app.config['OSS_ENDPOINT'], current_app.config['OSS_BUCKET_NAME'])
+        #     bucket.delete_object(file_record.object_name)
+        #     current_app.logger.info(f"Deleted object {file_record.object_name} from OSS for file_id {file_id}.")
+        # except Exception as e:
+        #     current_app.logger.error(f"Failed to delete object {file_record.object_name} from OSS for file_id {file_id}: {e}")
+        #     # Decide if the DB soft delete should be rolled back or not
+        #     # db.session.rollback()
+        #     # return None # Indicate failure
+
+        try:
+            db.session.commit()
+            current_app.logger.info(f"Soft deleted file record for file_id {file_id}.")
+            return file_record
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Database error soft deleting file record for file_id {file_id}: {e}")
+            return None # Indicate failure
 
         
