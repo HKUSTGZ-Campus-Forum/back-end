@@ -28,7 +28,8 @@ class User(db.Model):
     comments = db.relationship('Comment', backref='author', lazy='dynamic', cascade='all, delete-orphan')
     reactions = db.relationship('Reaction', backref='user', lazy='dynamic', cascade='all, delete-orphan')
     calendar_entries = db.relationship('UserCalendar', backref='user', lazy='dynamic', cascade='all, delete-orphan')
-    files = db.relationship('File', backref='user', lazy='dynamic', cascade='all, delete-orphan')
+    # Change from back_populates to backref with a different name
+    files = db.relationship('File', backref='owner', lazy='dynamic', cascade='all, delete-orphan') 
 
     # Add constraint for unique username among active users
     __table_args__ = (

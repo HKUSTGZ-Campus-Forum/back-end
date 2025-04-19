@@ -19,9 +19,6 @@ class File(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
-    # Define the relationship back to User using back_populates
-    user = db.relationship('User', back_populates='files') 
-
     # Constants for file types (example)
     AVATAR = 'avatar'
     POST_IMAGE = 'post_image'
