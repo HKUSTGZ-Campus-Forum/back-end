@@ -40,12 +40,13 @@ class OSSService:
         # Generate and store new STS token
         try: # Added try/except for robustness
             client = AcsClient(
-                current_app.config['ALIBABA_CLOUD_ACCESS_KEY_ID'], # Use added config
-                current_app.config['ALIBABA_CLOUD_ACCESS_KEY_SECRET'], # Use added config
+                current_app.config['ALIBABA_CLOUD_ACCESS_KEY_ID'], 
+                current_app.config['ALIBABA_CLOUD_ACCESS_KEY_SECRET'], 
                 current_app.config['OSS_REGION_ID']
             )
             
-            request = AssumeRoleRequest() # Simplified instantiation
+            # Fix: Use AssumeRoleRequest.AssumeRoleRequest() instead of AssumeRoleRequest()
+            request = AssumeRoleRequest.AssumeRoleRequest()
             request.set_RoleArn(current_app.config['OSS_ROLE_ARN'])
             request.set_RoleSessionName(f"pool-token-{uuid.uuid4()}") # Unique session name
             request.set_DurationSeconds(current_app.config['OSS_TOKEN_DURATION'])
@@ -53,7 +54,7 @@ class OSSService:
             response = client.do_action_with_exception(request)
             credentials = json.loads(response.decode("utf-8"))["Credentials"]
             
-            expiration_time = datetime.fromisoformat(credentials['Expiration'].replace('Z', '+00:00')).astimezone(timezone.utc) # Ensure timezone aware
+            expiration_time = datetime.fromisoformat(credentials['Expiration'].replace('Z', '+00:00')).astimezone(timezone.utc)
             
             token = STSTokenPool(
                 access_key_id=credentials['AccessKeyId'],
@@ -63,12 +64,11 @@ class OSSService:
             )
             
             db.session.add(token)
-            # db.session.commit() # Removed commit from here
             return token
         except Exception as e:
             current_app.logger.error(f"Error generating STS token: {e}")
-            db.session.rollback() # Rollback if adding token failed before commit
-            return None # Indicate failure
+            db.session.rollback()
+            return None
 
     @staticmethod
     def maintain_pool():
