@@ -3,12 +3,6 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.services.file_service import OSSService
 from app.models.user import User
 from app.models.file import File
-from app.extensions import db
-# Add any necessary imports for callback verification if implementing
-# import base64
-# import hashlib
-# import hmac
-# from urllib.parse import urlparse
 
 bp = Blueprint('file', __name__, url_prefix='/files')
 
