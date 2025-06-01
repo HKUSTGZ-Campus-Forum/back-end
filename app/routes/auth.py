@@ -3,6 +3,7 @@ from flask import Blueprint, request, jsonify
 from app.models.user import User
 from app.models.token import TokenBlacklist
 from app.extensions import db, jwt
+import re
 from flask_jwt_extended import (
     create_access_token, 
     create_refresh_token,
@@ -52,6 +53,10 @@ def check_if_token_revoked(jwt_header, jwt_payload):
 
 #     return jsonify({"msg": "User registered successfully"}), 201
 
+def is_email(text):
+    email_text = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(email_text, text) is not None
+
 @bp.route('/login', methods=['POST'])
 def login():
     data = request.get_json() or {}
@@ -59,7 +64,21 @@ def login():
     if not data.get('username') or not data.get('password'):
         return jsonify({"msg": "Username and password required"}), 400
     
-    user = User.query.filter_by(username=data.get('username'), is_deleted=False).first()
+    user_or_email = data.get('username')
+    password = data.get('password')
+
+    if is_email(user_or_email):
+        user = User.query.filter_by(
+            email=user_or_email, 
+            is_deleted=False
+        ).first()
+    else:
+        user = User.query.filter_by(
+            username=user_or_email, 
+            is_deleted=False
+        ).first()
+
+    # user = User.query.filter_by(username=data.get('username'), is_deleted=False).first()
     if user is None or not user.check_password(data.get('password')):
         return jsonify({"msg": "Invalid username or password"}), 401
 
