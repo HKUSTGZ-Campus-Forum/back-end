@@ -237,7 +237,7 @@ def delete_post(post_id):
     current_user_id = get_jwt_identity()
     
     # Check permissions
-    if post.user_id != current_user_id:
+    if str(post.user_id) != str(current_user_id):
         return jsonify({"error": "You don't have permission to delete this post"}), 403
     
     db.session.delete(post)
