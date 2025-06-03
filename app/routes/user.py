@@ -188,3 +188,18 @@ def delete_user(user_id):
     db.session.commit()
     
     return '', 204
+
+@bp.route('/public/<int:user_id>', methods=['GET'])
+def get_public_user_info(user_id):
+    """Get public user information without authentication"""
+    user = User.query.get(user_id)
+    if not user or user.is_deleted:
+        return jsonify({"msg": "User not found"}), 404
+    
+    # Return only public information
+    return jsonify({
+        "id": user.id,
+        "username": user.username,
+        "profile_picture_url": user.profile_picture_url,
+        "role_name": user.get_role_name()
+    })
