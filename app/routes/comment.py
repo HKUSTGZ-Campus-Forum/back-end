@@ -151,6 +151,12 @@ def delete_comment(comment_id):
         comment = Comment.query.get_or_404(comment_id)
         current_user_id = get_jwt_identity()
         user = User.query.get(current_user_id)
+        print(f"🔍 类型调试:")
+        print(f"  comment.user_id: {comment.user_id} (type: {type(comment.user_id)})")
+        print(f"  current_user_id: {current_user_id} (type: {type(current_user_id)})")
+        print(f"  直接比较结果: {comment.user_id == current_user_id}")
+        print(f"  字符串比较结果: {str(comment.user_id) == str(current_user_id)}")
+        print(f"  整数比较结果: {int(comment.user_id) == int(current_user_id)}")
         
         # Check permissions (owner or moderator)
         if comment.user_id != current_user_id and not user.is_moderator():
