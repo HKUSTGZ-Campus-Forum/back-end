@@ -159,7 +159,7 @@ def delete_comment(comment_id):
         print(f"  整数比较结果: {int(comment.user_id) == int(current_user_id)}")
         
         # Check permissions (owner or moderator)
-        if comment.user_id != current_user_id and not user.is_moderator():
+        if str(comment.user_id) != current_user_id and not user.is_moderator():
             return jsonify({"error": "You don't have permission to delete this comment"}), 403
         
         # Soft delete
