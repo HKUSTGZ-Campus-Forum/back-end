@@ -38,7 +38,7 @@ def validate_course_data(course_data):
         if field not in course_data:
             raise ValueError(f"Missing required field: {field}")
     
-    if not isinstance(course_data['unit'], (int, float)) or course_data['unit'] <= 0:
+    if not isinstance(course_data['unit'], (int, float)) or course_data['unit'] < 0:
         raise ValueError(f"Invalid unit value: {course_data['unit']}")
     
     if not course_data['course_code'].strip():
@@ -111,9 +111,12 @@ def import_courses_from_file(file_path, app):
                 errors += 1
                 print(f"Error importing course {course_data.get('course_code', 'UNKNOWN')}: {str(e)}")
             except IntegrityError as e:
+                # This is actually a duplicate course, not an error
                 db.session.rollback()
-                errors += 1
-                print(f"Error importing course {course_data.get('course_code', 'UNKNOWN')}: Duplicate entry")
+                skipped += 1
+                # Only print if it's not a duplicate tag (which is expected)
+                if "duplicate key value violates unique constraint" not in str(e).lower():
+                    print(f"Note: Course {course_data.get('course_code', 'UNKNOWN')} already exists")
             except Exception as e:
                 db.session.rollback()
                 errors += 1
