@@ -9,4 +9,5 @@ from .calendar_emoji import CalendarEmoji
 from .calendar import UserCalendar
 from .tag import Tag, TagType, post_tags
 from .token import TokenBlacklist
+from .course import Course
 

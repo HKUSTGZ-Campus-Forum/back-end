@@ -10,6 +10,7 @@ class TagType(db.Model):
     # Constants for easy reference
     SYSTEM = 'system'
     USER = 'user'
+    COURSE = 'course'  # New type for course tags
     
     @classmethod
     def get_system_type(cls):
@@ -18,6 +19,10 @@ class TagType(db.Model):
     @classmethod
     def get_user_type(cls):
         return cls.query.filter_by(name=cls.USER).first()
+    
+    @classmethod
+    def get_course_type(cls):
+        return cls.query.filter_by(name=cls.COURSE).first()
         
 
 class Tag(db.Model):

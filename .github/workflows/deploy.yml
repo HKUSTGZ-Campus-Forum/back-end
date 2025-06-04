@@ -35,9 +35,9 @@ jobs:
           flask db upgrade
           echo "database migrations completed."
           
-          echo "executing init scripts..."
-          python -m app.scripts.init_roles
-          echo "executed."
+          echo "initializing database with predefined data..."
+          python -m app.scripts.init_db
+          echo "database initialization completed."
 
           sudo /usr/bin/systemctl restart dev-unikorn-api.service
           echo "server service restarted."
