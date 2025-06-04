@@ -1,172 +1,141 @@
 import json
 import os
 from pathlib import Path
-from sqlalchemy.exc import IntegrityError
-from app import create_app, db
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from app.models.course import Course
-from app.models.tag import Tag, TagType
+from app.models.tag import TagType
+from app import create_app, db
 
-def ensure_tag_type(app):
-    """Ensure the course tag type exists in the database."""
-    with app.app_context():
-        course_type = TagType.get_course_type()
-        if not course_type:
-            course_type = TagType(name=TagType.COURSE)
-            db.session.add(course_type)
-            db.session.commit()
-            print("Created course tag type")
-        return course_type
-
-def get_semester_name(term_code):
-    """Convert term code to semester name."""
-    year = term_code[:2]
-    term = term_code[2:]
-    term_map = {
+def get_term_season(term_code):
+    """Convert term code to season name."""
+    season_map = {
         '10': 'Fall',
         '30': 'Spring',
         '40': 'Summer'
     }
-    semester = term_map.get(term)
-    if not semester:
-        raise ValueError(f"Invalid term code: {term_code}")
-    return f"{year}{semester}"
+    year = term_code[:2]
+    season_code = term_code[2:]
+    return f"{year}{season_map.get(season_code, '')}"
 
-def validate_course_data(course_data):
-    """Validate course data before import."""
-    required_fields = ['course_code', 'name', 'unit']
-    for field in required_fields:
-        if field not in course_data:
-            raise ValueError(f"Missing required field: {field}")
-    
-    if not isinstance(course_data['unit'], (int, float)) or course_data['unit'] < 0:
-        raise ValueError(f"Invalid unit value: {course_data['unit']}")
-    
-    if not course_data['course_code'].strip():
-        raise ValueError("Course code cannot be empty")
-
-def import_courses_from_file(file_path, app):
+def import_courses_from_file(file_path, session):
     """Import courses from a JSON file."""
+    print(f"Processing file: {file_path}")
+    
+    # Get term code from filename (e.g., courses_2410.json -> 2410)
+    term_code = Path(file_path).stem.split('_')[1]
+    season = get_term_season(term_code)
+    
     with open(file_path, 'r', encoding='utf-8') as f:
         courses_data = json.load(f)
     
-    # Get the term code from the filename (e.g., courses_2440.json -> 2440)
-    term_code = Path(file_path).stem.split('_')[1]
-    try:
-        semester_name = get_semester_name(term_code)
-    except ValueError as e:
-        print(f"Error processing file {file_path}: {str(e)}")
-        return 0, 0, 0
+    # Get or create COURSE tag type
+    course_tag_type = session.query(TagType).filter_by(name='COURSE').first()
+    if not course_tag_type:
+        course_tag_type = TagType(name='COURSE')
+        session.add(course_tag_type)
+        session.commit()
     
-    # Ensure course tag type exists
-    ensure_tag_type(app)
+    imported_count = 0
+    skipped_count = 0
     
-    # Import courses
-    with app.app_context():
-        imported = 0
-        skipped = 0
-        errors = 0
-        
-        for course_data in courses_data:
-            try:
-                # Validate course data
-                validate_course_data(course_data)
-                
-                # Check if course already exists
-                existing_course = Course.query.filter_by(
-                    code=course_data['course_code']
-                ).first()
-                
-                if existing_course:
-                    # If course exists, just create the semester tag
-                    try:
-                        existing_course.create_semester_tag(semester_name)
-                        skipped += 1
-                        continue
-                    except IntegrityError:
-                        # Tag might already exist, which is fine
-                        skipped += 1
-                        continue
-                
+    for course_data in courses_data:
+        try:
+            # Skip if required fields are missing
+            if not all(k in course_data for k in ['course_code', 'name', 'unit']):
+                print(f"Skipping course due to missing required fields: {course_data}")
+                skipped_count += 1
+                continue
+            
+            # Clean and prepare course data
+            code = course_data['course_code'].strip()
+            name = course_data['name'].strip()
+            credits = int(course_data['unit'])
+            
+            # Skip if any required field is empty
+            if not code or not name:
+                print(f"Skipping course due to empty required fields: {course_data}")
+                skipped_count += 1
+                continue
+            
+            # Check if course already exists
+            existing_course = session.query(Course).filter_by(code=code).first()
+            if existing_course:
+                # Update existing course
+                existing_course.name = name
+                existing_course.credits = credits
+                course = existing_course
+            else:
                 # Create new course
                 course = Course(
-                    code=course_data['course_code'],
-                    name=course_data['name'],
-                    credits=course_data['unit'],
-                    description=f"Course offered in {semester_name} semester"
+                    code=code,
+                    name=name,
+                    credits=credits,
+                    is_active=True
                 )
-                
-                db.session.add(course)
-                db.session.flush()  # Get the course ID
-                
-                # Create semester tag for the course
-                try:
-                    course.create_semester_tag(semester_name)
-                    imported += 1
-                except IntegrityError:
-                    # Tag might already exist, which is fine
-                    imported += 1
-                
-            except ValueError as e:
-                db.session.rollback()
-                errors += 1
-                print(f"Error importing course {course_data.get('course_code', 'UNKNOWN')}: {str(e)}")
-            except IntegrityError as e:
-                # This is actually a duplicate course, not an error
-                db.session.rollback()
-                skipped += 1
-                # Only print if it's not a duplicate tag (which is expected)
-                if "duplicate key value violates unique constraint" not in str(e).lower():
-                    print(f"Note: Course {course_data.get('course_code', 'UNKNOWN')} already exists")
-            except Exception as e:
-                db.session.rollback()
-                errors += 1
-                print(f"Error importing course {course_data.get('course_code', 'UNKNOWN')}: {str(e)}")
-        
-        try:
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            print(f"Error committing changes: {str(e)}")
-            return 0, 0, len(courses_data)  # Mark all as errors if commit fails
+                session.add(course)
+                session.flush()  # Get the course ID
             
-        return imported, skipped, errors
+            # Create semester tag using the Course model's method
+            try:
+                course.create_semester_tag(season, session)
+            except Exception as e:
+                print(f"Error creating semester tag for course {code}: {str(e)}")
+                session.rollback()
+                skipped_count += 1
+                continue
+            
+            imported_count += 1
+            
+            # Commit every 100 courses to avoid large transactions
+            if imported_count % 100 == 0:
+                session.commit()
+                print(f"Imported {imported_count} courses so far...")
+        
+        except Exception as e:
+            print(f"Error processing course {course_data}: {str(e)}")
+            session.rollback()
+            skipped_count += 1
+            continue
+    
+    # Final commit
+    session.commit()
+    print(f"\nImport completed for {file_path}")
+    print(f"Successfully imported: {imported_count}")
+    print(f"Skipped: {skipped_count}")
+    return imported_count, skipped_count
 
-def import_all_courses():
-    """Import courses from all JSON files in the course directory."""
+def main():
+    """Main function to import all course files."""
+    # Create Flask app context
     app = create_app()
-    
-    # Get the course directory path
-    course_dir = Path(__file__).parent.parent.parent.parent / 'course'
-    
-    # Find all course JSON files
-    course_files = list(course_dir.glob('courses_*.json'))
-    
-    if not course_files:
-        print("No course JSON files found!")
-        return
-    
-    total_imported = 0
-    total_skipped = 0
-    total_errors = 0
-    
-    print(f"Found {len(course_files)} course files to import:")
-    for file_path in course_files:
-        print(f"\nProcessing {file_path.name}...")
-        imported, skipped, errors = import_courses_from_file(file_path, app)
+    with app.app_context():
+        # Get the database session
+        session = db.session
         
-        total_imported += imported
-        total_skipped += skipped
-        total_errors += errors
+        # Directory containing course JSON files
+        course_dir = Path(__file__).parent.parent.parent.parent / 'course'
         
-        print(f"Results for {file_path.name}:")
-        print(f"  - Imported: {imported}")
-        print(f"  - Skipped (already exist): {skipped}")
-        print(f"  - Errors: {errors}")
-    
-    print("\nImport Summary:")
-    print(f"Total courses imported: {total_imported}")
-    print(f"Total courses skipped: {total_skipped}")
-    print(f"Total errors: {total_errors}")
+        # Find all course JSON files
+        course_files = list(course_dir.glob('courses_*.json'))
+        
+        if not course_files:
+            print("No course files found!")
+            return
+        
+        total_imported = 0
+        total_skipped = 0
+        
+        # Process each file
+        for file_path in course_files:
+            imported, skipped = import_courses_from_file(file_path, session)
+            total_imported += imported
+            total_skipped += skipped
+        
+        print("\nImport Summary:")
+        print(f"Total files processed: {len(course_files)}")
+        print(f"Total courses imported: {total_imported}")
+        print(f"Total courses skipped: {total_skipped}")
 
 if __name__ == '__main__':
-    import_all_courses() 
+    main() 
