@@ -78,7 +78,7 @@ def import_courses_from_file(file_path, session):
             
             # Create semester tag using the Course model's method
             try:
-                course.create_semester_tag(season, session)
+                course.create_semester_tag(season)
             except Exception as e:
                 print(f"Error creating semester tag for course {code}: {str(e)}")
                 session.rollback()
@@ -138,4 +138,4 @@ def main():
         print(f"Total courses skipped: {total_skipped}")
 
 if __name__ == '__main__':
-    main() 
+    main()
