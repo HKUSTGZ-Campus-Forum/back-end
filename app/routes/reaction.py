@@ -176,7 +176,8 @@ def remove_post_reaction(post_id):
         db.session.delete(reaction)
         
         # Update post reaction count
-        post.reaction_count = Reaction.query.filter_by(post_id=post_id).count() - 1
+        remaining_reactions = Reaction.query.filter_by(post_id=post_id).count() - 1
+        post.reaction_count = max(0, remaining_reactions)  # 确保不为负数
         
         db.session.commit()
         
