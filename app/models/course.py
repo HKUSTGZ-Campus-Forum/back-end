@@ -24,7 +24,7 @@ class Course(db.Model):
 
     # Constraints
     __table_args__ = (
-        db.CheckConstraint('credits > 0', name='valid_credits'),
+        db.CheckConstraint('credits >= 0', name='valid_credits'),
         db.CheckConstraint('capacity IS NULL OR capacity > 0', name='valid_capacity'),
         db.Index('idx_courses_code_active', 'code', postgresql_where=db.text('is_active IS TRUE AND is_deleted IS FALSE')),
     )
