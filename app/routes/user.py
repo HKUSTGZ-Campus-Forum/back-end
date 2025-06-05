@@ -1,6 +1,9 @@
 from flask import Blueprint, request, jsonify
 from app.models.user import User
 from app.models.user_role import UserRole as UserRoleModel
+from app.models.post import Post
+from app.models.comment import Comment
+from app.models.reaction import Reaction
 import re
 from app.extensions import db
 from flask_jwt_extended import jwt_required, get_jwt_identity
