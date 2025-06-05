@@ -21,7 +21,7 @@ class User(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
                           onupdate=lambda: datetime.now(timezone.utc), nullable=False)
-    last_active_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    last_active_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     # Relationships
     role = db.relationship('UserRole', backref=db.backref('users', lazy='dynamic'))
@@ -60,6 +60,15 @@ class User(db.Model):
         role_name = self.get_role_name()
         return role_name == UserRoleModel.MODERATOR
 
+    def get_effective_last_active(self):
+        """Get the effective last active time, falling back to created_at if last_active_at is None"""
+        return self.last_active_at or self.created_at
+
+    def update_last_active(self):
+        """Update the last_active_at timestamp to current time"""
+        self.last_active_at = datetime.now(timezone.utc)
+        db.session.commit()
+
     def to_dict(self, include_contact=False, include_last_active=False):
         data = {
             "id": self.id,
@@ -68,7 +77,7 @@ class User(db.Model):
             "role_id": self.role_id,
             "role_name": self.get_role_name(),
             "is_deleted": self.is_deleted,
-            "created_at": self.created_at.isoformat()
+            "created_at": self.created_at.isoformat() if self.created_at else None
         }
         
         if include_contact:
@@ -79,11 +88,6 @@ class User(db.Model):
             
         # Only include last_active_at if specifically requested
         if include_last_active:
-            data["last_active_at"] = self.last_active_at.isoformat()
+            data["last_active_at"] = self.last_active_at.isoformat() if self.last_active_at else None
             
         return data
-
-    def update_last_active(self):
-        """Update the last_active_at timestamp to current time"""
-        self.last_active_at = datetime.now(timezone.utc)
-        db.session.commit()
