@@ -21,6 +21,7 @@ class User(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
                           onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    last_active_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     # Relationships
     role = db.relationship('UserRole', backref=db.backref('users', lazy='dynamic'))
@@ -59,7 +60,7 @@ class User(db.Model):
         role_name = self.get_role_name()
         return role_name == UserRoleModel.MODERATOR
 
-    def to_dict(self, include_contact=False):
+    def to_dict(self, include_contact=False, include_last_active=False):
         data = {
             "id": self.id,
             "username": self.username,
@@ -76,4 +77,13 @@ class User(db.Model):
             data["phone_number"] = self.phone_number
             data["phone_verified"] = self.phone_verified
             
+        # Only include last_active_at if specifically requested
+        if include_last_active:
+            data["last_active_at"] = self.last_active_at.isoformat()
+            
         return data
+
+    def update_last_active(self):
+        """Update the last_active_at timestamp to current time"""
+        self.last_active_at = datetime.now(timezone.utc)
+        db.session.commit()
