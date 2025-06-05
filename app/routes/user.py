@@ -255,10 +255,14 @@ def get_user_stats(user_id):
         view_count * 0.1  # 0.1 points per view
     )
     
-    # Update last active time if the requesting user is the same as the target user
-    current_user_id = get_jwt_identity()
-    if current_user_id and str(current_user_id) == str(user_id):
-        user.update_last_active()
+    # Update last active time if the requesting user is authenticated and is the same as the target user
+    try:
+        current_user_id = get_jwt_identity()
+        if current_user_id and str(current_user_id) == str(user_id):
+            user.update_last_active()
+    except RuntimeError:
+        # Not authenticated, which is fine for this endpoint
+        pass
     
     return jsonify({
         "post_count": post_count,
