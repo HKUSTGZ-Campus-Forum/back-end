@@ -78,9 +78,11 @@ def login():
             is_deleted=False
         ).first()
 
-    # user = User.query.filter_by(username=data.get('username'), is_deleted=False).first()
     if user is None or not user.check_password(data.get('password')):
         return jsonify({"msg": "Invalid username or password"}), 401
+
+    # Update last active time
+    user.update_last_active()
 
     # Create both access and refresh tokens
     access_token = create_access_token(identity=str(user.id))
@@ -106,6 +108,9 @@ def refresh():
     
     # Create a new access token
     access_token = create_access_token(identity=current_user_id)
+    
+    # Update last active time
+    user.update_last_active()
     
     return jsonify({
         "access_token": access_token
