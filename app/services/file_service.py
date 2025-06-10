@@ -122,7 +122,8 @@ class OSSService:
             status='pending',
             file_type=file_type,      # Save file_type
             entity_type=entity_type,  # Save entity_type
-            entity_id=entity_id       # Save entity_id
+            entity_id=entity_id,      # Save entity_id
+            mime_type=content_type    # Save MIME type from frontend
         )
         db.session.add(file_record)
         # Commit here to get the file_record.id for the callback
