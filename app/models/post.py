@@ -26,6 +26,16 @@ class Post(db.Model):
                                 cascade='all, delete-orphan')
     tags = db.relationship('Tag', secondary='post_tags', backref=db.backref('posts', lazy='dynamic'))
     
+    # Files relationship - get files associated with this post
+    @property
+    def files(self):
+        from app.models.file import File
+        return File.query.filter_by(
+            entity_type='post',
+            entity_id=self.id,
+            is_deleted=False
+        ).all()
+    
     # Add check constraint for counts
     __table_args__ = (
         db.CheckConstraint('comment_count >= 0 AND reaction_count >= 0 AND view_count >= 0', 
@@ -34,7 +44,7 @@ class Post(db.Model):
         db.Index('idx_posts_created_at', 'created_at', postgresql_where=db.text('NOT is_deleted')),
     )
     
-    def to_dict(self, include_content=True, include_tags=False):
+    def to_dict(self, include_content=True, include_tags=False, include_files=False):
         data = {
             "id": self.id,
             "user_id": self.user_id,
@@ -55,6 +65,9 @@ class Post(db.Model):
             data["tags"] = [{"tag_name": tag.name, 
                             "isImportant": tag.tag_type == "system", 
                             "tagcolor": "#3498db"} for tag in self.tags]
+        
+        if include_files:
+            data["files"] = [file.to_dict() for file in self.files]
             
         return data
     
