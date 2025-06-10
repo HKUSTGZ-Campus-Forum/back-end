@@ -5,6 +5,10 @@ from app.models.post import Post
 from app.models.user import User
 from app.models.user_role import UserRole
 from app.extensions import db
+from app.utils.semester import (
+    parse_semester_tag, format_semester_tag, get_semester_display_name,
+    normalize_semester_code, sort_semesters, is_valid_semester_format
+)
 from flask_jwt_extended import jwt_required, get_jwt_identity, current_user
 from sqlalchemy import func, desc, asc
 from functools import wraps
@@ -212,4 +216,94 @@ def get_course_posts(course_id):
         "course": course.to_dict()
     }
     
-    return jsonify(response), 200 
+    return jsonify(response), 200
+
+@bp.route('/<int:course_id>/semesters', methods=['GET'])
+def get_course_semesters(course_id):
+    """Get all available semesters for a course based on existing tags"""
+    course = Course.query.filter_by(id=course_id, is_deleted=False).first_or_404()
+    language = request.args.get('lang', 'zh')  # Default to Chinese
+    
+    # Get all course tags for this course code
+    course_tags = Course.get_course_tags(code=course.code)
+    
+    # Extract and normalize semesters from tag names
+    semester_data = []
+    seen_combinations = set()
+    
+    for tag in course_tags:
+        parsed = parse_semester_tag(tag.name)
+        if parsed:
+            course_code, year, semester_code = parsed
+            if course_code == course.code:
+                # Create unique key for this year-semester combination
+                combo_key = f"{year}-{semester_code}"
+                if combo_key not in seen_combinations:
+                    seen_combinations.add(combo_key)
+                    
+                    # Create semester data with both code and display name
+                    semester_info = {
+                        "code": f"{year}{semester_code}",  # Standard format: "2024fall"
+                        "display_name": f"{year}{get_semester_display_name(semester_code, language)}",
+                        "year": year,
+                        "season": semester_code,
+                        "season_display": get_semester_display_name(semester_code, language)
+                    }
+                    semester_data.append(semester_info)
+    
+    # Sort semesters using the utility function
+    semester_codes = [s["code"] for s in semester_data]
+    sorted_codes = sort_semesters(semester_codes)
+    
+    # Reorder semester_data based on sorted codes
+    code_to_data = {s["code"]: s for s in semester_data}
+    sorted_semester_data = [code_to_data[code] for code in sorted_codes if code in code_to_data]
+    
+    return jsonify({
+        "course_id": course_id,
+        "course_code": course.code,
+        "course_name": course.name,
+        "semesters": sorted_semester_data,
+        "language": language
+    }), 200
+
+@bp.route('/<int:course_id>/semesters/validate', methods=['POST'])
+@jwt_required()
+def validate_course_semester(course_id):
+    """Validate if a course-semester combination exists and can be commented on"""
+    data = request.get_json() or {}
+    semester_input = data.get('semester', '').strip()
+    
+    if not semester_input:
+        return jsonify({"error": "Semester is required"}), 400
+    
+    course = Course.query.filter_by(id=course_id, is_deleted=False).first_or_404()
+    
+    # Parse the semester input to extract year and season
+    # Handle various formats: "2024fall", "2024秋", "24Fall", etc.
+    parsed = parse_semester_tag(f"{course.code}-{semester_input}")
+    if not parsed:
+        return jsonify({
+            "valid": False,
+            "error": "Invalid semester format"
+        }), 400
+    
+    _, year, semester_code = parsed
+    
+    # Check if this specific course-semester combination exists in tags
+    expected_tag_name = format_semester_tag(course.code, year, semester_code)
+    existing_tag = Tag.query.filter_by(name=expected_tag_name).first()
+    
+    if not existing_tag:
+        return jsonify({
+            "valid": False,
+            "error": f"Course {course.code} was not offered in {year} {get_semester_display_name(semester_code)}",
+            "suggested_semesters": [tag.name.split('-', 1)[1] for tag in Course.get_course_tags(code=course.code) if '-' in tag.name]
+        }), 400
+    
+    return jsonify({
+        "valid": True,
+        "normalized_semester": f"{year}{semester_code}",
+        "display_name": f"{year}{get_semester_display_name(semester_code)}",
+        "tag_name": expected_tag_name
+    }), 200
