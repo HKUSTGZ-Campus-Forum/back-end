@@ -11,6 +11,9 @@ import json
 
 bp = Blueprint('analytics', __name__, url_prefix='/analytics')
 
+# Note: Analytics endpoints are made public to attract new users
+# TODO: Consider adding rate limiting for security
+
 def calculate_hot_score(post):
     """
     Calculate a hot score for posts based on engagement metrics.
