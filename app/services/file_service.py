@@ -134,36 +134,11 @@ class OSSService:
             raise Exception("Failed to create file record before signing URL.")
 
 
-        # Set up callback if URL is provided
+        # Temporarily disable callback to test basic signed URL functionality
         callback_params = None
-        if callback_url:
-            # Ensure file_id is available after commit
-            if not file_record.id:
-                 current_app.logger.error(f"File record ID not available after commit for user {user_id}.")
-                 raise Exception("Failed to get file record ID for callback setup.")
-
-            # Customize callback body - ensure variables match OSS documentation
-            # Common variables: ${object}, ${etag}, ${size}, ${mimeType}, ${imageInfo.height}, ${imageInfo.width}
-            # Custom variables via callback-var are also possible if needed.
-            callback_body_parts = [
-                f'object_name=${{object}}', # Use object, not filename, as it's the final name in OSS
-                f'size=${{size}}',
-                f'mimeType=${{mimeType}}',
-                f'file_id={file_record.id}' # Pass our database ID
-            ]
-            # Add image dimensions if needed (requires OSS Image Processing)
-            # callback_body_parts.append('height=${imageInfo.height}')
-            # callback_body_parts.append('width=${imageInfo.width}')
-
-            callback_body = '&'.join(callback_body_parts)
-
-            callback_dict = {
-                'callbackUrl': callback_url,
-                'callbackBody': callback_body,
-                'callbackBodyType': 'application/x-www-form-urlencoded'
-                # Optional: Add callbackHost, callback-var for custom headers/variables
-            }
-            callback_params = base64.b64encode(json.dumps(callback_dict, separators=(',', ':')).encode('utf-8')).decode('utf-8') # OSS expects base64 encoded JSON as string without spaces
+        # TODO: Re-implement callback after basic upload works
+        # if callback_url:
+        #     # Callback implementation here...
 
         try:
             # Generate the signed URL with optional callback
