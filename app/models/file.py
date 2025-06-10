@@ -45,7 +45,24 @@ class File(db.Model):
 
     @property
     def url(self):
-        """Generate a public URL for the file"""
+        """Generate a signed URL for viewing the file"""
         from flask import current_app
+        from app.services.file_service import OSSService
+        
+        # For private buckets, generate signed URLs for viewing
+        try:
+            token = OSSService.get_available_token()
+            if token:
+                from oss2 import StsAuth, Bucket
+                auth = StsAuth(token.access_key_id, token.access_key_secret, token.security_token)
+                bucket = Bucket(auth, current_app.config['OSS_ENDPOINT'], current_app.config['OSS_BUCKET_NAME'])
+                
+                # Generate signed URL for GET (viewing) - valid for 1 hour
+                signed_url = bucket.sign_url("GET", self.object_name, 3600)
+                return signed_url
+        except Exception as e:
+            current_app.logger.error(f"Failed to generate signed URL for file {self.id}: {e}")
+        
+        # Fallback to direct URL (for public buckets)
         base_url = current_app.config.get('OSS_PUBLIC_URL', '')
         return f"{base_url}/{self.object_name}" if base_url else None
