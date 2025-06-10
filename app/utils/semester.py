@@ -103,19 +103,26 @@ def parse_semester_tag(tag_name: str) -> Optional[Tuple[str, str, str]]:
     except (ValueError, AttributeError):
         return None
 
-def format_semester_tag(course_code: str, year: str, semester_code: str) -> str:
+def format_semester_tag(course_code: str, year: str, semester_code: str, use_legacy_format: bool = True) -> str:
     """
-    Format a standardized semester tag.
+    Format a semester tag, optionally using legacy format.
     
     Args:
         course_code: Course code (e.g., "AIAA 1010")
         year: Year as string (e.g., "2024")
         semester_code: Standard semester code (e.g., "fall")
+        use_legacy_format: If True, use format like "AIAA 1010-24Fall"
     
     Returns:
-        Formatted tag (e.g., "AIAA 1010-2024fall")
+        Formatted tag (e.g., "AIAA 1010-24Fall" or "AIAA 1010-2024fall")
     """
-    return f"{course_code}-{year}{semester_code}"
+    if use_legacy_format:
+        # Convert to legacy format: 2-digit year + capitalized season
+        year_2digit = year[-2:] if len(year) == 4 else year
+        season_capitalized = semester_code.capitalize()
+        return f"{course_code}-{year_2digit}{season_capitalized}"
+    else:
+        return f"{course_code}-{year}{semester_code}"
 
 def get_semester_display_name(semester_code: str, language: str = 'zh') -> str:
     """
@@ -229,3 +236,64 @@ def is_valid_semester_format(year: str, semester_code: str) -> bool:
                                  SemesterCode.FALL, SemesterCode.WINTER])
     except ValueError:
         return False
+
+def find_matching_semester_tag(course_code: str, year: str, semester_code: str, all_tags: list) -> Optional[str]:
+    """
+    Find a matching semester tag from a list, trying different formats.
+    
+    Args:
+        course_code: Course code (e.g., "AIAA 1010")
+        year: Year string (e.g., "2024")
+        semester_code: Standard semester code (e.g., "fall")
+        all_tags: List of tag objects with 'name' attribute
+    
+    Returns:
+        Matching tag object or None
+    """
+    tag_names = [tag.name for tag in all_tags]
+    
+    # Try different possible formats
+    possible_formats = [
+        # Legacy format: "AIAA 1010-24Fall"
+        format_semester_tag(course_code, year, semester_code, use_legacy_format=True),
+        # New format: "AIAA 1010-2024fall"
+        format_semester_tag(course_code, year, semester_code, use_legacy_format=False),
+        # Other variations
+        f"{course_code}-{year[-2:]}{semester_code}",  # "AIAA 1010-24fall"
+        f"{course_code}-{year}{semester_code.capitalize()}",  # "AIAA 1010-2024Fall"
+    ]
+    
+    for tag_format in possible_formats:
+        for tag in all_tags:
+            if tag.name == tag_format:
+                return tag
+    
+    return None
+
+def normalize_semester_tag_format(tag_name: str) -> Optional[Tuple[str, str, str]]:
+    """
+    Normalize a semester tag to standard format, handling various input formats.
+    
+    Args:
+        tag_name: Tag name in any supported format
+    
+    Returns:
+        Tuple of (course_code, normalized_year, normalized_season) or None
+    """
+    parsed = parse_semester_tag(tag_name)
+    if not parsed:
+        return None
+    
+    course_code, year, semester_code = parsed
+    
+    # Normalize year to 4-digit format
+    if len(year) == 2:
+        year_prefix = "20" if int(year) < 50 else "19"
+        normalized_year = year_prefix + year
+    else:
+        normalized_year = year
+    
+    # Normalize semester to lowercase standard code
+    normalized_season = normalize_semester_code(semester_code) or semester_code.lower()
+    
+    return course_code, normalized_year, normalized_season

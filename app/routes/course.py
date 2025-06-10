@@ -7,7 +7,8 @@ from app.models.user_role import UserRole
 from app.extensions import db
 from app.utils.semester import (
     parse_semester_tag, format_semester_tag, get_semester_display_name,
-    normalize_semester_code, sort_semesters, is_valid_semester_format
+    normalize_semester_code, sort_semesters, is_valid_semester_format,
+    find_matching_semester_tag
 )
 from flask_jwt_extended import jwt_required, get_jwt_identity, current_user
 from sqlalchemy import func, desc, asc
@@ -291,19 +292,21 @@ def validate_course_semester(course_id):
     _, year, semester_code = parsed
     
     # Check if this specific course-semester combination exists in tags
-    expected_tag_name = format_semester_tag(course.code, year, semester_code)
-    existing_tag = Tag.query.filter_by(name=expected_tag_name).first()
+    all_course_tags = Course.get_course_tags(code=course.code)
+    matching_tag = find_matching_semester_tag(course.code, year, semester_code, all_course_tags)
     
-    if not existing_tag:
+    if not matching_tag:
+        available_semesters = [tag.name.split('-', 1)[1] for tag in all_course_tags if '-' in tag.name]
         return jsonify({
             "valid": False,
             "error": f"Course {course.code} was not offered in {year} {get_semester_display_name(semester_code)}",
-            "suggested_semesters": [tag.name.split('-', 1)[1] for tag in Course.get_course_tags(code=course.code) if '-' in tag.name]
+            "suggested_semesters": available_semesters
         }), 400
     
     return jsonify({
         "valid": True,
         "normalized_semester": f"{year}{semester_code}",
         "display_name": f"{year}{get_semester_display_name(semester_code)}",
-        "tag_name": expected_tag_name
+        "tag_name": matching_tag.name,
+        "matched_tag_id": matching_tag.id
     }), 200

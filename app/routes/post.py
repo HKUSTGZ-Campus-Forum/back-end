@@ -4,7 +4,10 @@ from app.models.tag import Tag, TagType
 from app.models.course import Course
 from app.models.reaction import Reaction
 from app.extensions import db
-from app.utils.semester import parse_semester_tag, normalize_semester_code, format_semester_tag
+from app.utils.semester import (
+    parse_semester_tag, normalize_semester_code, format_semester_tag,
+    find_matching_semester_tag
+)
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func, desc, asc, text
 from datetime import datetime, timedelta
@@ -39,9 +42,29 @@ def validate_and_get_tag(tag_name, allow_course_creation=False):
         if not course:
             raise ValueError(f"Course {course_code} does not exist")
         
-        # For course tags, only allow if the tag already exists (course was offered that semester)
+        # For course tags, look for matching tag in any supported format
         if not allow_course_creation:
-            raise ValueError(f"Course {course_code} was not offered in {year} {semester_code}. Cannot create posts for non-existent course offerings.")
+            # Get all course tags for this course
+            all_course_tags = Course.get_course_tags(code=course_code)
+            
+            # Try to find a matching tag regardless of format differences
+            matching_tag = find_matching_semester_tag(course_code, year, semester_code, all_course_tags)
+            
+            if matching_tag:
+                # Found a matching tag, return it instead of creating new one
+                return matching_tag
+            else:
+                # No matching tag found - course was not offered that semester
+                available_semesters = []
+                for tag in all_course_tags:
+                    if '-' in tag.name:
+                        sem_part = tag.name.split('-', 1)[1]
+                        available_semesters.append(sem_part)
+                
+                error_msg = f"Course {course_code} was not offered in {year} {semester_code}"
+                if available_semesters:
+                    error_msg += f". Available semesters: {', '.join(available_semesters)}"
+                raise ValueError(error_msg)
     
     # For non-course tags, check if it looks like a course code
     elif tag_name.replace(' ', '').replace('-', '').isalnum() and len(tag_name.split()) <= 3:
