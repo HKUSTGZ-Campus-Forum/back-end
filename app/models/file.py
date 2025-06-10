@@ -58,7 +58,13 @@ class File(db.Model):
                 bucket = Bucket(auth, current_app.config['OSS_ENDPOINT'], current_app.config['OSS_BUCKET_NAME'])
                 
                 # Generate signed URL for GET (viewing) - valid for 1 hour
-                signed_url = bucket.sign_url("GET", self.object_name, 3600)
+                # Set headers to display inline instead of downloading
+                headers = {}
+                if self.mime_type:
+                    headers['response-content-type'] = self.mime_type
+                headers['response-content-disposition'] = f'inline; filename="{self.original_filename}"'
+                
+                signed_url = bucket.sign_url("GET", self.object_name, 3600, headers=headers)
                 return signed_url
         except Exception as e:
             current_app.logger.error(f"Failed to generate signed URL for file {self.id}: {e}")
