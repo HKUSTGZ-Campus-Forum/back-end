@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, abort
+from flask import Blueprint, request, jsonify, abort, current_app
 from app.models.post import Post
 from app.models.tag import Tag
 from app.models.reaction import Reaction
