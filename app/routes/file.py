@@ -32,9 +32,10 @@ def generate_upload_url():
         return jsonify({"error": f"Invalid file_type. Allowed types: {', '.join(allowed_file_types)}"}), 400
 
     # Validate entity_id if entity_type is provided (optional)
-    if entity_type and entity_id is None:
+    # Allow None entity_id for 'post' type since files can be uploaded before post creation
+    if entity_type and entity_type != 'post' and entity_id is None:
          return jsonify({"error": "entity_id is required when entity_type is provided"}), 400
-    if entity_type and not isinstance(entity_id, int):
+    if entity_type and entity_id is not None and not isinstance(entity_id, int):
          try:
              entity_id = int(entity_id)
          except (ValueError, TypeError):
