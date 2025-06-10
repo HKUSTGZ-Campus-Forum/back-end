@@ -202,6 +202,36 @@ def oss_callback():
         return jsonify({"Status": "Error", "Message": "Internal server error processing callback"}), 500
 
 
+@bp.route('/<int:file_id>', methods=['GET'])
+@jwt_required()
+def get_file_route(file_id):
+    """Get a specific file record"""
+    user_id = get_jwt_identity()
+    
+    # Check if user exists and is not deleted
+    user = User.query.filter_by(id=user_id, is_deleted=False).first()
+    if not user:
+        return jsonify({"error": "User not found or inactive"}), 404
+    
+    # Find the file record
+    file_record = File.query.filter_by(id=file_id, user_id=user_id, is_deleted=False).first()
+    if not file_record:
+        return jsonify({"error": "File not found or you don't have permission"}), 404
+    
+    # For files without callback, automatically mark as uploaded if they're still pending
+    # This is a temporary workaround while callback is disabled
+    if file_record.status == 'pending':
+        try:
+            file_record.status = 'uploaded'
+            from app.extensions import db
+            db.session.commit()
+        except Exception as e:
+            current_app.logger.error(f"Error updating file status for file_id {file_id}: {e}")
+            db.session.rollback()
+    
+    return jsonify(file_record.to_dict()), 200
+
+
 @bp.route('/<int:file_id>', methods=['DELETE'])
 @jwt_required()
 def delete_file_route(file_id):
