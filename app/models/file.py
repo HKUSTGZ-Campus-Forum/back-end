@@ -57,14 +57,14 @@ class File(db.Model):
                 auth = StsAuth(token.access_key_id, token.access_key_secret, token.security_token)
                 bucket = Bucket(auth, current_app.config['OSS_ENDPOINT'], current_app.config['OSS_BUCKET_NAME'])
                 
-                # Generate signed URL for GET (viewing) - valid for 24 hours
+                # Generate signed URL for GET (viewing) - valid for 1 hour
                 # Set headers to display inline instead of downloading
                 headers = {}
                 if self.mime_type:
                     headers['response-content-type'] = self.mime_type
                 headers['response-content-disposition'] = f'inline; filename="{self.original_filename}"'
                 
-                signed_url = bucket.sign_url("GET", self.object_name, 86400, headers=headers)  # 24 hours
+                signed_url = bucket.sign_url("GET", self.object_name, 3600, headers=headers)  # 1 hour
                 return signed_url
         except Exception as e:
             current_app.logger.error(f"Failed to generate signed URL for file {self.id}: {e}")
