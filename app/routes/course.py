@@ -212,4 +212,51 @@ def get_course_posts(course_id):
         "course": course.to_dict()
     }
     
-    return jsonify(response), 200 
+    return jsonify(response), 200
+
+@bp.route('/<int:course_id>/semesters', methods=['GET'])
+def get_course_semesters(course_id):
+    """Get all available semesters for a course based on existing tags"""
+    course = Course.query.filter_by(id=course_id, is_deleted=False).first_or_404()
+    
+    # Get all course tags for this course code
+    course_tags = Course.get_course_tags(code=course.code)
+    
+    # Extract semesters from tag names (format: "COURSE_CODE-SEMESTER")
+    semesters = []
+    for tag in course_tags:
+        if '-' in tag.name:
+            try:
+                code, semester = tag.name.split('-', 1)
+                if code == course.code and semester not in semesters:
+                    semesters.append(semester)
+            except ValueError:
+                continue
+    
+    # Sort semesters by year and season
+    def semester_sort_key(sem):
+        """Sort key for semesters: year desc, then by season order"""
+        try:
+            # Extract year and season
+            year_part = ''.join(filter(str.isdigit, sem))
+            season_part = ''.join(filter(lambda x: not x.isdigit(), sem))
+            
+            year = int(year_part) if year_part else 0
+            
+            # Season order: 春(Spring)=1, 夏(Summer)=2, 秋(Fall)=3, 冬(Winter)=4
+            season_order = {'春': 1, '夏': 2, '秋': 3, '冬': 4}
+            season_value = season_order.get(season_part, 0)
+            
+            # Sort by year desc, then season desc (so newer semesters come first)
+            return (-year, -season_value)
+        except:
+            return (0, 0)
+    
+    semesters.sort(key=semester_sort_key)
+    
+    return jsonify({
+        "course_id": course_id,
+        "course_code": course.code,
+        "course_name": course.name,
+        "semesters": semesters
+    }), 200
