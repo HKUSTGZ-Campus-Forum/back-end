@@ -20,6 +20,7 @@ def generate_upload_url():
     file_type = data.get('file_type', File.GENERAL) # Default to general
     entity_type = data.get('entity_type')
     entity_id = data.get('entity_id')
+    content_type = data.get('content_type')  # Get MIME type from frontend
 
     # Basic validation for file_type (optional but good practice)
     allowed_file_types = [File.AVATAR, File.POST_IMAGE, File.COMMENT_ATTACHMENT, File.GENERAL]
@@ -55,7 +56,8 @@ def generate_upload_url():
             file_type=file_type,
             entity_type=entity_type,
             entity_id=entity_id,
-            callback_url=callback_url
+            callback_url=callback_url,
+            content_type=content_type
         )
 
         return jsonify({
