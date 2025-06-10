@@ -96,7 +96,7 @@ class OSSService:
         # Commit happens in the calling task function (sts_pool.maintain_pool)
 
     @staticmethod
-    def generate_signed_url(user_id, filename, file_type=File.GENERAL, entity_type=None, entity_id=None, callback_url=None): # Added categorization params
+    def generate_signed_url(user_id, filename, file_type=File.GENERAL, entity_type=None, entity_id=None, callback_url=None, content_type=None): # Added categorization params
         token = OSSService.get_available_token()
         # Handle case where token could not be obtained
         if not token:
@@ -141,16 +141,17 @@ class OSSService:
         #     # Callback implementation here...
 
         try:
-            # Generate the signed URL with optional callback
-            # Note: Content-Type might be set by the client during PUT,
-            # or you can enforce it here if needed.
-            headers = {} # Let client set Content-Type usually
+            # Generate the signed URL with proper headers
+            # Important: Headers used during signing must match headers sent by client
+            headers = {}
+            if content_type:
+                headers['Content-Type'] = content_type
+            
             signed_url = bucket.sign_url(
                 "PUT",
                 object_name,
                 current_app.config['OSS_TOKEN_DURATION'],
-                headers=headers,
-                params={'callback': callback_params} if callback_params else None # Pass callback params correctly
+                headers=headers
             )
             current_app.logger.info(f"Generated signed URL for user {user_id}, file_id {file_record.id}, object {object_name}")
             return signed_url, object_name, file_record.id
