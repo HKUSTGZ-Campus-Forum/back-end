@@ -197,8 +197,6 @@ def get_course_posts(course_id):
     # Query posts with this course tag
     posts = Post.query.join(
         Post.tags
-    ).join(
-        Tag
     ).filter(
         Tag.name.like(tag_filter),
         Tag.tag_type.has(name=TagType.COURSE),
