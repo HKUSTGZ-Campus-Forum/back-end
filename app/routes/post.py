@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, abort, current_app
 from app.models.post import Post
-from app.models.tag import Tag
+from app.models.tag import Tag, TagType
 from app.models.reaction import Reaction
 from app.extensions import db
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -10,6 +10,39 @@ import json
 import bleach
 
 bp = Blueprint('post', __name__, url_prefix='/posts')
+
+def get_or_create_tag(tag_name, tag_type_name=TagType.USER):
+    """Get existing tag or create a new one with the specified type"""
+    # Check if tag already exists
+    existing_tag = Tag.query.filter_by(name=tag_name).first()
+    if existing_tag:
+        return existing_tag
+    
+    # Determine tag type based on tag name pattern
+    if '-' in tag_name and any(season in tag_name for season in ['春', '秋', '夏', '冬']):
+        # This looks like a course-semester tag (e.g., "AIAA 1010-2024秋")
+        tag_type_name = TagType.COURSE
+    elif tag_name.replace(' ', '').replace('-', '').isalnum() and len(tag_name.split()) <= 3:
+        # This might be a course code (e.g., "AIAA 1010")
+        tag_type_name = TagType.COURSE
+    
+    # Get or create tag type
+    tag_type = TagType.query.filter_by(name=tag_type_name).first()
+    if not tag_type:
+        tag_type = TagType(name=tag_type_name)
+        db.session.add(tag_type)
+        db.session.flush()
+    
+    # Create new tag
+    tag = Tag(
+        name=tag_name,
+        tag_type_id=tag_type.id,
+        description=f"Tag: {tag_name}"
+    )
+    db.session.add(tag)
+    db.session.flush()  # Flush to get the tag ID
+    
+    return tag
 
 @bp.route('', methods=['GET'])
 def get_posts():
@@ -125,9 +158,23 @@ def create_post():
                 file_record.entity_type = 'post'
                 file_record.entity_id = post.id
     
+    # Handle tags
+    tag_names = data.get('tags', [])
+    if tag_names:
+        for tag_name in tag_names:
+            if tag_name and tag_name.strip():  # Skip empty tags
+                try:
+                    tag = get_or_create_tag(tag_name.strip())
+                    # Add tag to post if not already linked
+                    if tag not in post.tags:
+                        post.tags.append(tag)
+                except Exception as e:
+                    # Log error but don't fail the post creation
+                    current_app.logger.error(f"Error creating tag '{tag_name}': {str(e)}")
+    
     db.session.commit()
     
-    return jsonify(post.to_dict(include_files=True)), 201
+    return jsonify(post.to_dict(include_tags=True, include_files=True)), 201
 
 @bp.route('/<int:post_id>', methods=['GET'])
 def get_post(post_id):
