@@ -60,9 +60,16 @@ class File(db.Model):
                 # Generate signed URL for GET (viewing) - valid for 1 hour
                 # Set headers to display inline instead of downloading
                 headers = {}
-                if self.mime_type:
+                if self.mime_type and self.mime_type.startswith('image/'):
                     headers['response-content-type'] = self.mime_type
-                headers['response-content-disposition'] = f'inline; filename="{self.original_filename}"'
+                    headers['response-content-disposition'] = 'inline'
+                elif self.mime_type:
+                    headers['response-content-type'] = self.mime_type
+                    headers['response-content-disposition'] = f'inline; filename="{self.original_filename}"'
+                else:
+                    # Default to image content type if not set
+                    headers['response-content-type'] = 'image/png'
+                    headers['response-content-disposition'] = 'inline'
                 
                 signed_url = bucket.sign_url("GET", self.object_name, 3600, headers=headers)  # 1 hour
                 return signed_url

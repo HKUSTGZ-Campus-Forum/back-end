@@ -21,6 +21,10 @@ def generate_upload_url():
     entity_type = data.get('entity_type')
     entity_id = data.get('entity_id')
     content_type = data.get('content_type')  # Get MIME type from frontend
+    
+    # Validate content type for security
+    if content_type and not content_type.startswith(('image/', 'video/', 'audio/', 'text/', 'application/')):
+        return jsonify({"error": "Invalid content type"}), 400
 
     # Basic validation for file_type (optional but good practice)
     allowed_file_types = [File.AVATAR, File.POST_IMAGE, File.COMMENT_ATTACHMENT, File.GENERAL]
