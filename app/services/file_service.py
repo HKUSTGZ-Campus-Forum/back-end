@@ -163,7 +163,7 @@ class OSSService:
                 'callbackBodyType': 'application/x-www-form-urlencoded'
                 # Optional: Add callbackHost, callback-var for custom headers/variables
             }
-            callback_params = base64.b64encode(json.dumps(callback_dict).encode('utf-8')) # OSS expects base64 encoded JSON
+            callback_params = base64.b64encode(json.dumps(callback_dict).encode('utf-8')).decode('utf-8') # OSS expects base64 encoded JSON as string
 
         try:
             # Generate the signed URL with optional callback
