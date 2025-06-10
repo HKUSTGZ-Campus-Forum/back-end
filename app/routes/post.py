@@ -1,8 +1,10 @@
 from flask import Blueprint, request, jsonify, abort, current_app
 from app.models.post import Post
 from app.models.tag import Tag, TagType
+from app.models.course import Course
 from app.models.reaction import Reaction
 from app.extensions import db
+from app.utils.semester import parse_semester_tag, normalize_semester_code, format_semester_tag
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func, desc, asc, text
 from datetime import datetime, timedelta
@@ -11,36 +13,73 @@ import bleach
 
 bp = Blueprint('post', __name__, url_prefix='/posts')
 
-def get_or_create_tag(tag_name, tag_type_name=TagType.USER):
-    """Get existing tag or create a new one with the specified type"""
+def validate_and_get_tag(tag_name, allow_course_creation=False):
+    """
+    Validate and get existing tag, with strict validation for course tags.
+    
+    Args:
+        tag_name: The tag name to validate
+        allow_course_creation: Whether to allow creation of new course tags (admin only)
+    
+    Returns:
+        Tag object if valid, raises ValueError if invalid
+    """
     # Check if tag already exists
     existing_tag = Tag.query.filter_by(name=tag_name).first()
     if existing_tag:
         return existing_tag
     
-    # Determine tag type based on tag name pattern
-    if '-' in tag_name and any(season in tag_name for season in ['春', '秋', '夏', '冬']):
-        # This looks like a course-semester tag (e.g., "AIAA 1010-2024秋")
-        tag_type_name = TagType.COURSE
-    elif tag_name.replace(' ', '').replace('-', '').isalnum() and len(tag_name.split()) <= 3:
-        # This might be a course code (e.g., "AIAA 1010")
-        tag_type_name = TagType.COURSE
+    # Parse if this looks like a course tag
+    parsed = parse_semester_tag(tag_name)
+    if parsed:
+        course_code, year, semester_code = parsed
+        
+        # Check if course exists
+        course = Course.query.filter_by(code=course_code, is_deleted=False).first()
+        if not course:
+            raise ValueError(f"Course {course_code} does not exist")
+        
+        # For course tags, only allow if the tag already exists (course was offered that semester)
+        if not allow_course_creation:
+            raise ValueError(f"Course {course_code} was not offered in {year} {semester_code}. Cannot create posts for non-existent course offerings.")
     
-    # Get or create tag type
-    tag_type = TagType.query.filter_by(name=tag_type_name).first()
+    # For non-course tags, check if it looks like a course code
+    elif tag_name.replace(' ', '').replace('-', '').isalnum() and len(tag_name.split()) <= 3:
+        # This might be a course code - validate it exists
+        course = Course.query.filter_by(code=tag_name, is_deleted=False).first()
+        if course:
+            # This is a valid course code, allow it
+            tag_type = TagType.query.filter_by(name=TagType.COURSE).first()
+            if not tag_type:
+                tag_type = TagType(name=TagType.COURSE)
+                db.session.add(tag_type)
+                db.session.flush()
+            
+            tag = Tag(
+                name=tag_name,
+                tag_type_id=tag_type.id,
+                description=f"Course: {tag_name}"
+            )
+            db.session.add(tag)
+            db.session.flush()
+            return tag
+        else:
+            raise ValueError(f"Course {tag_name} does not exist")
+    
+    # For user tags, allow creation
+    tag_type = TagType.query.filter_by(name=TagType.USER).first()
     if not tag_type:
-        tag_type = TagType(name=tag_type_name)
+        tag_type = TagType(name=TagType.USER)
         db.session.add(tag_type)
         db.session.flush()
     
-    # Create new tag
     tag = Tag(
         name=tag_name,
         tag_type_id=tag_type.id,
-        description=f"Tag: {tag_name}"
+        description=f"User tag: {tag_name}"
     )
     db.session.add(tag)
-    db.session.flush()  # Flush to get the tag ID
+    db.session.flush()
     
     return tag
 
@@ -158,19 +197,31 @@ def create_post():
                 file_record.entity_type = 'post'
                 file_record.entity_id = post.id
     
-    # Handle tags
+    # Handle tags with validation
     tag_names = data.get('tags', [])
+    tag_errors = []
+    
     if tag_names:
         for tag_name in tag_names:
             if tag_name and tag_name.strip():  # Skip empty tags
                 try:
-                    tag = get_or_create_tag(tag_name.strip())
+                    tag = validate_and_get_tag(tag_name.strip())
                     # Add tag to post if not already linked
                     if tag not in post.tags:
                         post.tags.append(tag)
+                except ValueError as e:
+                    tag_errors.append(f"Tag '{tag_name}': {str(e)}")
                 except Exception as e:
-                    # Log error but don't fail the post creation
-                    current_app.logger.error(f"Error creating tag '{tag_name}': {str(e)}")
+                    current_app.logger.error(f"Unexpected error with tag '{tag_name}': {str(e)}")
+                    tag_errors.append(f"Tag '{tag_name}': Internal error")
+    
+    # If there are tag validation errors, rollback and return error
+    if tag_errors:
+        db.session.rollback()
+        return jsonify({
+            "error": "Tag validation failed",
+            "tag_errors": tag_errors
+        }), 400
     
     db.session.commit()
     
