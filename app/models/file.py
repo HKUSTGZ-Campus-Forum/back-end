@@ -72,6 +72,7 @@ class File(db.Model):
                     headers['response-content-disposition'] = 'inline'
                 
                 signed_url = bucket.sign_url("GET", self.object_name, 3600, headers=headers)  # 1 hour
+                current_app.logger.info(f"Generated signed URL for file {self.id}: {signed_url[:100]}...")
                 return signed_url
         except Exception as e:
             current_app.logger.error(f"Failed to generate signed URL for file {self.id}: {e}")

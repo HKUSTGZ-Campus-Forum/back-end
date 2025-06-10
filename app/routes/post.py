@@ -209,6 +209,7 @@ def get_post(post_id):
     
     # Get files associated with this post
     files = [file.to_dict() for file in post.files if file.status == 'uploaded']
+    current_app.logger.info(f"Post {post_id} has {len(files)} files: {[f['original_filename'] for f in files]}")
     
     post_detail = {
         "id": post.id,
