@@ -108,9 +108,26 @@ def create_post():
     )
     
     db.session.add(post)
+    db.session.flush()  # Flush to get the post ID before commit
+    
+    # Link uploaded files to this post
+    file_ids = data.get('file_ids', [])
+    if file_ids:
+        from app.models.file import File
+        for file_id in file_ids:
+            file_record = File.query.filter_by(
+                id=file_id, 
+                user_id=user_id,
+                status='uploaded',
+                is_deleted=False
+            ).first()
+            if file_record:
+                file_record.entity_type = 'post'
+                file_record.entity_id = post.id
+    
     db.session.commit()
     
-    return jsonify(post.to_dict()), 201
+    return jsonify(post.to_dict(include_files=True)), 201
 
 @bp.route('/<int:post_id>', methods=['GET'])
 def get_post(post_id):
@@ -190,6 +207,9 @@ def get_post(post_id):
         if user_reaction:
             user_choice = user_reaction.emoji
     
+    # Get files associated with this post
+    files = [file.to_dict() for file in post.files if file.status == 'uploaded']
+    
     post_detail = {
         "id": post.id,
         "title": post.title,
@@ -200,7 +220,8 @@ def get_post(post_id):
         "background_url": "",  # Placeholder for background image
         "time": post.created_at.isoformat(),
         "tags": tags,
-        "comments_list": comments_list
+        "comments_list": comments_list,
+        "files": files  # Include files in response
     }
     
     return jsonify(post_detail), 200
