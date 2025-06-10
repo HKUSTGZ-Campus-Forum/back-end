@@ -197,16 +197,31 @@ def get_course_posts(course_id):
     
     # Build tag filter
     course = Course.query.filter_by(id=course_id, is_deleted=False).first_or_404()
-    tag_filter = f"{course.code}-{semester}" if semester else f"{course.code}-%"
     
     # Query posts with this course tag
-    posts = Post.query.join(
-        Post.tags
-    ).filter(
-        Tag.name.like(tag_filter),
-        Tag.tag_type.has(name=TagType.COURSE),
-        Post.is_deleted == False
-    ).paginate(page=page, per_page=limit, error_out=False)
+    if semester:
+        # Specific semester requested - look for exact match
+        tag_filter = f"{course.code}-{semester}"
+        posts = Post.query.join(
+            Post.tags
+        ).filter(
+            Tag.name == tag_filter,
+            Tag.tag_type.has(name=TagType.COURSE),
+            Post.is_deleted == False
+        ).paginate(page=page, per_page=limit, error_out=False)
+    else:
+        # No semester specified - get all posts for this course
+        # Include both: plain course code tags AND course-semester tags
+        posts = Post.query.join(
+            Post.tags
+        ).filter(
+            db.or_(
+                Tag.name == course.code,  # Posts without semester
+                Tag.name.like(f"{course.code}-%")  # Posts with any semester
+            ),
+            Tag.tag_type.has(name=TagType.COURSE),
+            Post.is_deleted == False
+        ).paginate(page=page, per_page=limit, error_out=False)
     
     # Format response
     response = {
