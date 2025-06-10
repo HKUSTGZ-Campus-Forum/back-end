@@ -1,12 +1,13 @@
 from aliyunsdkcore.client import AcsClient
 from aliyunsdksts.request.v20150401 import AssumeRoleRequest
-from oss2 import Auth, Bucket
+from oss2 import StsAuth, Bucket
 from app.models.token import STSTokenPool
 from app.extensions import db
 from datetime import datetime, timedelta, timezone
 import json
 import uuid # Moved import to top
 import os   # Moved import to top
+import base64 # Added missing import
 from flask import current_app # Added import
 from sqlalchemy.sql import func # Added import
 from app.models.file import File # Ensure File is imported
@@ -102,7 +103,7 @@ class OSSService:
              current_app.logger.error(f"User {user_id} failed to obtain STS token.")
              raise Exception("Could not obtain a valid STS token for signing URL.")
 
-        auth = Auth(token.access_key_id, token.access_key_secret, token.security_token)
+        auth = StsAuth(token.access_key_id, token.access_key_secret, token.security_token)
         bucket = Bucket(auth, current_app.config['OSS_ENDPOINT'], current_app.config['OSS_BUCKET_NAME'])
 
         # Format timestamp as YYYYMMDD_HHMMSS for better readability
@@ -236,7 +237,7 @@ class OSSService:
         # TODO: Implement actual deletion from OSS (potentially in a background task)
         # try:
         #     token = OSSService.get_available_token()
-        #     auth = Auth(token.access_key_id, token.access_key_secret, token.security_token)
+        #     auth = StsAuth(token.access_key_id, token.access_key_secret, token.security_token)
         #     bucket = Bucket(auth, current_app.config['OSS_ENDPOINT'], current_app.config['OSS_BUCKET_NAME'])
         #     bucket.delete_object(file_record.object_name)
         #     current_app.logger.info(f"Deleted object {file_record.object_name} from OSS for file_id {file_id}.")
