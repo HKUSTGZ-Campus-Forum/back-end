@@ -5,7 +5,7 @@ from app.models.user import User
 from app.models.tag import Tag, TagType
 from app.models.course import Course
 from app.extensions import db
-from sqlalchemy import func, desc, and_, or_
+from sqlalchemy import func, desc, and_, or_, case
 from datetime import datetime, timezone
 import re
 
@@ -85,7 +85,7 @@ def search_posts():
         # Simple relevance: title matches first, then by date
         combined_query = combined_query.order_by(
             # Title matches get higher priority
-            desc(func.case(
+            desc(case(
                 (Post.title.ilike(f'%{query}%'), 2),
                 else_=1
             )),
