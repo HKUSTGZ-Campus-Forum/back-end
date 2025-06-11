@@ -113,23 +113,14 @@ def update_user(user_id):
     current_user_id = get_jwt_identity()
     current_user = User.query.get(current_user_id)
     
-    print(f"🔍 DEBUG: current_user_id={current_user_id} (type: {type(current_user_id)}), user_id={user_id} (type: {type(user_id)})")
-    print(f"🔍 DEBUG: current_user exists: {current_user is not None}, is_deleted: {current_user.is_deleted if current_user else 'N/A'}")
-    print(f"🔍 DEBUG: is_admin: {current_user.is_admin() if current_user else 'N/A'}")
-    
     if not current_user or current_user.is_deleted:
-        print("❌ DEBUG: User not found or deleted")
         return jsonify({"msg": "Authenticated user not found or inactive"}), 401
     
     # Convert current_user_id to int for comparison since JWT identity is string
     current_user_id_int = int(current_user_id)
-    print(f"🔍 DEBUG: Comparing {current_user_id_int} != {user_id}: {current_user_id_int != user_id}")
     
     if current_user_id_int != user_id and not current_user.is_admin():
-        print("❌ DEBUG: Authorization failed - not same user and not admin")
         return jsonify({"msg": "Unauthorized to modify this user"}), 403
-    
-    print("✅ DEBUG: Authorization passed")
     
     user = User.query.get(user_id)
     if not user or user.is_deleted:

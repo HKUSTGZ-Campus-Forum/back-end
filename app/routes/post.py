@@ -309,13 +309,14 @@ def get_post(post_id):
             }
             comment_reactions_list.append(emoji_obj)
         
-        comments_list.append({
-            "content": comment.content,
-            "parent_comment_id": comment.parent_comment_id,
-            "time": comment.created_at.isoformat(),
+        # Use comment.to_dict() to include author information
+        comment_dict = comment.to_dict()
+        comment_dict.update({
             "reaction_list": comment_reactions_list,
+            "time": comment.created_at.isoformat(),  # Keep legacy field name
             "post_id": post.id
         })
+        comments_list.append(comment_dict)
     
     # Get user's reaction if user_id is provided
     user_choice = None
@@ -332,19 +333,19 @@ def get_post(post_id):
     files = [file.to_dict() for file in post.files if file.status == 'uploaded']
     current_app.logger.info(f"Post {post_id} has {len(files)} files: {[f['original_filename'] for f in files]}")
     
-    post_detail = {
-        "id": post.id,
-        "title": post.title,
-        "content": post.content,
-        "author_id": post.user_id,  # Added author_id to the response
+    # Get base post data including author information
+    post_detail = post.to_dict(include_content=True, include_tags=False, include_files=False)
+    
+    # Add additional fields specific to post detail view
+    post_detail.update({
+        "author_id": post.user_id,  # Keep legacy field name
         "reaction_list": reactions,
-        "view_count": post.view_count,
         "background_url": "",  # Placeholder for background image
-        "time": post.created_at.isoformat(),
+        "time": post.created_at.isoformat(),  # Keep legacy field name
         "tags": tags,
         "comments_list": comments_list,
         "files": files  # Include files in response
-    }
+    })
     
     return jsonify(post_detail), 200
 
@@ -445,20 +446,22 @@ def get_hot_posts():
         # Get tags
         tags = [{"tag_name": tag.name, "isImportant": tag.tag_type == "system", "tagcolor": "#3498db"} for tag in post.tags]
         
+        # Get base post data including author information
+        hot_post = post.to_dict(include_content=False, include_tags=False, include_files=False)
+        
         # Create content preview (first 150 chars)
         content_preview = post.content[:150] + "..." if len(post.content) > 150 else post.content
         
-        hot_post = {
-            "postID": post.id,
-            "title": post.title,
+        # Add additional fields specific to hot posts view
+        hot_post.update({
+            "postID": post.id,  # Legacy field name
             "content_preview": content_preview,
-            "comment_count": post.comment_count,
-            "click_count": post.view_count,
-            "time": post.created_at.isoformat(),
+            "click_count": post.view_count,  # Legacy field name
+            "time": post.created_at.isoformat(),  # Legacy field name  
             "background_url": "",  # Placeholder for background image
             "tags": tags,
             "user_choice": user_choice
-        }
+        })
         
         # Add most frequent reaction if it exists
         if most_frequent_reaction:

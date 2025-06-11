@@ -25,8 +25,8 @@ class Comment(db.Model):
     )
     reactions = db.relationship('Reaction', backref='comment', lazy='dynamic')
     
-    def to_dict(self):
-        return {
+    def to_dict(self, include_author=True):
+        data = {
             "id": self.id,
             "post_id": self.post_id,
             "user_id": self.user_id,
@@ -36,6 +36,13 @@ class Comment(db.Model):
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat()
         }
+        
+        # Include author information
+        if include_author and self.author:
+            data["author"] = self.author.username
+            data["author_avatar"] = self.author.profile_picture_url
+            
+        return data
     
     # Add these constraints to the model
     __table_args__ = (
