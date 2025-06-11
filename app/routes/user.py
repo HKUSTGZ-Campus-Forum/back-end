@@ -116,7 +116,8 @@ def update_user(user_id):
     if not current_user or current_user.is_deleted:
         return jsonify({"msg": "Authenticated user not found or inactive"}), 401
     
-    if current_user_id != user_id and not current_user.is_admin():
+    # Convert current_user_id to int for comparison since JWT identity is string
+    if int(current_user_id) != user_id and not current_user.is_admin():
         return jsonify({"msg": "Unauthorized to modify this user"}), 403
     
     user = User.query.get(user_id)
@@ -183,7 +184,8 @@ def delete_user(user_id):
     if not current_user or current_user.is_deleted:
         return jsonify({"msg": "Authenticated user not found or inactive"}), 401
     
-    if current_user_id != user_id and not current_user.is_admin():
+    # Convert current_user_id to int for comparison since JWT identity is string
+    if int(current_user_id) != user_id and not current_user.is_admin():
         return jsonify({"msg": "Unauthorized to delete this user"}), 403
     
     user = User.query.get(user_id)
