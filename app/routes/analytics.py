@@ -146,18 +146,19 @@ def get_daily_summary():
     
     # Format hot posts for response
     def format_post_summary(post, score=None):
-        return {
-            "id": post.id,
-            "title": post.title,
-            "content": post.content[:200] + "..." if len(post.content) > 200 else post.content,
-            "author_id": post.user_id,
-            "reaction_count": post.reaction_count or 0,
-            "comment_count": post.comment_count or 0,
-            "view_count": post.view_count or 0,
-            "created_at": post.created_at.isoformat(),
+        # Get base post data including author information
+        post_data = post.to_dict(include_content=False, include_tags=False, include_files=False)
+        
+        # Add summary-specific fields
+        content_preview = post.content[:200] + "..." if len(post.content) > 200 else post.content
+        post_data.update({
+            "content": content_preview,
+            "author_id": post.user_id,  # Keep legacy field name
             "hot_score": round(score, 2) if score else None,
             "tags": [{"name": tag.name, "type": tag.tag_type.name} for tag in post.tags]
-        }
+        })
+        
+        return post_data
     
     # Generate social media friendly summary text
     summary_stats = {
@@ -214,18 +215,19 @@ def get_hot_posts():
     
     # Format response
     def format_hot_post(post, score):
-        return {
-            "id": post.id,
-            "title": post.title,
-            "content": post.content[:150] + "..." if len(post.content) > 150 else post.content,
-            "author_id": post.user_id,
-            "reaction_count": post.reaction_count or 0,
-            "comment_count": post.comment_count or 0,
-            "view_count": post.view_count or 0,
-            "created_at": post.created_at.isoformat(),
+        # Get base post data including author information
+        post_data = post.to_dict(include_content=False, include_tags=False, include_files=False)
+        
+        # Add hot post specific fields
+        content_preview = post.content[:150] + "..." if len(post.content) > 150 else post.content
+        post_data.update({
+            "content": content_preview,
+            "author_id": post.user_id,  # Keep legacy field name
             "hot_score": round(score, 2),
             "tags": [{"name": tag.name, "type": tag.tag_type.name} for tag in post.tags[:3]]  # Limit tags
-        }
+        })
+        
+        return post_data
     
     response = {
         "hot_posts": [format_hot_post(post, score) for post, score in hot_posts],

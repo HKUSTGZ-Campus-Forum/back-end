@@ -44,7 +44,7 @@ class Post(db.Model):
         db.Index('idx_posts_created_at', 'created_at', postgresql_where=db.text('NOT is_deleted')),
     )
     
-    def to_dict(self, include_content=True, include_tags=False, include_files=False):
+    def to_dict(self, include_content=True, include_tags=False, include_files=False, include_author=True):
         data = {
             "id": self.id,
             "user_id": self.user_id,
@@ -57,6 +57,11 @@ class Post(db.Model):
             "is_deleted": self.is_deleted,
             "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None
         }
+        
+        # Include author information
+        if include_author and self.author:
+            data["author"] = self.author.username
+            data["author_avatar"] = self.author.profile_picture_url
         
         if include_content:
             data["content"] = self.content
