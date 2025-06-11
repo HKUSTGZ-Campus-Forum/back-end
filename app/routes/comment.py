@@ -222,7 +222,7 @@ def get_post_comments(post_id):
         comment_dict = comment.to_dict()
         
         # Include replies if requested
-        if include_replies and not top_level_only:
+        if include_replies:
             comment_dict['replies'] = [
                 reply.to_dict() for reply in comment.replies.filter_by(is_deleted=False)
             ]
