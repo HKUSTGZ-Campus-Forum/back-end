@@ -1,0 +1,85 @@
+name: Deploy Backend to Production
+
+on:
+  push:
+    branches:
+      - production
+  workflow_dispatch:  # Allow manual triggers
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production  # GitHub environment protection
+
+    steps:
+    - name: Checkout the code
+      uses: actions/checkout@v3
+
+    - name: Run tests locally
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        python -m pytest tests/ || exit 1
+
+    - name: Deploy via SSH
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.PROD_SSH_HOST }}
+        username: ${{ secrets.PROD_SSH_USER }}
+        key: ${{ secrets.PROD_SSH_KEY }}
+        script: |
+          set -e  # Exit on any error
+          
+          echo "Starting production deployment..."
+          
+          # Backup current version
+          if [ -d "/data/prod_unikorn/back-end" ]; then
+            sudo cp -r /data/prod_unikorn/back-end /data/prod_unikorn/back-end.backup.$(date +%Y%m%d_%H%M%S)
+          fi
+          
+          cd /data/prod_unikorn/back-end/
+          
+          # Pull latest code
+          git fetch origin production
+          git checkout production
+          git pull origin production
+          echo "Pulled latest production code."
+
+          # Activate virtual environment
+          source venv/bin/activate
+          
+          # Install/update dependencies
+          echo "Installing python packages..."
+          pip install -r requirements.txt --timeout 600
+          echo "Python packages installed."
+
+          # Run database migrations with backup
+          echo "Backing up database..."
+          pg_dump -U postgres unikorn_prod > /data/prod_unikorn/db_backup_$(date +%Y%m%d_%H%M%S).sql
+          
+          echo "Performing database migrations..."
+          export FLASK_ENV=production
+          flask db migrate
+          flask db upgrade
+          echo "Database migrations completed."
+          
+          # Only initialize if needed (check if data exists)
+          python -c "from app import create_app, db; app = create_app(); app.app_context().push(); from app.models import User; print('DB_EMPTY' if User.query.count() == 0 else 'DB_HAS_DATA')" | grep -q "DB_EMPTY" && {
+            echo "Initializing database with predefined data..."
+            python -m app.scripts.init_db
+            echo "Database initialization completed."
+          }
+          
+          # Graceful restart
+          echo "Restarting production service..."
+          sudo /usr/bin/systemctl reload prod-unikorn-api.service
+          
+          # Health check
+          sleep 5
+          curl -f http://localhost:8001/health || {
+            echo "Health check failed! Rolling back..."
+            sudo /usr/bin/systemctl restart prod-unikorn-api.service
+            exit 1
+          }
+          
+          echo "Production deployment complete!"
