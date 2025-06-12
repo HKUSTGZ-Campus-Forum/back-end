@@ -86,10 +86,12 @@ class User(db.Model):
         return None
 
     def to_dict(self, include_contact=False, include_last_active=False):
+        avatar_url = self.avatar_url  # Generate fresh signed URL once
         data = {
             "id": self.id,
             "username": self.username,
-            "profile_picture_url": self.avatar_url,  # Always generate fresh signed URL
+            "profile_picture_url": avatar_url,  # Legacy field for backward compatibility
+            "avatar_url": avatar_url,  # New field for fresh signed URLs
             "role_id": self.role_id,
             "role_name": self.get_role_name(),
             "is_deleted": self.is_deleted,
