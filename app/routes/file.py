@@ -3,6 +3,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.services.file_service import OSSService
 from app.models.user import User
 from app.models.file import File
+from app.models.token import STSTokenPool
+from datetime import datetime, timezone, timedelta
 
 bp = Blueprint('file', __name__, url_prefix='/files')
 
@@ -320,3 +322,92 @@ def get_user_files():
         "pages": pagination.pages,
         "page": page
     }), 200
+
+
+@bp.route('/debug/sts-pool', methods=['GET'])
+@jwt_required()
+def debug_sts_pool():
+    """Debug endpoint to check STS token pool status"""
+    user_id = get_jwt_identity()
+    
+    # Only allow admin users (you might want to check for admin role)
+    user = User.query.filter_by(id=user_id, is_deleted=False).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    
+    try:
+        now = datetime.now(timezone.utc)
+        
+        # Get all tokens
+        all_tokens = STSTokenPool.query.all()
+        
+        # Categorize tokens
+        valid_tokens = STSTokenPool.query.filter(
+            STSTokenPool.expiration > now + timedelta(minutes=15)
+        ).all()
+        
+        soon_expired_tokens = STSTokenPool.query.filter(
+            STSTokenPool.expiration <= now + timedelta(minutes=15),
+            STSTokenPool.expiration > now
+        ).all()
+        
+        expired_tokens = STSTokenPool.query.filter(
+            STSTokenPool.expiration <= now
+        ).all()
+        
+        token_details = []
+        for token in all_tokens:
+            time_until_expiry = (token.expiration - now).total_seconds()
+            token_details.append({
+                "id": token.id,
+                "expiration": token.expiration.isoformat(),
+                "seconds_until_expiry": int(time_until_expiry),
+                "status": "valid" if time_until_expiry > 900 else ("soon_expired" if time_until_expiry > 0 else "expired")
+            })
+        
+        return jsonify({
+            "current_time": now.isoformat(),
+            "total_tokens": len(all_tokens),
+            "valid_tokens": len(valid_tokens),
+            "soon_expired_tokens": len(soon_expired_tokens),
+            "expired_tokens": len(expired_tokens),
+            "min_pool_size": OSSService.MIN_POOL_SIZE,
+            "tokens": token_details
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error in STS debug endpoint: {e}")
+        return jsonify({"error": "Failed to get STS pool status"}), 500
+
+
+@bp.route('/debug/maintain-sts-pool', methods=['POST'])
+@jwt_required()
+def debug_maintain_sts_pool():
+    """Debug endpoint to manually trigger STS pool maintenance"""
+    user_id = get_jwt_identity()
+    
+    # Only allow admin users
+    user = User.query.filter_by(id=user_id, is_deleted=False).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    
+    try:
+        current_app.logger.info(f"Manual STS pool maintenance triggered by user {user_id}")
+        OSSService.maintain_pool()
+        
+        # Get updated pool status
+        now = datetime.now(timezone.utc)
+        valid_count = STSTokenPool.query.filter(
+            STSTokenPool.expiration > now + timedelta(minutes=15)
+        ).count()
+        total_count = STSTokenPool.query.count()
+        
+        return jsonify({
+            "message": "STS pool maintenance completed",
+            "total_tokens": total_count,
+            "valid_tokens": valid_count
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error in STS maintenance endpoint: {e}")
+        return jsonify({"error": "Failed to maintain STS pool"}), 500

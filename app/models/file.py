@@ -48,34 +48,63 @@ class File(db.Model):
         """Generate a signed URL for viewing the file"""
         from flask import current_app
         from app.services.file_service import OSSService
+        from datetime import datetime, timezone
+        import time
         
         # For private buckets, generate signed URLs for viewing
         try:
             token = OSSService.get_available_token()
-            if token:
-                from oss2 import StsAuth, Bucket
-                auth = StsAuth(token.access_key_id, token.access_key_secret, token.security_token)
-                bucket = Bucket(auth, current_app.config['OSS_ENDPOINT'], current_app.config['OSS_BUCKET_NAME'])
+            if not token:
+                current_app.logger.error(f"No valid STS token available for file {self.id}")
+                return None
                 
-                # Generate signed URL for GET (viewing) - valid for 1 hour
-                # Set headers to display inline instead of downloading
-                headers = {}
-                if self.mime_type and self.mime_type.startswith('image/'):
-                    headers['response-content-type'] = self.mime_type
-                    headers['response-content-disposition'] = 'inline'
-                elif self.mime_type:
-                    headers['response-content-type'] = self.mime_type
-                    headers['response-content-disposition'] = f'inline; filename="{self.original_filename}"'
-                else:
-                    # Default to image content type if not set
-                    headers['response-content-type'] = 'image/png'
-                    headers['response-content-disposition'] = 'inline'
-                
-                signed_url = bucket.sign_url("GET", self.object_name, 3600, headers=headers)  # 1 hour
-                current_app.logger.info(f"Generated signed URL for file {self.id}: {signed_url[:100]}...")
-                return signed_url
+            # Check if STS token is about to expire (within 10 minutes)
+            time_until_token_expiry = (token.expiration - datetime.now(timezone.utc)).total_seconds()
+            if time_until_token_expiry < 600:  # 10 minutes
+                current_app.logger.warning(f"STS token expires in {time_until_token_expiry}s, may cause URL generation issues")
+            
+            from oss2 import StsAuth, Bucket
+            auth = StsAuth(token.access_key_id, token.access_key_secret, token.security_token)
+            bucket = Bucket(auth, current_app.config['OSS_ENDPOINT'], current_app.config['OSS_BUCKET_NAME'])
+            
+            # Calculate URL expiration: use the shorter of 2 hours or remaining STS token time minus 5 minutes buffer
+            url_duration_seconds = min(
+                7200,  # 2 hours maximum
+                max(3600, int(time_until_token_expiry - 300))  # At least 1 hour, but respect token expiry with 5min buffer
+            )
+            
+            current_app.logger.info(f"Generating signed URL for file {self.id} with {url_duration_seconds}s duration (token expires in {time_until_token_expiry}s)")
+            
+            # Set headers to display inline instead of downloading
+            headers = {}
+            if self.mime_type and self.mime_type.startswith('image/'):
+                headers['response-content-type'] = self.mime_type
+                headers['response-content-disposition'] = 'inline'
+            elif self.mime_type:
+                headers['response-content-type'] = self.mime_type
+                headers['response-content-disposition'] = f'inline; filename="{self.original_filename}"'
+            else:
+                # Default to image content type if not set
+                headers['response-content-type'] = 'image/png'
+                headers['response-content-disposition'] = 'inline'
+            
+            signed_url = bucket.sign_url("GET", self.object_name, url_duration_seconds, headers=headers)
+            
+            # Log URL expiration for debugging
+            import urllib.parse as urlparse
+            parsed_url = urlparse.urlparse(signed_url)
+            query_params = urlparse.parse_qs(parsed_url.query)
+            if 'Expires' in query_params:
+                expires_timestamp = int(query_params['Expires'][0])
+                expires_datetime = datetime.fromtimestamp(expires_timestamp, tz=timezone.utc)
+                current_app.logger.info(f"Generated signed URL for file {self.id} expires at {expires_datetime.isoformat()}")
+            
+            return signed_url
+            
         except Exception as e:
             current_app.logger.error(f"Failed to generate signed URL for file {self.id}: {e}")
+            import traceback
+            current_app.logger.error(f"Full traceback: {traceback.format_exc()}")
         
         # Fallback to direct URL (for public buckets)
         base_url = current_app.config.get('OSS_PUBLIC_URL', '')

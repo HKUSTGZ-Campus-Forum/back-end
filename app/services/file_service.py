@@ -18,20 +18,42 @@ class OSSService:
 
     @staticmethod
     def get_available_token():
-        # Get a random valid token from the pool
+        # Get a token with at least 15 minutes remaining (increased buffer for safety)
+        min_expiration = datetime.now(timezone.utc) + timedelta(minutes=15)
         valid_token = STSTokenPool.query.filter(
-            STSTokenPool.expiration > datetime.now(timezone.utc) + timedelta(minutes=5)
+            STSTokenPool.expiration > min_expiration
         ).order_by(func.random()).first() # Use imported func
+        
+        # Log current token pool status
+        total_tokens = STSTokenPool.query.count()
+        valid_tokens_count = STSTokenPool.query.filter(
+            STSTokenPool.expiration > min_expiration
+        ).count()
+        
+        current_app.logger.info(f"STS Token Pool Status: {valid_tokens_count}/{total_tokens} tokens valid for 15+ minutes")
         
         # Check if pool needs initial population or regeneration
         if not valid_token:
-             # Attempt to generate a new token if none are valid or pool is empty
-             valid_token = OSSService._generate_new_token()
-             if not valid_token:
-                 # Handle case where token generation fails (e.g., log error, raise exception)
-                 current_app.logger.error("Failed to generate a new STS token.")
-                 # Depending on requirements, you might return None or raise an error
-                 return None # Or raise appropriate exception
+            current_app.logger.warning("No valid STS tokens available, generating new token")
+            # Attempt to generate a new token if none are valid or pool is empty
+            valid_token = OSSService._generate_new_token()
+            if valid_token:
+                # Commit the new token immediately
+                try:
+                    db.session.commit()
+                    current_app.logger.info(f"Generated new STS token, expires at {valid_token.expiration.isoformat()}")
+                except Exception as e:
+                    db.session.rollback()
+                    current_app.logger.error(f"Failed to commit new STS token: {e}")
+                    return None
+            else:
+                # Handle case where token generation fails (e.g., log error, raise exception)
+                current_app.logger.error("Failed to generate a new STS token.")
+                return None
+
+        if valid_token:
+            time_until_expiry = (valid_token.expiration - datetime.now(timezone.utc)).total_seconds()
+            current_app.logger.info(f"Using STS token that expires in {time_until_expiry}s")
 
         return valid_token
 
@@ -40,6 +62,8 @@ class OSSService:
     def _generate_new_token():
         # Generate and store new STS token
         try: # Added try/except for robustness
+            current_app.logger.info("Generating new STS token...")
+            
             client = AcsClient(
                 current_app.config['ALIBABA_CLOUD_ACCESS_KEY_ID'], 
                 current_app.config['ALIBABA_CLOUD_ACCESS_KEY_SECRET'], 
@@ -50,12 +74,41 @@ class OSSService:
             request = AssumeRoleRequest.AssumeRoleRequest()
             request.set_RoleArn(current_app.config['OSS_ROLE_ARN'])
             request.set_RoleSessionName(f"pool-token-{uuid.uuid4()}") # Unique session name
-            request.set_DurationSeconds(current_app.config['OSS_TOKEN_DURATION'])
+            
+            # Use configuration value for token duration
+            token_duration = current_app.config['OSS_TOKEN_DURATION']
+            request.set_DurationSeconds(token_duration)
+            
+            current_app.logger.info(f"Requesting STS token with {token_duration}s duration")
             
             response = client.do_action_with_exception(request)
             credentials = json.loads(response.decode("utf-8"))["Credentials"]
             
-            expiration_time = datetime.fromisoformat(credentials['Expiration'].replace('Z', '+00:00')).astimezone(timezone.utc)
+            # More robust timezone handling
+            expiration_str = credentials['Expiration']
+            current_app.logger.info(f"Received STS token expiration: {expiration_str}")
+            
+            # Handle different expiration formats
+            if expiration_str.endswith('Z'):
+                # ISO format with Z suffix
+                expiration_time = datetime.fromisoformat(expiration_str.replace('Z', '+00:00'))
+            elif '+' in expiration_str or expiration_str.endswith('UTC'):
+                # Already includes timezone info
+                expiration_time = datetime.fromisoformat(expiration_str.replace('UTC', '+00:00'))
+            else:
+                # Assume UTC if no timezone specified
+                expiration_time = datetime.fromisoformat(expiration_str).replace(tzinfo=timezone.utc)
+            
+            # Ensure UTC timezone
+            if expiration_time.tzinfo != timezone.utc:
+                expiration_time = expiration_time.astimezone(timezone.utc)
+            
+            current_app.logger.info(f"Parsed STS token expiration as UTC: {expiration_time.isoformat()}")
+            
+            # Verify the token will be valid for a reasonable amount of time
+            time_until_expiry = (expiration_time - datetime.now(timezone.utc)).total_seconds()
+            if time_until_expiry < 1800:  # 30 minutes
+                current_app.logger.warning(f"STS token expires in only {time_until_expiry}s, this may cause issues")
             
             token = STSTokenPool(
                 access_key_id=credentials['AccessKeyId'],
@@ -65,9 +118,13 @@ class OSSService:
             )
             
             db.session.add(token)
+            current_app.logger.info(f"Created STS token record, expires in {time_until_expiry}s")
             return token
+            
         except Exception as e:
             current_app.logger.error(f"Error generating STS token: {e}")
+            import traceback
+            current_app.logger.error(f"Full traceback: {traceback.format_exc()}")
             db.session.rollback()
             return None
 
@@ -80,20 +137,43 @@ class OSSService:
         if deleted_count > 0:
              current_app.logger.info(f"Cleaned up {deleted_count} expired STS tokens.")
 
-        # Generate new tokens if below minimum pool size
-        # Use count() outside the loop for efficiency
-        current_count = STSTokenPool.query.count() 
-        tokens_to_add = OSSService.MIN_POOL_SIZE - current_count
+        # Also cleanup tokens that expire within 15 minutes (too close to expiry)
+        soon_expired_count = STSTokenPool.query.filter(
+            STSTokenPool.expiration <= datetime.now(timezone.utc) + timedelta(minutes=15)
+        ).delete(synchronize_session=False)
+        if soon_expired_count > 0:
+             current_app.logger.info(f"Cleaned up {soon_expired_count} STS tokens expiring within 15 minutes.")
+
+        # Count valid tokens (those with 15+ minutes remaining)
+        valid_count = STSTokenPool.query.filter(
+            STSTokenPool.expiration > datetime.now(timezone.utc) + timedelta(minutes=15)
+        ).count()
+        
+        tokens_to_add = OSSService.MIN_POOL_SIZE - valid_count
         
         if tokens_to_add > 0:
-             current_app.logger.info(f"STS token pool below minimum ({current_count}/{OSSService.MIN_POOL_SIZE}). Adding {tokens_to_add} tokens.")
-             for _ in range(tokens_to_add):
+             current_app.logger.info(f"STS token pool below minimum valid tokens ({valid_count}/{OSSService.MIN_POOL_SIZE}). Adding {tokens_to_add} tokens.")
+             
+             successful_additions = 0
+             for i in range(tokens_to_add):
+                 current_app.logger.info(f"Generating token {i+1}/{tokens_to_add}")
                  new_token = OSSService._generate_new_token()
-                 if not new_token:
-                      current_app.logger.warning("Failed to generate a token during pool maintenance.")
-                      # Decide if you want to break or continue trying
-                      break 
-        # Commit happens in the calling task function (sts_pool.maintain_pool)
+                 if new_token:
+                     successful_additions += 1
+                     # Commit each token individually to ensure persistence
+                     try:
+                         db.session.commit()
+                         current_app.logger.info(f"Successfully added token {successful_additions}/{tokens_to_add}")
+                     except Exception as e:
+                         db.session.rollback()
+                         current_app.logger.error(f"Failed to commit token {i+1}: {e}")
+                 else:
+                      current_app.logger.warning(f"Failed to generate token {i+1}/{tokens_to_add} during pool maintenance.")
+                      # Continue trying to generate remaining tokens
+             
+             current_app.logger.info(f"Pool maintenance complete: {successful_additions}/{tokens_to_add} tokens added successfully")
+        else:
+            current_app.logger.info(f"STS token pool is healthy: {valid_count} valid tokens available")
 
     @staticmethod
     def generate_signed_url(user_id, filename, file_type=File.GENERAL, entity_type=None, entity_id=None, callback_url=None, content_type=None): # Added categorization params
