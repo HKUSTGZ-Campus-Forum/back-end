@@ -71,12 +71,11 @@ def create_user():
         if not default_role:
             return jsonify({"msg": "Default user role not found in database"}), 500
         
-        # Create new user
+        # Create new user (no avatar on creation, must be uploaded separately)
         user = User(
             username=data['username'],
             email=data.get('email', ''),
             phone_number=data.get('phone_number', ''),
-            profile_picture_url=data.get('profile_picture_url', ''),
             role_id=data.get('role_id', default_role.id)  # Use role_id from role table
         )
         user.set_password(data['password'])  # Changed from password_hash
@@ -162,8 +161,24 @@ def update_user(user_id):
         if data['phone_number'] != user.phone_number:
             user.phone_verified = False
             
-    if 'profile_picture_url' in data:
-        user.profile_picture_url = data['profile_picture_url']
+    # Handle avatar updates - expect file_id instead of URL
+    if 'profile_picture_file_id' in data:
+        from app.models.file import File
+        # Verify the file exists and belongs to the user
+        file_id = data['profile_picture_file_id']
+        if file_id:
+            avatar_file = File.query.filter_by(
+                id=file_id, 
+                user_id=current_user_id_int, 
+                file_type=File.AVATAR,
+                is_deleted=False
+            ).first()
+            if avatar_file:
+                user.profile_picture_file_id = file_id
+            else:
+                return jsonify({"msg": "Invalid avatar file ID or file not found"}), 400
+        else:
+            user.profile_picture_file_id = None  # Remove avatar
     
     # Only allow role changes if requester is admin
     if 'role_id' in data and current_user.is_admin():
@@ -212,7 +227,7 @@ def get_public_user_info(user_id):
     return jsonify({
         "id": user.id,
         "username": user.username,
-        "profile_picture_url": user.fresh_avatar_url,  # Use fresh signed URL
+        "profile_picture_url": user.avatar_url,  # Always generate fresh signed URL
         "role_name": user.get_role_name()
     })
 

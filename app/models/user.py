@@ -14,8 +14,7 @@ class User(db.Model):
     email_verified = db.Column(db.Boolean, default=False, nullable=False)
     phone_number = db.Column(db.String(20))
     phone_verified = db.Column(db.Boolean, default=False, nullable=False)
-    profile_picture_url = db.Column(db.Text)  # Legacy field - will be deprecated
-    profile_picture_file_id = db.Column(db.Integer, db.ForeignKey('files.id'), nullable=True)  # New field for file reference
+    profile_picture_file_id = db.Column(db.Integer, db.ForeignKey('files.id'), nullable=True)  # Reference to File record for avatar
     role_id = db.Column(db.Integer, db.ForeignKey('user_roles.id'), nullable=False)
     is_deleted = db.Column(db.Boolean, default=False, nullable=False)
     deleted_at = db.Column(db.DateTime(timezone=True))
@@ -72,27 +71,16 @@ class User(db.Model):
         db.session.commit()
 
     @property
-    def fresh_avatar_url(self):
+    def avatar_url(self):
         """Generate a fresh signed URL for the user's avatar"""
-        # Priority 1: Use the new file-based avatar system
         if self.profile_picture_file_id and self.profile_picture_file:
             try:
-                return self.profile_picture_file.url
+                return self.profile_picture_file.url  # This generates a fresh signed URL each time
             except Exception as e:
                 # Log error but don't crash
                 from flask import current_app
                 if current_app:
-                    current_app.logger.error(f"Error generating fresh avatar URL for user {self.id}: {e}")
-        
-        # Priority 2: Fall back to legacy URL if it exists and looks valid
-        if self.profile_picture_url:
-            # Check if it's a signed URL that might be expired
-            if 'aliyuncs.com' in self.profile_picture_url and ('Expires=' in self.profile_picture_url or 'x-oss-expires' in self.profile_picture_url):
-                # This is a signed URL that might be expired - prefer generating fresh one
-                from flask import current_app
-                if current_app:
-                    current_app.logger.warning(f"User {self.id} has legacy signed URL, should migrate to file-based avatar")
-            return self.profile_picture_url
+                    current_app.logger.error(f"Error generating avatar URL for user {self.id}: {e}")
         
         # No avatar available
         return None
@@ -101,7 +89,7 @@ class User(db.Model):
         data = {
             "id": self.id,
             "username": self.username,
-            "profile_picture_url": self.fresh_avatar_url,  # Use fresh signed URL instead of stored URL
+            "profile_picture_url": self.avatar_url,  # Always generate fresh signed URL
             "role_id": self.role_id,
             "role_name": self.get_role_name(),
             "is_deleted": self.is_deleted,
