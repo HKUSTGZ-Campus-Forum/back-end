@@ -10,7 +10,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), nullable=False)
     password_hash = db.Column(db.Text, nullable=False)
-    email = db.Column(db.String(100))
+    email = db.Column(db.String(100), nullable=True)
     email_verified = db.Column(db.Boolean, default=False, nullable=False)
     phone_number = db.Column(db.String(20))
     phone_verified = db.Column(db.Boolean, default=False, nullable=False)
