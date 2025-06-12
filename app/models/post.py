@@ -61,7 +61,7 @@ class Post(db.Model):
         # Include author information
         if include_author and self.author:
             data["author"] = self.author.username
-            data["author_avatar"] = self.author.profile_picture_url
+            data["author_avatar"] = self.author.avatar_url  # Use fresh avatar URL
         
         if include_content:
             data["content"] = self.content

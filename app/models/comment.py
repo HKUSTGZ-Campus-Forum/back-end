@@ -20,6 +20,7 @@ class Comment(db.Model):
     # Self-referential relationship for nested comments
     replies = db.relationship(
         'Comment',
+        foreign_keys=[parent_comment_id],
         backref=db.backref('parent', remote_side=[id]),
         lazy='dynamic'
     )
@@ -40,7 +41,7 @@ class Comment(db.Model):
         # Include author information
         if include_author and self.author:
             data["author"] = self.author.username
-            data["author_avatar"] = self.author.profile_picture_url
+            data["author_avatar"] = self.author.avatar_url  # Use fresh avatar URL
             
         return data
     

@@ -20,7 +20,7 @@ class Course(db.Model):
                           onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     # Relationships
-    instructor = db.relationship('User', backref=db.backref('instructed_courses', lazy='dynamic'))
+    instructor = db.relationship('User', foreign_keys=[instructor_id], backref=db.backref('instructed_courses', lazy='dynamic'))
 
     # Constraints
     __table_args__ = (
