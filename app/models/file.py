@@ -67,10 +67,10 @@ class File(db.Model):
             auth = StsAuth(token.access_key_id, token.access_key_secret, token.security_token)
             bucket = Bucket(auth, current_app.config['OSS_ENDPOINT'], current_app.config['OSS_BUCKET_NAME'])
             
-            # Calculate URL expiration: use the shorter of 2 hours or remaining STS token time minus 5 minutes buffer
+            # Calculate URL expiration: use the shorter of 1 hour or remaining STS token time minus 5 minutes buffer
             url_duration_seconds = min(
-                7200,  # 2 hours maximum
-                max(3600, int(time_until_token_expiry - 300))  # At least 1 hour, but respect token expiry with 5min buffer
+                3600,  # 1 hour maximum
+                max(1800, int(time_until_token_expiry - 300))  # At least 30 minutes, but respect token expiry with 5min buffer
             )
             
             current_app.logger.info(f"Generating signed URL for file {self.id} with {url_duration_seconds}s duration (token expires in {time_until_token_expiry}s)")
@@ -90,6 +90,10 @@ class File(db.Model):
             
             signed_url = bucket.sign_url("GET", self.object_name, url_duration_seconds, headers=headers)
             
+            # Force HTTPS for the signed URL
+            if signed_url.startswith('http://'):
+                signed_url = 'https://' + signed_url[7:]
+            
             # Log URL expiration for debugging
             import urllib.parse as urlparse
             parsed_url = urlparse.urlparse(signed_url)
@@ -108,4 +112,9 @@ class File(db.Model):
         
         # Fallback to direct URL (for public buckets)
         base_url = current_app.config.get('OSS_PUBLIC_URL', '')
-        return f"{base_url}/{self.object_name}" if base_url else None
+        if base_url:
+            # Ensure base_url uses HTTPS
+            if base_url.startswith('http://'):
+                base_url = 'https://' + base_url[7:]
+            return f"{base_url}/{self.object_name}"
+        return None
