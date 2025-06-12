@@ -18,11 +18,12 @@ class OSSService:
 
     @staticmethod
     def get_available_token():
-        # Get a token with at least 15 minutes remaining (increased buffer for safety)
-        min_expiration = datetime.now(timezone.utc) + timedelta(minutes=15)
+        # Get a token with at least 30 minutes remaining (increased for avatar URL generation)
+        now_utc = datetime.now(timezone.utc)
+        min_expiration = now_utc + timedelta(minutes=30)
         valid_token = STSTokenPool.query.filter(
             STSTokenPool.expiration > min_expiration
-        ).order_by(func.random()).first() # Use imported func
+        ).order_by(STSTokenPool.expiration.desc()).first()  # Get the token that expires latest
         
         # Log current token pool status
         total_tokens = STSTokenPool.query.count()
@@ -30,7 +31,7 @@ class OSSService:
             STSTokenPool.expiration > min_expiration
         ).count()
         
-        current_app.logger.info(f"STS Token Pool Status: {valid_tokens_count}/{total_tokens} tokens valid for 15+ minutes")
+        current_app.logger.info(f"STS Token Pool Status: {valid_tokens_count}/{total_tokens} tokens valid for 30+ minutes")
         
         # Check if pool needs initial population or regeneration
         if not valid_token:
@@ -52,8 +53,23 @@ class OSSService:
                 return None
 
         if valid_token:
-            time_until_expiry = (valid_token.expiration - datetime.now(timezone.utc)).total_seconds()
-            current_app.logger.info(f"Using STS token that expires in {time_until_expiry}s")
+            time_until_expiry = (valid_token.expiration - now_utc).total_seconds()
+            current_app.logger.info(f"Using STS token ID {valid_token.id} that expires in {time_until_expiry}s ({time_until_expiry/3600:.1f}h)")
+            
+            # Double-check the token isn't about to expire
+            if time_until_expiry < 1800:  # Less than 30 minutes
+                current_app.logger.warning(f"Selected token expires soon ({time_until_expiry}s), will try to generate a fresh one")
+                fresh_token = OSSService._generate_new_token()
+                if fresh_token:
+                    try:
+                        db.session.commit()
+                        current_app.logger.info(f"Generated fresh STS token, expires at {fresh_token.expiration.isoformat()}")
+                        return fresh_token
+                    except Exception as e:
+                        db.session.rollback()
+                        current_app.logger.error(f"Failed to commit fresh STS token: {e}")
+                # Fall back to the original token if fresh generation fails
+                current_app.logger.warning("Using the originally selected token despite short expiry")
 
         return valid_token
 
@@ -130,26 +146,37 @@ class OSSService:
 
     @staticmethod
     def maintain_pool():
+        now_utc = datetime.now(timezone.utc)
+        current_app.logger.info(f"Starting STS pool maintenance at {now_utc.isoformat()}")
+        
         # Cleanup expired tokens
         deleted_count = STSTokenPool.query.filter(
-            STSTokenPool.expiration <= datetime.now(timezone.utc)
-        ).delete(synchronize_session=False) # Added synchronize_session=False for bulk delete efficiency
+            STSTokenPool.expiration <= now_utc
+        ).delete(synchronize_session=False)
         if deleted_count > 0:
              current_app.logger.info(f"Cleaned up {deleted_count} expired STS tokens.")
 
-        # Also cleanup tokens that expire within 15 minutes (too close to expiry)
+        # Also cleanup tokens that expire within 30 minutes (too close to expiry for avatar generation)
         soon_expired_count = STSTokenPool.query.filter(
-            STSTokenPool.expiration <= datetime.now(timezone.utc) + timedelta(minutes=15)
+            STSTokenPool.expiration <= now_utc + timedelta(minutes=30)
         ).delete(synchronize_session=False)
         if soon_expired_count > 0:
-             current_app.logger.info(f"Cleaned up {soon_expired_count} STS tokens expiring within 15 minutes.")
+             current_app.logger.info(f"Cleaned up {soon_expired_count} STS tokens expiring within 30 minutes.")
 
-        # Count valid tokens (those with 15+ minutes remaining)
+        # Commit cleanup changes
+        try:
+            db.session.commit()
+            current_app.logger.info("Token cleanup committed successfully")
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Failed to commit token cleanup: {e}")
+
+        # Count valid tokens (those with 30+ minutes remaining for avatar generation)
         valid_count = STSTokenPool.query.filter(
-            STSTokenPool.expiration > datetime.now(timezone.utc) + timedelta(minutes=15)
+            STSTokenPool.expiration > now_utc + timedelta(minutes=30)
         ).count()
         
-        tokens_to_add = OSSService.MIN_POOL_SIZE - valid_count
+        tokens_to_add = max(OSSService.MIN_POOL_SIZE - valid_count, 0)
         
         if tokens_to_add > 0:
              current_app.logger.info(f"STS token pool below minimum valid tokens ({valid_count}/{OSSService.MIN_POOL_SIZE}). Adding {tokens_to_add} tokens.")
@@ -159,11 +186,11 @@ class OSSService:
                  current_app.logger.info(f"Generating token {i+1}/{tokens_to_add}")
                  new_token = OSSService._generate_new_token()
                  if new_token:
-                     successful_additions += 1
                      # Commit each token individually to ensure persistence
                      try:
                          db.session.commit()
-                         current_app.logger.info(f"Successfully added token {successful_additions}/{tokens_to_add}")
+                         successful_additions += 1
+                         current_app.logger.info(f"Successfully added token {successful_additions}/{tokens_to_add}, expires: {new_token.expiration.isoformat()}")
                      except Exception as e:
                          db.session.rollback()
                          current_app.logger.error(f"Failed to commit token {i+1}: {e}")

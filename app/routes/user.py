@@ -208,11 +208,11 @@ def get_public_user_info(user_id):
     if not user or user.is_deleted:
         return jsonify({"msg": "User not found"}), 404
     
-    # Return only public information
+    # Return only public information with fresh avatar URL
     return jsonify({
         "id": user.id,
         "username": user.username,
-        "profile_picture_url": user.profile_picture_url,
+        "profile_picture_url": user.fresh_avatar_url,  # Use fresh signed URL
         "role_name": user.get_role_name()
     })
 
