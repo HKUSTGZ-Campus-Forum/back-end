@@ -28,4 +28,4 @@ class Config:
     OSS_ENDPOINT = os.getenv('OSS_ENDPOINT')
     OSS_REGION_ID = os.getenv('OSS_REGION_ID', 'cn-hangzhou')
     OSS_TOKEN_DURATION = int(os.getenv('OSS_TOKEN_DURATION', 3600))
-    OSS_PUBLIC_URL = os.getenv('OSS_PUBLIC_URL', f'https://{os.getenv("OSS_BUCKET_NAME")}.{os.getenv("OSS_ENDPOINT").replace("https://", "")}')
+    OSS_PUBLIC_URL = os.getenv('OSS_PUBLIC_URL', f'https://{os.getenv("OSS_BUCKET_NAME")}.{os.getenv("OSS_ENDPOINT").replace("http://", "").replace("https://", "")}')
