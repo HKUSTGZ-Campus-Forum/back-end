@@ -29,8 +29,8 @@ class User(db.Model):
     comments = db.relationship('Comment', backref='author', lazy='dynamic', cascade='all, delete-orphan')
     reactions = db.relationship('Reaction', backref='user', lazy='dynamic', cascade='all, delete-orphan')
     calendar_entries = db.relationship('UserCalendar', backref='user', lazy='dynamic', cascade='all, delete-orphan')
-    files = db.relationship('File', backref='owner', lazy='dynamic', cascade='all, delete-orphan')
-    profile_picture_file = db.relationship('File', foreign_keys=[profile_picture_file_id], backref='profile_owner') 
+    files = db.relationship('File', foreign_keys='File.user_id', backref='owner', lazy='dynamic', cascade='all, delete-orphan')
+    profile_picture_file = db.relationship('File', foreign_keys=[profile_picture_file_id], post_update=True, uselist=False) 
 
     # Add constraint for unique username among active users
     __table_args__ = (

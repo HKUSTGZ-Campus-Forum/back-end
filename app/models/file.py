@@ -53,50 +53,27 @@ class File(db.Model):
         
         # For private buckets, generate signed URLs for viewing
         try:
-            # Force pool maintenance before getting token to ensure fresh tokens
-            try:
-                OSSService.maintain_pool()
-            except Exception as maintain_error:
-                current_app.logger.warning(f"Pool maintenance failed: {maintain_error}")
-            
             token = OSSService.get_available_token()
             if not token:
                 current_app.logger.error(f"No valid STS token available for file {self.id}")
                 return None
                 
-            # Check if STS token is about to expire (within 30 minutes for safety)
-            now_utc = datetime.now(timezone.utc)
-            time_until_token_expiry = (token.expiration - now_utc).total_seconds()
-            
-            current_app.logger.info(f"STS Token check for file {self.id}: expires in {time_until_token_expiry}s ({time_until_token_expiry/3600:.1f}h)")
-            
-            if time_until_token_expiry < 1800:  # 30 minutes
-                current_app.logger.warning(f"STS token expires in {time_until_token_expiry}s, trying to get a fresher token")
-                # Try to get a better token or force regeneration
-                try:
-                    OSSService.maintain_pool()
-                    token = OSSService.get_available_token()
-                    if token:
-                        time_until_token_expiry = (token.expiration - now_utc).total_seconds()
-                        current_app.logger.info(f"Got fresher token: expires in {time_until_token_expiry}s")
-                except Exception as e:
-                    current_app.logger.error(f"Failed to get fresher token: {e}")
+            # Check if STS token is about to expire (within 10 minutes)
+            time_until_token_expiry = (token.expiration - datetime.now(timezone.utc)).total_seconds()
+            if time_until_token_expiry < 600:  # 10 minutes
+                current_app.logger.warning(f"STS token expires in {time_until_token_expiry}s, may cause URL generation issues")
             
             from oss2 import StsAuth, Bucket
             auth = StsAuth(token.access_key_id, token.access_key_secret, token.security_token)
             bucket = Bucket(auth, current_app.config['OSS_ENDPOINT'], current_app.config['OSS_BUCKET_NAME'])
             
-            # Calculate URL expiration: Conservative approach
-            # Use 1 hour duration, or if token expires sooner, use 70% of remaining token time
-            if time_until_token_expiry > 7200:  # Token valid for more than 2 hours
-                url_duration_seconds = 3600  # Use 1 hour
-            elif time_until_token_expiry > 1800:  # Token valid for 30min - 2 hours
-                url_duration_seconds = max(1800, int(time_until_token_expiry * 0.7))  # Use 70% of remaining time, minimum 30 minutes
-            else:
-                # Token expires soon, use shorter duration
-                url_duration_seconds = max(900, int(time_until_token_expiry * 0.5))  # Use 50% of remaining time, minimum 15 minutes
+            # Calculate URL expiration: use the shorter of 2 hours or remaining STS token time minus 5 minutes buffer
+            url_duration_seconds = min(
+                7200,  # 2 hours maximum
+                max(3600, int(time_until_token_expiry - 300))  # At least 1 hour, but respect token expiry with 5min buffer
+            )
             
-            current_app.logger.info(f"Generating signed URL for file {self.id}: duration={url_duration_seconds}s ({url_duration_seconds/3600:.1f}h), token_expires_in={time_until_token_expiry}s")
+            current_app.logger.info(f"Generating signed URL for file {self.id} with {url_duration_seconds}s duration (token expires in {time_until_token_expiry}s)")
             
             # Set headers to display inline instead of downloading
             headers = {}
@@ -113,30 +90,14 @@ class File(db.Model):
             
             signed_url = bucket.sign_url("GET", self.object_name, url_duration_seconds, headers=headers)
             
-            # Comprehensive debugging of generated URL
+            # Log URL expiration for debugging
             import urllib.parse as urlparse
             parsed_url = urlparse.urlparse(signed_url)
             query_params = urlparse.parse_qs(parsed_url.query)
-            
             if 'Expires' in query_params:
                 expires_timestamp = int(query_params['Expires'][0])
                 expires_datetime = datetime.fromtimestamp(expires_timestamp, tz=timezone.utc)
-                current_time_timestamp = int(now_utc.timestamp())
-                
-                current_app.logger.info(f"URL Generation Debug for file {self.id}:")
-                current_app.logger.info(f"  Current time: {now_utc.isoformat()} (timestamp: {current_time_timestamp})")
-                current_app.logger.info(f"  URL expires at: {expires_datetime.isoformat()} (timestamp: {expires_timestamp})")
-                current_app.logger.info(f"  URL valid for: {expires_timestamp - current_time_timestamp}s")
-                
-                # Verify the URL isn't already expired
-                if expires_timestamp <= current_time_timestamp:
-                    current_app.logger.error(f"CRITICAL: Generated URL is already expired! expires={expires_timestamp}, current={current_time_timestamp}")
-                    # Try with minimal duration
-                    url_duration_seconds = 900  # 15 minutes
-                    current_app.logger.info(f"Retrying with minimal duration: {url_duration_seconds}s")
-                    signed_url = bucket.sign_url("GET", self.object_name, url_duration_seconds, headers=headers)
-            else:
-                current_app.logger.warning(f"No expiration timestamp found in generated URL for file {self.id}")
+                current_app.logger.info(f"Generated signed URL for file {self.id} expires at {expires_datetime.isoformat()}")
             
             return signed_url
             
