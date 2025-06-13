@@ -12,15 +12,31 @@ from sqlalchemy.sql import func
 
 bp = Blueprint('user', __name__, url_prefix='/users')
 
-# Validation patterns
-USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_]{3,50}$')
+# Validation patterns  
+# Updated to support Unicode characters including Chinese, emojis, accented letters
+USERNAME_PATTERN = re.compile(r'^[\w\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\u1100-\u11ff\u3130-\u318f\uac00-\ud7af\u00c0-\u017f\u1e00-\u1eff\u0100-\u024f\u1ea0-\u1ef9\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\U00002600-\U000027BF\U0001f900-\U0001f9ff\U0001f600-\U0001f64f]+$', re.UNICODE)
 EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 PHONE_PATTERN = re.compile(r'^\+?[0-9]{10,15}$')
 
 def validate_username(username):
-    """Validate username format"""
-    if not username or not USERNAME_PATTERN.match(username):
-        return False, "Username must be 3-50 characters and contain only letters, numbers, and underscores"
+    """Validate username format - supports Chinese, Japanese, Korean, accented letters, and emojis"""
+    if not username:
+        return False, "Username is required"
+    
+    username_length = len(username)
+    if username_length < 2:
+        return False, "Username must be at least 2 characters long"
+    if username_length > 50:
+        return False, "Username cannot exceed 50 characters"
+    
+    if not USERNAME_PATTERN.match(username):
+        return False, "Username can only contain letters, numbers, underscores, and Unicode characters (Chinese, emojis, etc.). Special symbols like @#$%^&* are not allowed"
+    
+    # Additional check for inappropriate characters
+    forbidden_chars = ['<', '>', '"', "'", '&', '/', '\\', '|', '?', '*', ':', ';']
+    if any(char in username for char in forbidden_chars):
+        return False, "Username cannot contain special symbols like < > \" ' & / \\ | ? * : ;"
+    
     return True, ""
 
 def validate_email(email):
