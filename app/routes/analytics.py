@@ -17,19 +17,29 @@ bp = Blueprint('analytics', __name__, url_prefix='/analytics')
 def calculate_hot_score(post):
     """
     Calculate a hot score for posts based on engagement metrics.
-    Formula: (reactions * 3 + comments * 5 + views * 0.1) / age_hours^0.8
+    Formula: (reactions * 3 + comments * 5 + views * 0.1 + recency_boost) / age_hours^0.6
+    Enhanced with stronger recency boost for posts under 6 hours old.
     """
-    age_hours = max(1, (datetime.now(timezone.utc) - post.created_at).total_seconds() / 3600)
+    age_hours = max(0.1, (datetime.now(timezone.utc) - post.created_at).total_seconds() / 3600)
     
     # Weight different engagement types
     reaction_score = (post.reaction_count or 0) * 3
     comment_score = (post.comment_count or 0) * 5
     view_score = (post.view_count or 0) * 0.1
     
-    # Time decay factor (newer posts get boost)
-    time_factor = age_hours ** 0.8
+    # Enhanced recency boost for very recent posts
+    recency_boost = 0
+    if age_hours <= 1:
+        recency_boost = 50  # Big boost for posts under 1 hour
+    elif age_hours <= 3:
+        recency_boost = 25  # Medium boost for posts under 3 hours
+    elif age_hours <= 6:
+        recency_boost = 10  # Small boost for posts under 6 hours
     
-    return (reaction_score + comment_score + view_score) / time_factor
+    # Reduced time decay factor (from 0.8 to 0.6 for stronger recency preference)
+    time_factor = age_hours ** 0.6
+    
+    return (reaction_score + comment_score + view_score + recency_boost) / time_factor
 
 @bp.route('/daily-summary', methods=['GET'])
 def get_daily_summary():
