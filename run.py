@@ -9,6 +9,7 @@ CORS(app,
                         "http://localhost:3000",
                         "http://127.0.0.1:3000",
                         "https://dev.unikorn.axfff.com",
+                        "https://unikorn.axfff.com",
                     ]
                     }},
      supports_credentials=True)
