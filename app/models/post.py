@@ -23,7 +23,8 @@ class Post(db.Model):
     comments = db.relationship('Comment', backref='post', lazy='dynamic', 
                                cascade='all, delete-orphan')
     reactions = db.relationship('Reaction', backref='post', lazy='dynamic',
-                                cascade='all, delete-orphan')
+                                cascade='all, delete-orphan',
+                                foreign_keys='Reaction.post_id')
     tags = db.relationship('Tag', secondary='post_tags', backref=db.backref('posts', lazy='dynamic'))
     
     # Files relationship - get files associated with this post
