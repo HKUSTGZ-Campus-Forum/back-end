@@ -1,0 +1,1 @@
+# This file has been moved to init_db.py as part of the init_instant_discussion() function

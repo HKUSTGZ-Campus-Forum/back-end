@@ -3,6 +3,7 @@ from app.models.post import Post
 from app.models.comment import Comment
 from app.models.user import User
 from app.models.reaction import Reaction
+from app.models.tag import Tag
 from app.extensions import db#, limiter
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func, desc, asc
@@ -237,3 +238,115 @@ def get_post_comments(post_id):
     }
     
     return jsonify(response), 200
+
+# Get instant discussion post ID
+@bp.route('/instant-discussion/post-id', methods=['GET'])
+def get_instant_discussion_post_id():
+    """Get the ID of the special instant discussion post"""
+    instant_discussion_post = Post.query.join(Post.tags).filter(
+        Tag.name == 'instant-discussion'
+    ).first()
+    
+    if not instant_discussion_post:
+        return jsonify({"error": "Instant discussion post not found"}), 404
+    
+    return jsonify({"post_id": instant_discussion_post.id}), 200
+
+# Get instant discussion messages (comments)
+@bp.route('/instant-discussion', methods=['GET'])
+def get_instant_discussion_messages():
+    """Get recent messages from the instant discussion area"""
+    # Find the instant discussion post
+    instant_discussion_post = Post.query.join(Post.tags).filter(
+        Tag.name == 'instant-discussion'
+    ).first()
+    
+    if not instant_discussion_post:
+        return jsonify({"error": "Instant discussion post not found"}), 404
+    
+    # Get pagination parameters (default to recent messages)
+    limit = request.args.get('limit', 50, type=int)  # More messages for chat
+    offset = request.args.get('offset', 0, type=int)
+    
+    # Get recent messages, ordered by creation time (oldest first for chat display)
+    messages = Comment.query.filter_by(
+        post_id=instant_discussion_post.id,
+        is_deleted=False,
+        parent_comment_id=None  # Only top-level messages for simplicity
+    ).order_by(asc(Comment.created_at)).offset(offset).limit(limit).all()
+    
+    # Format messages for chat UI
+    formatted_messages = []
+    for message in messages:
+        formatted_message = {
+            "id": message.id,
+            "content": message.content,
+            "author": message.author.username if message.author else "Unknown",
+            "author_avatar": message.author.avatar_url if message.author else None,
+            "author_id": message.user_id,
+            "timestamp": message.created_at.isoformat(),
+            "time": message.created_at.isoformat()  # Legacy field for frontend compatibility
+        }
+        formatted_messages.append(formatted_message)
+    
+    return jsonify({
+        "messages": formatted_messages,
+        "post_id": instant_discussion_post.id
+    }), 200
+
+# Send instant discussion message
+@bp.route('/instant-discussion', methods=['POST'])
+@jwt_required()
+def send_instant_discussion_message():
+    """Send a message to the instant discussion area"""
+    try:
+        data = request.get_json() or {}
+        
+        # Validate content
+        if not data.get('content') or not data.get('content').strip():
+            return jsonify({"error": "Message content is required"}), 400
+        
+        # Sanitize content
+        content = bleach.clean(data['content'].strip())
+        
+        # Find the instant discussion post
+        instant_discussion_post = Post.query.join(Post.tags).filter(
+            Tag.name == 'instant-discussion'
+        ).first()
+        
+        if not instant_discussion_post:
+            return jsonify({"error": "Instant discussion post not found"}), 404
+        
+        # Get authenticated user
+        user_id = get_jwt_identity()
+        
+        # Create new message (comment)
+        message = Comment(
+            post_id=instant_discussion_post.id,
+            user_id=user_id,
+            content=content,
+            created_at=datetime.now(timezone.utc)
+        )
+        
+        # Update post comment count
+        instant_discussion_post.comment_count += 1
+        
+        db.session.add(message)
+        db.session.commit()
+        
+        # Return the message in the same format as get_instant_discussion_messages
+        formatted_message = {
+            "id": message.id,
+            "content": message.content,
+            "author": message.author.username if message.author else "Unknown",
+            "author_avatar": message.author.avatar_url if message.author else None,
+            "author_id": message.user_id,
+            "timestamp": message.created_at.isoformat(),
+            "time": message.created_at.isoformat()
+        }
+        
+        return jsonify(formatted_message), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
