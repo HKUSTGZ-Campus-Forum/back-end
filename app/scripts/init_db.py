@@ -82,11 +82,19 @@ def init_instant_discussion():
         # Get or create system user
         system_user = User.query.filter_by(username='system').first()
         if not system_user:
+            # Get admin role for system user
+            admin_role = UserRole.query.filter_by(name=UserRole.ADMIN).first()
+            if not admin_role:
+                admin_role = UserRole(name=UserRole.ADMIN)
+                db.session.add(admin_role)
+                db.session.flush()
+            
             # Create a system user if it doesn't exist
             system_user = User(
                 username='system',
                 email='system@campusforum.local',
-                is_verified=True,
+                email_verified=True,
+                role_id=admin_role.id,
                 created_at=datetime.now(timezone.utc)
             )
             system_user.set_password('system_password_not_for_login')
