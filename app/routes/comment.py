@@ -255,7 +255,7 @@ def get_instant_discussion_post_id():
 # Get instant discussion messages (comments)
 @bp.route('/instant-discussion', methods=['GET'])
 def get_instant_discussion_messages():
-    """Get recent messages from the instant discussion area"""
+    """Get messages from the instant discussion area with pagination support"""
     # Find the instant discussion post
     instant_discussion_post = Post.query.join(Post.tags).filter(
         Tag.name == 'instant-discussion'
@@ -264,16 +264,42 @@ def get_instant_discussion_messages():
     if not instant_discussion_post:
         return jsonify({"error": "Instant discussion post not found"}), 404
     
-    # Get pagination parameters (default to recent messages)
-    limit = request.args.get('limit', 50, type=int)  # More messages for chat
-    offset = request.args.get('offset', 0, type=int)
+    # Get pagination parameters
+    page = request.args.get('page', 1, type=int)
+    limit = request.args.get('limit', 20, type=int)  # Default 20 messages per page
+    load_type = request.args.get('load_type', 'recent')  # 'recent', 'older', or 'newer'
+    before_id = request.args.get('before_id', type=int)  # For loading older messages
+    after_id = request.args.get('after_id', type=int)  # For loading newer messages
     
-    # Get recent messages, ordered by creation time (oldest first for chat display)
-    messages = Comment.query.filter_by(
+    # Build base query
+    query = Comment.query.filter_by(
         post_id=instant_discussion_post.id,
         is_deleted=False,
         parent_comment_id=None  # Only top-level messages for simplicity
-    ).order_by(asc(Comment.created_at)).offset(offset).limit(limit).all()
+    )
+    
+    # Handle different loading scenarios
+    if load_type == 'older' and before_id:
+        # Load older messages before a specific message ID
+        query = query.filter(Comment.id < before_id)
+        query = query.order_by(desc(Comment.created_at)).limit(limit)
+        messages = query.all()
+    elif load_type == 'newer' and after_id:
+        # Load newer messages after a specific message ID
+        query = query.filter(Comment.id > after_id)
+        query = query.order_by(asc(Comment.created_at)).limit(limit)
+        messages = query.all()
+    else:
+        # Load recent messages (default behavior) - get the NEWEST messages
+        query = query.order_by(desc(Comment.created_at)).limit(limit)
+        messages = query.all()
+    
+    # Get total count for pagination info
+    total_count = Comment.query.filter_by(
+        post_id=instant_discussion_post.id,
+        is_deleted=False,
+        parent_comment_id=None
+    ).count()
     
     # Format messages for chat UI
     formatted_messages = []
@@ -289,9 +315,35 @@ def get_instant_discussion_messages():
         }
         formatted_messages.append(formatted_message)
     
+    # Calculate pagination info
+    has_older = False
+    has_newer = False
+    if messages:
+        oldest_message_id = min(msg.id for msg in messages)
+        newest_message_id = max(msg.id for msg in messages)
+        
+        # Check if there are older messages
+        has_older = Comment.query.filter_by(
+            post_id=instant_discussion_post.id,
+            is_deleted=False,
+            parent_comment_id=None
+        ).filter(Comment.id < oldest_message_id).count() > 0
+        
+        # Check if there are newer messages
+        has_newer = Comment.query.filter_by(
+            post_id=instant_discussion_post.id,
+            is_deleted=False,
+            parent_comment_id=None
+        ).filter(Comment.id > newest_message_id).count() > 0
+    
     return jsonify({
         "messages": formatted_messages,
-        "post_id": instant_discussion_post.id
+        "post_id": instant_discussion_post.id,
+        "total_count": total_count,
+        "has_older": has_older,
+        "has_newer": has_newer,
+        "current_page": page,
+        "limit": limit
     }), 200
 
 # Send instant discussion message
