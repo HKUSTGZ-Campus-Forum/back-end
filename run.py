@@ -1,5 +1,6 @@
 # run.py
 from app import create_app
+from app.extensions import socketio
 from flask_cors import CORS
 
 app = create_app()
@@ -15,4 +16,5 @@ CORS(app,
      supports_credentials=True)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=8000)
+    # Use SocketIO's run method instead of Flask's
+    socketio.run(app, debug=True, port=8000, host='0.0.0.0')

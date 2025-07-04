@@ -1,6 +1,6 @@
 from flask import Flask
 from .config import Config
-from .extensions import db, jwt, migrate#, limiter
+from .extensions import db, jwt, migrate, socketio
 from .routes import register_blueprints
 from app.tasks.sts_pool import init_pool_maintenance
 
@@ -12,9 +12,14 @@ def create_app(config_class=Config):
     # Initialize extensions
     db.init_app(app)
     jwt.init_app(app)
+    socketio.init_app(app)
 
     # Register blueprints (routes)
     register_blueprints(app)
+
+    # Register SocketIO events
+    from .sockets import register_socket_events
+    register_socket_events(socketio)
 
     # # Create DB tables (for dev; in production use migrations)
     # with app.app_context():

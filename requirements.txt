@@ -7,6 +7,8 @@ python-dotenv
 bleach
 flask_limiter
 flask-cors
+flask-socketio
+python-socketio
 
 aliyun-python-sdk-core
 aliyun-python-sdk-sts
