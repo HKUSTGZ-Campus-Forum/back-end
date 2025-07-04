@@ -47,13 +47,14 @@ jobs:
           if ! sudo systemctl cat dev-unikorn-api.service | grep -q "gunicorn.conf.py"; then
             echo "Updating service for SocketIO support..."
             
-            # Create service override
+            # Create service override for development
             sudo mkdir -p /etc/systemd/system/dev-unikorn-api.service.d
             sudo tee /etc/systemd/system/dev-unikorn-api.service.d/socketio.conf > /dev/null <<EOF
           [Service]
           ExecStart=
           ExecStart=/data/dev_unikorn/back-end/venv/bin/gunicorn --config /data/dev_unikorn/back-end/gunicorn.conf.py wsgi:application
           WorkingDirectory=/data/dev_unikorn/back-end
+          Environment=FLASK_ENV=development
           EOF
             
             sudo systemctl daemon-reload

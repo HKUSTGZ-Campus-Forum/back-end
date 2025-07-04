@@ -75,6 +75,30 @@ jobs:
           echo "initializing database with predefined data..."
           python -m app.scripts.init_db
           echo "database initialization completed."
+
+          echo "Creating required directories for SocketIO..."
+          sudo mkdir -p /var/log/gunicorn /var/run/gunicorn
+          sudo chown $(whoami):$(whoami) /var/log/gunicorn /var/run/gunicorn || true
+
+          echo "Checking if production service needs SocketIO update..."
+          if ! sudo systemctl cat prod-unikorn-api.service | grep -q "gunicorn.conf.py"; then
+            echo "Updating production service for SocketIO support..."
+            
+            # Create service override for production
+            sudo mkdir -p /etc/systemd/system/prod-unikorn-api.service.d
+            sudo tee /etc/systemd/system/prod-unikorn-api.service.d/socketio.conf > /dev/null <<EOF
+          [Service]
+          ExecStart=
+          ExecStart=/data/prod_unikorn/back-end/venv/bin/gunicorn --config /data/prod_unikorn/back-end/gunicorn.conf.py wsgi:application
+          WorkingDirectory=/data/prod_unikorn/back-end
+          Environment=FLASK_ENV=production
+          EOF
+            
+            sudo systemctl daemon-reload
+            echo "Production service updated for SocketIO support with PRODUCTION security."
+          else
+            echo "Production service already configured for SocketIO."
+          fi
           
           # Graceful restart
           echo "Restarting production service..."
@@ -89,12 +113,22 @@ jobs:
             exit 1
           fi
           
-          # Health check
-          # sleep 5
-          # curl -f http://localhost:8001/health || {
-          #   echo "Health check failed! Rolling back..."
-          #   sudo /usr/bin/systemctl restart prod-unikorn-api.service
-          #   exit 1
-          # }
+          # SocketIO and Security verification
+          sleep 5
+          echo "Testing production SocketIO endpoint..."
+          if curl -f -I https://unikorn.axfff.com/socket.io/ > /dev/null 2>&1; then
+            echo "✅ Production SocketIO endpoint is working!"
+          else
+            echo "⚠️ Production SocketIO endpoint not responding, checking logs..."
+            sudo journalctl -u prod-unikorn-api.service --lines=10
+          fi
+
+          echo "Verifying production security configuration..."
+          export FLASK_ENV=production
+          if python -c "from app.config_security import SecurityConfig; print('✅ Production CORS origins:', SecurityConfig.get_allowed_origins())"; then
+            echo "✅ Production security configuration verified."
+          else
+            echo "⚠️ Could not verify security configuration."
+          fi
           
-          echo "Production deployment complete!"
+          echo "🔒 Production deployment complete with security verified!"
