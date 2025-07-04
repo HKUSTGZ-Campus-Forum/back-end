@@ -1,18 +1,16 @@
 # run.py
 from app import create_app
 from app.extensions import socketio
+from app.config_security import SecurityConfig
 from flask_cors import CORS
 
 app = create_app()
+
+# Configure CORS with environment-specific origins
 CORS(app,
-     resources={r"/*":
-                    {"origins": [
-                        "http://localhost:3000",
-                        "http://127.0.0.1:3000",
-                        "https://dev.unikorn.axfff.com",
-                        "https://unikorn.axfff.com",
-                    ]
-                    }},
+     resources={r"/*": {
+         "origins": SecurityConfig.get_allowed_origins()
+     }},
      supports_credentials=True)
 
 if __name__ == '__main__':
