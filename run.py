@@ -1,4 +1,5 @@
 # run.py
+import eventlet_patch  # Import eventlet patch FIRST
 from app import create_app
 from app.extensions import socketio
 from app.config_security import SecurityConfig
