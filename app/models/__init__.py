@@ -10,4 +10,5 @@ from .calendar import UserCalendar
 from .tag import Tag, TagType, post_tags
 from .token import TokenBlacklist
 from .course import Course
+from .gugu_message import GuguMessage
 
