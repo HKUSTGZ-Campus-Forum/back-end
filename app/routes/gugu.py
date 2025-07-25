@@ -4,9 +4,9 @@ from app.models import GuguMessage, User
 from app.extensions import db
 from datetime import datetime
 
-gugu_bp = Blueprint('gugu', __name__)
+gugu_bp = Blueprint('gugu', __name__, url_prefix='/gugu')
 
-@gugu_bp.route('/api/gugu/messages', methods=['GET'])
+@gugu_bp.route('/messages', methods=['GET'])
 def get_messages():
     """获取咕咕聊天消息"""
     try:
@@ -37,7 +37,7 @@ def get_messages():
             'error': str(e)
         }), 500
 
-@gugu_bp.route('/api/gugu/recent', methods=['GET'])
+@gugu_bp.route('/recent', methods=['GET'])
 def get_recent_messages():
     """获取最近的咕咕消息（用于主页预览）"""
     try:
@@ -65,7 +65,7 @@ def get_recent_messages():
             'error': str(e)
         }), 500
 
-@gugu_bp.route('/api/gugu/messages', methods=['POST'])
+@gugu_bp.route('/messages', methods=['POST'])
 @jwt_required()
 def send_message():
     """发送咕咕聊天消息"""
@@ -123,7 +123,7 @@ def send_message():
             'error': str(e)
         }), 500
 
-@gugu_bp.route('/api/gugu/messages/<int:message_id>', methods=['DELETE'])
+@gugu_bp.route('/messages/<int:message_id>', methods=['DELETE'])
 @jwt_required()
 def delete_message(message_id):
     """删除咕咕聊天消息（仅消息作者可删除）"""
@@ -171,7 +171,7 @@ def delete_message(message_id):
             'error': str(e)
         }), 500
 
-@gugu_bp.route('/api/gugu/stats', methods=['GET'])
+@gugu_bp.route('/stats', methods=['GET'])
 def get_chat_stats():
     """获取咕咕聊天室统计信息"""
     try:
