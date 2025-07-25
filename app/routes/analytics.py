@@ -198,9 +198,11 @@ def get_daily_summary():
 def get_hot_posts():
     """
     Get current hot posts for real-time display on main page.
+    Ensures a minimum number of posts are always shown.
     """
     limit = request.args.get('limit', 10, type=int)
     time_window = request.args.get('hours', 24, type=int)  # Default 24 hours
+    min_posts = request.args.get('min_posts', 5, type=int)  # Minimum posts to show
     
     # Calculate cutoff time
     cutoff_time = datetime.now(timezone.utc) - timedelta(hours=time_window)
@@ -219,9 +221,27 @@ def get_hot_posts():
         score = calculate_hot_score(post)
         posts_with_scores.append((post, score))
     
-    # Sort and limit
+    # Sort by hot score
     posts_with_scores.sort(key=lambda x: x[1], reverse=True)
-    hot_posts = posts_with_scores[:limit]
+    
+    # If we don't have enough posts in the time window, expand the search
+    if len(posts_with_scores) < min_posts:
+        # Get all posts (no time limit) to fill minimum requirement
+        all_posts = Post.query.filter(Post.is_deleted == False).all()
+        all_posts_with_scores = []
+        
+        for post in all_posts:
+            score = calculate_hot_score(post)
+            all_posts_with_scores.append((post, score))
+        
+        # Sort all posts by hot score
+        all_posts_with_scores.sort(key=lambda x: x[1], reverse=True)
+        
+        # Take the top posts to meet minimum requirement
+        hot_posts = all_posts_with_scores[:max(limit, min_posts)]
+    else:
+        # We have enough recent posts, just limit them
+        hot_posts = posts_with_scores[:limit]
     
     # Format response
     def format_hot_post(post, score):
