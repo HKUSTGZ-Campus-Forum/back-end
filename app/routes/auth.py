@@ -256,6 +256,48 @@ def reset_password():
         db.session.rollback()
         return jsonify({"msg": f"Failed to reset password: {str(e)}"}), 500
 
+@bp.route('/change-password', methods=['POST'])
+@jwt_required()
+def change_password():
+    """Change password for authenticated user"""
+    data = request.get_json() or {}
+    
+    current_password = data.get('current_password')
+    new_password = data.get('new_password')
+    
+    if not current_password or not new_password:
+        return jsonify({"msg": "Current password and new password are required"}), 400
+    
+    if len(new_password) < 6:
+        return jsonify({"msg": "New password must be at least 6 characters"}), 400
+    
+    # Get current user
+    current_user_id = get_jwt_identity()
+    user = User.query.get(current_user_id)
+    if not user or user.is_deleted:
+        return jsonify({"msg": "User not found"}), 404
+    
+    # Verify current password
+    if not user.check_password(current_password):
+        return jsonify({"msg": "Current password is incorrect"}), 400
+    
+    # Check if new password is different from current
+    if user.check_password(new_password):
+        return jsonify({"msg": "New password must be different from current password"}), 400
+    
+    try:
+        # Update password
+        user.set_password(new_password)
+        user.update_last_active()
+        
+        db.session.commit()
+        
+        return jsonify({"msg": "Password changed successfully"}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"msg": f"Failed to change password: {str(e)}"}), 500
+
 def is_email(text):
     email_text = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return re.match(email_text, text) is not None
