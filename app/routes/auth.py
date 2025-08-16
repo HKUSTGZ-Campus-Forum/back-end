@@ -266,11 +266,19 @@ def is_hkust_email(email):
         return False
     
     email = email.lower().strip()
+    
+    # Basic email format check first
+    if not is_email(email):
+        return False
+    
     allowed_domains = ['connect.hkust-gz.edu.cn', 'hkust-gz.edu.cn']
     
     for domain in allowed_domains:
         if email.endswith('@' + domain):
-            return True
+            # Additional check to ensure it's exactly the domain, not a subdomain
+            email_parts = email.split('@')
+            if len(email_parts) == 2 and email_parts[1] == domain:
+                return True
     
     return False
 
