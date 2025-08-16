@@ -113,7 +113,7 @@ def get_user(user_id):
     
     # Check if requesting own profile (include more details) or just public info
     current_user_id = get_jwt_identity()
-    include_contact = (current_user_id == user_id)
+    include_contact = (str(current_user_id) == str(user_id))
     
     # Update last active time for the requesting user
     if str(current_user_id) == str(user_id):
