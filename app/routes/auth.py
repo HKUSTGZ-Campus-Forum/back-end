@@ -55,6 +55,9 @@ def register():
     if not is_email(email):
         return jsonify({"msg": "Invalid email format"}), 400
     
+    if not is_hkust_email(email):
+        return jsonify({"msg": "Only HKUST-GZ email addresses are allowed (connect.hkust-gz.edu.cn or hkust-gz.edu.cn)"}), 400
+    
     # Check if username already exists
     if User.query.filter_by(username=username, is_deleted=False).first():
         return jsonify({"msg": "Username already exists"}), 400
@@ -193,6 +196,9 @@ def forgot_password():
     if not is_email(email):
         return jsonify({"msg": "Invalid email format"}), 400
     
+    if not is_hkust_email(email):
+        return jsonify({"msg": "Only HKUST-GZ email addresses are allowed"}), 400
+    
     user = User.query.filter_by(email=email, is_deleted=False).first()
     if not user:
         # Don't reveal if email exists for security
@@ -253,6 +259,20 @@ def reset_password():
 def is_email(text):
     email_text = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return re.match(email_text, text) is not None
+
+def is_hkust_email(email):
+    """Check if email belongs to HKUST-GZ domains"""
+    if not email:
+        return False
+    
+    email = email.lower().strip()
+    allowed_domains = ['connect.hkust-gz.edu.cn', 'hkust-gz.edu.cn']
+    
+    for domain in allowed_domains:
+        if email.endswith('@' + domain):
+            return True
+    
+    return False
 
 @bp.route('/login', methods=['POST'])
 def login():
