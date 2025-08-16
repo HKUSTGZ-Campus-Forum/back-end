@@ -12,6 +12,10 @@ class User(db.Model):
     password_hash = db.Column(db.Text, nullable=False)
     email = db.Column(db.String(100), nullable=True)
     email_verified = db.Column(db.Boolean, default=False, nullable=False)
+    email_verification_code = db.Column(db.String(6), nullable=True)
+    email_verification_expires_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    password_reset_token = db.Column(db.String(64), nullable=True)
+    password_reset_expires_at = db.Column(db.DateTime(timezone=True), nullable=True)
     phone_number = db.Column(db.String(20))
     phone_verified = db.Column(db.Boolean, default=False, nullable=False)
     profile_picture_file_id = db.Column(db.Integer, db.ForeignKey('files.id'), nullable=True)  # Reference to File record for avatar
@@ -69,6 +73,49 @@ class User(db.Model):
         """Update the last_active_at timestamp to current time"""
         self.last_active_at = datetime.now(timezone.utc)
         db.session.commit()
+
+    def set_email_verification_code(self, code, expires_minutes=10):
+        """Set email verification code with expiration"""
+        from datetime import timedelta
+        self.email_verification_code = code
+        self.email_verification_expires_at = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
+
+    def verify_email_code(self, code):
+        """Verify email verification code"""
+        if not self.email_verification_code or not self.email_verification_expires_at:
+            return False
+        
+        if datetime.now(timezone.utc) > self.email_verification_expires_at:
+            return False
+        
+        if self.email_verification_code == code:
+            self.email_verified = True
+            self.email_verification_code = None
+            self.email_verification_expires_at = None
+            return True
+        
+        return False
+
+    def set_password_reset_token(self, token, expires_hours=1):
+        """Set password reset token with expiration"""
+        from datetime import timedelta
+        self.password_reset_token = token
+        self.password_reset_expires_at = datetime.now(timezone.utc) + timedelta(hours=expires_hours)
+
+    def verify_password_reset_token(self, token):
+        """Verify password reset token"""
+        if not self.password_reset_token or not self.password_reset_expires_at:
+            return False
+        
+        if datetime.now(timezone.utc) > self.password_reset_expires_at:
+            return False
+        
+        return self.password_reset_token == token
+
+    def clear_password_reset_token(self):
+        """Clear password reset token after use"""
+        self.password_reset_token = None
+        self.password_reset_expires_at = None
 
     @property
     def avatar_url(self):

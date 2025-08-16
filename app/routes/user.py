@@ -113,7 +113,7 @@ def get_user(user_id):
     
     # Check if requesting own profile (include more details) or just public info
     current_user_id = get_jwt_identity()
-    include_contact = (current_user_id == user_id)
+    include_contact = (str(current_user_id) == str(user_id))
     
     # Update last active time for the requesting user
     if str(current_user_id) == str(user_id):
@@ -153,6 +153,13 @@ def update_user(user_id):
         # Check if username already exists
         if User.query.filter_by(username=data['username'], is_deleted=False).first():
             return jsonify({"msg": "Username already exists"}), 400
+        
+        # Require email verification for username changes (security measure)
+        if not user.email_verified and user.email:
+            return jsonify({"msg": "Email verification required before changing username. Please verify your email first."}), 400
+        elif not user.email:
+            return jsonify({"msg": "Email address required before changing username. Please add and verify your email first."}), 400
+            
         user.username = data['username']
         
     if 'email' in data:
@@ -306,3 +313,73 @@ def get_user_stats(user_id):
         "view_count": view_count,
         "total_score": round(total_score, 1)
     })
+
+@bp.route('/<int:user_id>/add-email', methods=['POST'])
+@jwt_required()
+def add_email_to_existing_user(user_id):
+    """Add email to existing user and send verification"""
+    # Verify the requester is the same user
+    current_user_id = get_jwt_identity()
+    if int(current_user_id) != user_id:
+        return jsonify({"msg": "Unauthorized to modify this user"}), 403
+    
+    user = User.query.get(user_id)
+    if not user or user.is_deleted:
+        return jsonify({"msg": "User not found"}), 404
+    
+    data = request.get_json() or {}
+    email = data.get('email', '').strip().lower()
+    
+    if not email:
+        return jsonify({"msg": "Email is required"}), 400
+    
+    # Validate email format
+    is_valid, error_msg = validate_email(email)
+    if not is_valid:
+        return jsonify({"msg": error_msg}), 400
+    
+    # Check HKUST domain requirement (reuse from auth.py)
+    from app.routes.auth import is_hkust_email
+    if not is_hkust_email(email):
+        return jsonify({"msg": "Only HKUST-GZ email addresses are allowed (connect.hkust-gz.edu.cn or hkust-gz.edu.cn)"}), 400
+    
+    # Check if email already exists
+    existing_user = User.query.filter_by(email=email, is_deleted=False).first()
+    if existing_user and existing_user.id != user_id:
+        return jsonify({"msg": "Email already registered by another user"}), 400
+    
+    try:
+        # Update email and reset verification status
+        user.email = email
+        user.email_verified = False
+        
+        # Generate and send verification code
+        from app.services.email_service import EmailService
+        email_service = EmailService.from_app_config()
+        verification_code = email_service.generate_verification_code()
+        user.set_email_verification_code(verification_code)
+        
+        # Send verification email
+        result = email_service.send_verification_email(
+            to_email=email,
+            verification_code=verification_code,
+            user_name=user.username
+        )
+        
+        db.session.commit()
+        
+        if result.get('success'):
+            return jsonify({
+                "msg": "Email added successfully. Verification code sent.",
+                "email_sent": True
+            }), 200
+        else:
+            return jsonify({
+                "msg": "Email added but verification email failed to send. Please try resending verification email.",
+                "email_sent": False,
+                "email_error": result.get('error')
+            }), 201
+            
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"msg": f"Failed to add email: {str(e)}"}), 500
