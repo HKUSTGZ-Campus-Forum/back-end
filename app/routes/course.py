@@ -26,6 +26,58 @@ def admin_required(fn):
         return fn(*args, **kwargs)
     return wrapper
 
+@bp.route('/filters', methods=['GET'])
+def get_course_filters():
+    """Get available filter options for courses"""
+    try:
+        # Get distinct semesters from course data (based on term field)
+        # Assuming terms like "2430", "2440", "2410" represent different semesters
+        courses = Course.query.filter_by(is_deleted=False).all()
+        
+        # Extract semester/term data from courses
+        semester_data = {}
+        course_types = set()
+        
+        for course in courses:
+            # Extract course type from course code (prefix before space or number)
+            code_parts = course.code.split()
+            if code_parts:
+                course_type = code_parts[0]  # e.g., "BSBE", "AIAA"
+                course_types.add(course_type)
+        
+        # Get semesters from existing course tags
+        course_tags = Course.get_course_tags()
+        semester_codes = set()
+        
+        for tag in course_tags:
+            parsed = parse_semester_tag(tag.name)
+            if parsed:
+                _, year, semester_code = parsed
+                semester_key = f"{year}{semester_code}"
+                if semester_key not in semester_data:
+                    semester_data[semester_key] = {
+                        "code": semester_key,
+                        "display_name": f"{year}{get_semester_display_name(semester_code, 'zh')}",
+                        "year": year,
+                        "season": semester_code
+                    }
+        
+        # Sort semesters (latest first)
+        sorted_semesters = sorted(semester_data.values(), key=lambda x: (x["year"], x["season"]), reverse=True)
+        
+        # Format course types
+        formatted_course_types = [
+            {"code": ct, "name": ct} for ct in sorted(course_types)
+        ]
+        
+        return jsonify({
+            "semesters": sorted_semesters,
+            "course_types": formatted_course_types
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
 @bp.route('', methods=['GET'])
 def get_courses():
     """List all courses with optional filtering and sorting"""
@@ -33,6 +85,8 @@ def get_courses():
     search_query = request.args.get('q', '')
     sort_by = request.args.get('sort_by', 'code')
     sort_order = request.args.get('sort_order', 'asc')
+    semester_filter = request.args.get('semester', '')
+    course_type_filter = request.args.get('course_type', '')
     
     # Start building the query
     query = Course.query.filter_by(is_deleted=False)
@@ -45,6 +99,30 @@ def get_courses():
             (Course.name.ilike(safe_query, escape='\\')) |
             (Course.description.ilike(safe_query, escape='\\'))
         )
+    
+    # Apply course type filter if provided
+    if course_type_filter:
+        query = query.filter(Course.code.like(f"{course_type_filter}%"))
+    
+    # Apply semester filter if provided
+    if semester_filter:
+        # Get all course codes that have tags for this semester
+        course_tags = Course.get_course_tags()
+        valid_course_codes = []
+        
+        for tag in course_tags:
+            parsed = parse_semester_tag(tag.name)
+            if parsed:
+                course_code, year, semester_code = parsed
+                semester_key = f"{year}{semester_code}"
+                if semester_key == semester_filter:
+                    valid_course_codes.append(course_code)
+        
+        if valid_course_codes:
+            query = query.filter(Course.code.in_(valid_course_codes))
+        else:
+            # If no courses found for this semester, return empty results
+            return jsonify([]), 200
     
     # Apply sorting
     valid_sort_fields = {
