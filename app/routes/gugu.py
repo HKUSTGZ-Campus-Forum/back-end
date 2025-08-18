@@ -17,6 +17,9 @@ def get_messages():
         # 获取消息
         messages = GuguMessage.get_recent_messages(limit=limit)
         
+        # 反转列表以获得正确的时间顺序（旧消息在前）
+        messages = list(reversed(messages))
+        
         # 转换为字典格式
         messages_data = [message.to_dict() for message in messages]
         
