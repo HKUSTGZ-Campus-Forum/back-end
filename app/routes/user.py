@@ -4,6 +4,8 @@ from app.models.user_role import UserRole as UserRoleModel
 from app.models.post import Post
 from app.models.comment import Comment
 from app.models.reaction import Reaction
+from app.models.oauth_token import OAuthToken
+from app.models.oauth_client import OAuthClient
 import re
 from app.extensions import db
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -383,3 +385,88 @@ def add_email_to_existing_user(user_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"msg": f"Failed to add email: {str(e)}"}), 500
+
+@bp.route('/<int:user_id>/oauth-tokens', methods=['GET'])
+@jwt_required()
+def get_user_oauth_tokens(user_id):
+    """Get user's active OAuth tokens/connected apps"""
+    # Verify the requester is the same user
+    current_user_id = get_jwt_identity()
+    if int(current_user_id) != user_id:
+        return jsonify({"msg": "Unauthorized to view this user's connected apps"}), 403
+    
+    user = User.query.get(user_id)
+    if not user or user.is_deleted:
+        return jsonify({"msg": "User not found"}), 404
+    
+    # Get active OAuth tokens with client information
+    tokens = db.session.query(OAuthToken, OAuthClient).join(
+        OAuthClient, OAuthToken.client_id == OAuthClient.client_id
+    ).filter(
+        OAuthToken.user_id == user_id,
+        OAuthToken.revoked == False,
+        OAuthClient.is_active == True
+    ).all()
+    
+    connected_apps = []
+    for token, client in tokens:
+        connected_apps.append({
+            'id': token.id,
+            'client_id': client.client_id,
+            'client_name': client.client_name,
+            'client_description': client.client_description,
+            'client_uri': client.client_uri,
+            'scope': token.scope,
+            'created_at': token.created_at.isoformat(),
+            'last_used': token.updated_at.isoformat(),
+            'expires_at': token.expires_at.isoformat() if token.expires_at else None,
+            'is_expired': token.is_expired()
+        })
+    
+    return jsonify({
+        'connected_apps': connected_apps,
+        'total_count': len(connected_apps)
+    })
+
+@bp.route('/<int:user_id>/oauth-tokens/<int:token_id>/revoke', methods=['POST'])
+@jwt_required()
+def revoke_user_oauth_token(user_id, token_id):
+    """Allow user to revoke access to an OAuth app"""
+    # Verify the requester is the same user
+    current_user_id = get_jwt_identity()
+    if int(current_user_id) != user_id:
+        return jsonify({"msg": "Unauthorized to revoke this user's app access"}), 403
+    
+    user = User.query.get(user_id)
+    if not user or user.is_deleted:
+        return jsonify({"msg": "User not found"}), 404
+    
+    # Find the token belonging to this user
+    token = OAuthToken.query.filter_by(
+        id=token_id,
+        user_id=user_id
+    ).first()
+    
+    if not token:
+        return jsonify({"msg": "Connected app not found"}), 404
+    
+    if token.revoked:
+        return jsonify({"msg": "App access already revoked"}), 400
+    
+    try:
+        # Revoke the token
+        token.revoke()
+        db.session.commit()
+        
+        # Get client info for response
+        client = OAuthClient.query.filter_by(client_id=token.client_id).first()
+        client_name = client.client_name if client else "Unknown App"
+        
+        return jsonify({
+            "msg": f"Access revoked for {client_name}",
+            "revoked_app": client_name
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"msg": f"Failed to revoke app access: {str(e)}"}), 500
