@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OAuth2 Test Client</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .section {
+            background: #f8f9fa;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+        }
+        .button {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .button:hover {
+            background: #0056b3;
+        }
+        .button.success {
+            background: #28a745;
+        }
+        .button.danger {
+            background: #dc3545;
+        }
+        .code {
+            background: #f8f8f8;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔐 OAuth2 Test Client</h1>
+    <p>This page helps you test the OAuth2 implementation manually.</p>
+
+    <!-- Configuration Section -->
+    <div class="section">
+        <h2>⚙️ Configuration</h2>
+        <p>Base URL: <input type="text" id="baseUrl" value="http://localhost:5000" style="width: 300px;"></p>
+        <p>Client ID: <input type="text" id="clientId" placeholder="Enter your OAuth client ID" style="width: 300px;"></p>
+        <p>Client Secret: <input type="text" id="clientSecret" placeholder="Enter your OAuth client secret" style="width: 300px;"></p>
+        <p>Redirect URI: <input type="text" id="redirectUri" value="http://localhost:8080/oauth-callback.html" style="width: 400px;"></p>
+        <p>Scopes: <input type="text" id="scopes" value="profile email" style="width: 200px;"></p>
+    </div>
+
+    <!-- Step 1: Authorization -->
+    <div class="section">
+        <h2>🎫 Step 1: Authorization</h2>
+        <p>Start the OAuth flow by requesting authorization from the user.</p>
+        <button class="button" onclick="startAuthorization()">Start Authorization Flow</button>
+        <div id="authStatus"></div>
+        <div id="authUrl" class="code" style="display: none;"></div>
+    </div>
+
+    <!-- Step 2: Token Exchange -->
+    <div class="section">
+        <h2>🎟️ Step 2: Token Exchange</h2>
+        <p>Exchange authorization code for access token.</p>
+        <p>Authorization Code: <input type="text" id="authCode" placeholder="Paste authorization code here" style="width: 400px;"></p>
+        <button class="button" onclick="exchangeToken()">Exchange for Token</button>
+        <div id="tokenStatus"></div>
+        <div id="tokenResponse" class="code" style="display: none;"></div>
+    </div>
+
+    <!-- Step 3: User Info -->
+    <div class="section">
+        <h2>👤 Step 3: User Information</h2>
+        <p>Fetch user information using the access token.</p>
+        <p>Access Token: <input type="text" id="accessToken" placeholder="Access token will appear here" style="width: 400px;"></p>
+        <button class="button" onclick="fetchUserInfo()">Fetch User Info</button>
+        <div id="userInfoStatus"></div>
+        <div id="userInfoResponse" class="code" style="display: none;"></div>
+    </div>
+
+    <!-- Step 4: Token Revocation -->
+    <div class="section">
+        <h2>🗑️ Step 4: Token Revocation</h2>
+        <p>Revoke the access token.</p>
+        <button class="button danger" onclick="revokeToken()">Revoke Token</button>
+        <div id="revokeStatus"></div>
+    </div>
+
+    <!-- Test Results -->
+    <div class="section">
+        <h2>📊 Test Results</h2>
+        <div id="testResults">
+            <p>Run through the steps above to see test results.</p>
+        </div>
+        <button class="button success" onclick="runFullTest()">Run Full Automated Test</button>
+    </div>
+
+    <script>
+        let authCode = '';
+        let accessToken = '';
+
+        function getBaseUrl() {
+            return document.getElementById('baseUrl').value;
+        }
+
+        function getClientId() {
+            return document.getElementById('clientId').value;
+        }
+
+        function getClientSecret() {
+            return document.getElementById('clientSecret').value;
+        }
+
+        function getRedirectUri() {
+            return document.getElementById('redirectUri').value;
+        }
+
+        function getScopes() {
+            return document.getElementById('scopes').value;
+        }
+
+        function showStatus(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            element.innerHTML = `<div class="status ${type}">${message}</div>`;
+        }
+
+        function showCode(elementId, code) {
+            const element = document.getElementById(elementId);
+            element.textContent = code;
+            element.style.display = 'block';
+        }
+
+        function startAuthorization() {
+            const baseUrl = getBaseUrl();
+            const clientId = getClientId();
+            const redirectUri = getRedirectUri();
+            const scopes = getScopes();
+
+            if (!clientId) {
+                showStatus('authStatus', 'Please enter a Client ID', 'error');
+                return;
+            }
+
+            const params = new URLSearchParams({
+                response_type: 'code',
+                client_id: clientId,
+                redirect_uri: redirectUri,
+                scope: scopes,
+                state: 'test_state_' + Math.random().toString(36).substr(2, 9)
+            });
+
+            const authUrl = `${baseUrl}/oauth/authorize?${params.toString()}`;
+            
+            showStatus('authStatus', 'Opening authorization page...', 'info');
+            showCode('authUrl', authUrl);
+
+            // Open in new window
+            const popup = window.open(authUrl, 'oauth', 'width=600,height=700');
+            
+            // Check if popup was blocked
+            if (!popup) {
+                showStatus('authStatus', 'Popup blocked! Please allow popups or click the URL above manually.', 'error');
+            } else {
+                showStatus('authStatus', 'Authorization window opened. After approval, copy the code from the callback URL.', 'success');
+            }
+        }
+
+        async function exchangeToken() {
+            const baseUrl = getBaseUrl();
+            const clientId = getClientId();
+            const clientSecret = getClientSecret();
+            const redirectUri = getRedirectUri();
+            const code = document.getElementById('authCode').value;
+
+            if (!code) {
+                showStatus('tokenStatus', 'Please enter an authorization code', 'error');
+                return;
+            }
+
+            if (!clientSecret) {
+                showStatus('tokenStatus', 'Please enter a Client Secret', 'error');
+                return;
+            }
+
+            showStatus('tokenStatus', 'Exchanging code for token...', 'info');
+
+            try {
+                const formData = new URLSearchParams({
+                    grant_type: 'authorization_code',
+                    code: code,
+                    redirect_uri: redirectUri,
+                    client_id: clientId,
+                    client_secret: clientSecret
+                });
+
+                const response = await fetch(`${baseUrl}/oauth/token`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: formData
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    accessToken = data.access_token;
+                    document.getElementById('accessToken').value = accessToken;
+                    showStatus('tokenStatus', 'Token exchange successful!', 'success');
+                    showCode('tokenResponse', JSON.stringify(data, null, 2));
+                } else {
+                    showStatus('tokenStatus', `Token exchange failed: ${data.error || 'Unknown error'}`, 'error');
+                    showCode('tokenResponse', JSON.stringify(data, null, 2));
+                }
+            } catch (error) {
+                showStatus('tokenStatus', `Network error: ${error.message}`, 'error');
+            }
+        }
+
+        async function fetchUserInfo() {
+            const baseUrl = getBaseUrl();
+            const token = document.getElementById('accessToken').value;
+
+            if (!token) {
+                showStatus('userInfoStatus', 'Please enter an access token', 'error');
+                return;
+            }
+
+            showStatus('userInfoStatus', 'Fetching user information...', 'info');
+
+            try {
+                const response = await fetch(`${baseUrl}/oauth/userinfo`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showStatus('userInfoStatus', 'User info fetched successfully!', 'success');
+                    showCode('userInfoResponse', JSON.stringify(data, null, 2));
+                } else {
+                    showStatus('userInfoStatus', `Failed to fetch user info: ${data.error || 'Unknown error'}`, 'error');
+                    showCode('userInfoResponse', JSON.stringify(data, null, 2));
+                }
+            } catch (error) {
+                showStatus('userInfoStatus', `Network error: ${error.message}`, 'error');
+            }
+        }
+
+        async function revokeToken() {
+            const baseUrl = getBaseUrl();
+            const token = document.getElementById('accessToken').value;
+            const clientId = getClientId();
+            const clientSecret = getClientSecret();
+
+            if (!token) {
+                showStatus('revokeStatus', 'Please enter an access token', 'error');
+                return;
+            }
+
+            showStatus('revokeStatus', 'Revoking token...', 'info');
+
+            try {
+                const formData = new URLSearchParams({
+                    token: token,
+                    client_id: clientId,
+                    client_secret: clientSecret
+                });
+
+                const response = await fetch(`${baseUrl}/oauth/revoke`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: formData
+                });
+
+                if (response.ok) {
+                    showStatus('revokeStatus', 'Token revoked successfully!', 'success');
+                    // Test if token is actually revoked
+                    setTimeout(async () => {
+                        try {
+                            const testResponse = await fetch(`${baseUrl}/oauth/userinfo`, {
+                                headers: { 'Authorization': `Bearer ${token}` }
+                            });
+                            if (testResponse.status === 401) {
+                                showStatus('revokeStatus', 'Token revoked successfully and verified!', 'success');
+                            } else {
+                                showStatus('revokeStatus', 'Token revocation may not be working correctly.', 'error');
+                            }
+                        } catch (e) {
+                            showStatus('revokeStatus', 'Token revoked successfully!', 'success');
+                        }
+                    }, 1000);
+                } else {
+                    showStatus('revokeStatus', 'Token revocation failed', 'error');
+                }
+            } catch (error) {
+                showStatus('revokeStatus', `Network error: ${error.message}`, 'error');
+            }
+        }
+
+        async function runFullTest() {
+            showStatus('testResults', 'Running automated test... (This is a simplified version)', 'info');
+            
+            const results = [];
+            const baseUrl = getBaseUrl();
+            const clientId = getClientId();
+            
+            // Test 1: Check if authorization endpoint is accessible
+            try {
+                const response = await fetch(`${baseUrl}/oauth/authorize?response_type=code&client_id=test`, {
+                    method: 'GET'
+                });
+                if (response.status === 400 || response.status === 401) {
+                    results.push('✅ Authorization endpoint accessible and validates requests');
+                } else {
+                    results.push('❌ Authorization endpoint may not be working correctly');
+                }
+            } catch (error) {
+                results.push('❌ Cannot reach authorization endpoint');
+            }
+
+            // Test 2: Check if token endpoint is accessible
+            try {
+                const response = await fetch(`${baseUrl}/oauth/token`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'grant_type=authorization_code'
+                });
+                if (response.status === 400) {
+                    results.push('✅ Token endpoint accessible and validates requests');
+                } else {
+                    results.push('❌ Token endpoint may not be working correctly');
+                }
+            } catch (error) {
+                results.push('❌ Cannot reach token endpoint');
+            }
+
+            // Test 3: Check if userinfo endpoint is accessible
+            try {
+                const response = await fetch(`${baseUrl}/oauth/userinfo`, {
+                    headers: { 'Authorization': 'Bearer invalid_token' }
+                });
+                if (response.status === 401) {
+                    results.push('✅ UserInfo endpoint accessible and validates tokens');
+                } else {
+                    results.push('❌ UserInfo endpoint may not be working correctly');
+                }
+            } catch (error) {
+                results.push('❌ Cannot reach UserInfo endpoint');
+            }
+
+            const resultHtml = `
+                <h3>Automated Test Results:</h3>
+                ${results.map(result => `<p>${result}</p>`).join('')}
+                <p><strong>Note:</strong> For complete testing, use the Python test script or go through the manual steps above.</p>
+            `;
+            
+            document.getElementById('testResults').innerHTML = resultHtml;
+        }
+
+        // Auto-extract code from URL if we're on the callback page
+        window.addEventListener('load', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+            if (code) {
+                document.getElementById('authCode').value = code;
+                showStatus('authStatus', 'Authorization code received from URL!', 'success');
+            }
+        });
+    </script>
+</body>
+</html>
