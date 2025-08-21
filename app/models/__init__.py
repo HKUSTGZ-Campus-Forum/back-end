@@ -11,4 +11,7 @@ from .tag import Tag, TagType, post_tags
 from .token import TokenBlacklist
 from .course import Course
 from .gugu_message import GuguMessage
+from .oauth_client import OAuthClient
+from .oauth_token import OAuthToken
+from .oauth_authorization_code import OAuthAuthorizationCode
 

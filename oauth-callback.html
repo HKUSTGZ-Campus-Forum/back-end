@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OAuth Callback Handler</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            max-width: 600px;
+            margin: 100px auto;
+            padding: 20px;
+            text-align: center;
+        }
+        .code {
+            background: #f8f8f8;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            word-break: break-all;
+            margin: 20px 0;
+        }
+        .success { color: #28a745; }
+        .error { color: #dc3545; }
+    </style>
+</head>
+<body>
+    <h1>OAuth Callback Handler</h1>
+    <div id="result"></div>
+    
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
+        const error = urlParams.get('error');
+        const state = urlParams.get('state');
+        
+        if (error) {
+            document.getElementById('result').innerHTML = `
+                <div class="error">
+                    <h2>❌ Authorization Failed</h2>
+                    <p><strong>Error:</strong> ${error}</p>
+                    <p><strong>Description:</strong> ${urlParams.get('error_description') || 'No description provided'}</p>
+                </div>
+            `;
+        } else if (code) {
+            document.getElementById('result').innerHTML = `
+                <div class="success">
+                    <h2>✅ Authorization Successful!</h2>
+                    <p>Authorization code received:</p>
+                    <div class="code">${code}</div>
+                    <p><strong>State:</strong> ${state || 'N/A'}</p>
+                    <p>Copy this authorization code and use it in the token exchange step.</p>
+                    <button onclick="window.close()">Close Window</button>
+                </div>
+            `;
+        } else {
+            document.getElementById('result').innerHTML = `
+                <div class="error">
+                    <h2>❌ No Authorization Data</h2>
+                    <p>No authorization code or error received.</p>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>

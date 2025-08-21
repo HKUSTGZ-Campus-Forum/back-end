@@ -8,6 +8,10 @@ bleach
 flask_limiter
 flask-cors
 
+# OAuth2 server dependencies
+authlib
+werkzeug
+
 aliyun-python-sdk-core
 aliyun-python-sdk-sts
 oss2
