@@ -1,6 +1,6 @@
 # app/routes/oauth.py
 from flask import Blueprint, request, jsonify, render_template_string, redirect, url_for, session
-from flask_jwt_extended import jwt_required, get_jwt_identity, get_current_user
+from flask_jwt_extended import jwt_required, get_jwt_identity, get_current_user, verify_jwt_in_request
 from app.extensions import db
 from app.models.oauth_client import OAuthClient
 from app.models.oauth_token import OAuthToken
@@ -17,13 +17,15 @@ oauth_bp = Blueprint('oauth', __name__)
 # OAuth2 Authorization Server Endpoints
 
 @oauth_bp.route('/oauth/authorize', methods=['GET', 'POST'])
-@jwt_required()
+@jwt_required(optional=True)
 def authorize():
     """OAuth2 Authorization Endpoint
     
     Handles authorization requests from OAuth clients.
     GET: Display consent screen
     POST: Process user consent and generate authorization code
+    
+    Supports both JWT authentication and redirects unauthenticated users to login
     """
     
     # Extract OAuth2 parameters
@@ -71,13 +73,69 @@ def authorize():
             'error_description': 'Client not authorized for this response type'
         }), 400
     
-    # Get current user
+    # Get current user (works with optional JWT)
     user = get_current_user()
     if not user:
-        return jsonify({
-            'error': 'access_denied',
-            'error_description': 'User not authenticated'
-        }), 401
+        # Create a redirect to login page that will come back to OAuth after login
+        from urllib.parse import quote
+        oauth_url = request.url
+        login_redirect_url = f"/login?next={quote(oauth_url)}"
+        
+        # For browser requests, we need to redirect to a page that handles the OAuth flow
+        return render_template_string('''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Campus Forum Login Required</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; text-align: center; }
+        .container { background: #f5f5f5; padding: 30px; border-radius: 8px; }
+        .btn { display: inline-block; padding: 12px 24px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; margin: 10px; }
+        .btn:hover { background: #0056b3; }
+        .retry-btn { background: #28a745; }
+        .retry-btn:hover { background: #1e7e34; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>🔐 Authorization Required</h2>
+        <p><strong>{{ client_name }}</strong> wants to access your Campus Forum account.</p>
+        <p>Please log in to Campus Forum first, then try again.</p>
+        
+        <a href="/login" class="btn">Login to Campus Forum</a>
+        <button onclick="retryAuthorization()" class="btn retry-btn">I'm Already Logged In</button>
+        
+        <br><br>
+        <small>After logging in, click "I'm Already Logged In" or refresh this page.</small>
+    </div>
+    
+    <script>
+    function retryAuthorization() {
+        // Reload the page to retry OAuth with existing authentication
+        window.location.reload();
+    }
+    
+    // Check if we're already logged in by trying to access an authenticated endpoint
+    fetch('/api/users/me', {
+        headers: {
+            'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token') || '')
+        }
+    })
+    .then(response => {
+        if (response.ok) {
+            // User is logged in, retry OAuth authorization
+            retryAuthorization();
+        }
+    })
+    .catch(() => {
+        // User not logged in, show the login options
+    });
+    </script>
+</body>
+</html>
+        ''', 
+        client_name=client and client.client_name or "Unknown Application"
+        )
     
     # Filter scopes to only allowed ones
     allowed_scope = client.get_allowed_scope(scope)
