@@ -10,14 +10,13 @@ from datetime import datetime, timezone, timedelta
 import secrets
 import string
 import json
-from urllib.parse import urlencode, parse_qs, urlparse
+from urllib.parse import urlencode, parse_qs, urlparse, quote
 
 oauth_bp = Blueprint('oauth', __name__)
 
 # OAuth2 Authorization Server Endpoints
 
 @oauth_bp.route('/oauth/authorize', methods=['GET', 'POST'])
-@jwt_required(optional=True)
 def authorize():
     """OAuth2 Authorization Endpoint
     
@@ -73,11 +72,34 @@ def authorize():
             'error_description': 'Client not authorized for this response type'
         }), 400
     
-    # Get current user (works with optional JWT)
-    user = get_current_user()
+    # Get current user - check both JWT token and auth_token parameter
+    user = None
+    
+    # First try JWT from headers (for API calls)
+    try:
+        verify_jwt_in_request(optional=True)
+        user = get_current_user()
+    except:
+        pass
+    
+    # If no JWT user, check for auth_token parameter from frontend redirect
+    if not user:
+        auth_token = request.values.get('auth_token')
+        if auth_token:
+            try:
+                from flask_jwt_extended import decode_token
+                decoded_token = decode_token(auth_token)
+                if decoded_token and not decoded_token.get('exp', 0) < datetime.now(timezone.utc).timestamp():
+                    from app.models.user import User
+                    user_id = decoded_token.get('sub')
+                    if user_id:
+                        user = User.query.get(user_id)
+                        if user and user.is_deleted:
+                            user = None
+            except:
+                pass
     if not user:
         # Create a redirect to login page that will come back to OAuth after login
-        from urllib.parse import quote
         oauth_url = request.url
         login_redirect_url = f"/login?next={quote(oauth_url)}"
         
@@ -102,7 +124,7 @@ def authorize():
         <p><strong>{{ client_name }}</strong> wants to access your Campus Forum account.</p>
         <p>Please log in to Campus Forum first, then try again.</p>
         
-        <a href="/login" class="btn">Login to Campus Forum</a>
+        <a href="/login?next={{ oauth_url_encoded }}" class="btn">Login to Campus Forum</a>
         <button onclick="retryAuthorization()" class="btn retry-btn">I'm Already Logged In</button>
         
         <br><br>
@@ -111,30 +133,44 @@ def authorize():
     
     <script>
     function retryAuthorization() {
-        // Reload the page to retry OAuth with existing authentication
-        window.location.reload();
+        // Try to add auth token to URL and reload
+        const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+        if (token) {
+            const currentUrl = new URL(window.location.href);
+            currentUrl.searchParams.set('auth_token', token);
+            window.location.href = currentUrl.toString();
+        } else {
+            // Reload the page to retry OAuth with existing authentication
+            window.location.reload();
+        }
     }
     
     // Check if we're already logged in by trying to access an authenticated endpoint
-    fetch('/api/users/me', {
-        headers: {
-            'Authorization': 'Bearer ' + (localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token') || '')
-        }
-    })
-    .then(response => {
-        if (response.ok) {
-            // User is logged in, retry OAuth authorization
-            retryAuthorization();
-        }
-    })
-    .catch(() => {
-        // User not logged in, show the login options
-    });
+    const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+    if (token) {
+        fetch('/api/users/me', {
+            headers: {
+                'Authorization': 'Bearer ' + token
+            }
+        })
+        .then(response => {
+            if (response.ok) {
+                // User is logged in, automatically retry OAuth with token
+                const currentUrl = new URL(window.location.href);
+                currentUrl.searchParams.set('auth_token', token);
+                window.location.href = currentUrl.toString();
+            }
+        })
+        .catch(() => {
+            // User not logged in, show the login options
+        });
+    }
     </script>
 </body>
 </html>
         ''', 
-        client_name=client and client.client_name or "Unknown Application"
+        client_name=client and client.client_name or "Unknown Application",
+        oauth_url_encoded=quote(request.url)
         )
     
     # Filter scopes to only allowed ones
