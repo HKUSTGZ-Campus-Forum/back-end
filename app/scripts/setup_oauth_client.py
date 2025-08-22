@@ -25,9 +25,26 @@ def setup_courseplan_oauth_client():
     # Check if client already exists
     existing_client = OAuthClient.query.filter_by(client_name='CoursePlan.search').first()
     if existing_client:
-        print(f"OAuth client already exists!")
+        print(f"OAuth client already exists! Updating redirect URIs...")
+        
+        # Update redirect URIs to correct URLs
+        redirect_uris = [
+            'https://scheduler.unikorn.axfff.com/api/auth/campus-forum/callback',  # Production
+            'http://localhost:3000/api/auth/campus-forum/callback',  # Development
+            'http://127.0.0.1:3000/api/auth/campus-forum/callback'  # Alternative dev
+        ]
+        existing_client.set_redirect_uris(redirect_uris)
+        
+        # Update scope to include courses
+        existing_client.scope = 'profile email courses'
+        
+        db.session.commit()
+        
+        print("✅ OAuth client updated successfully!")
         print(f"Client ID: {existing_client.client_id}")
-        print("Client secret is hidden for security. Check database if needed.")
+        print("Client secret is hidden for security.")
+        print(f"Updated redirect URIs: {redirect_uris}")
+        print(f"Updated scope: {existing_client.scope}")
         return existing_client.client_id, "[HIDDEN]"
     
     # Generate credentials
@@ -47,9 +64,9 @@ def setup_courseplan_oauth_client():
     
     # Set allowed redirect URIs for CoursePlan.search
     redirect_uris = [
-        'https://scheduler.unikorn.axfff.com/api/auth/callback/campus-forum',  # Production
-        'http://localhost:3000/api/auth/callback/campus-forum',  # Development
-        'http://127.0.0.1:3000/api/auth/callback/campus-forum'  # Alternative dev
+        'https://scheduler.unikorn.axfff.com/api/auth/campus-forum/callback',  # Production
+        'http://localhost:3000/api/auth/campus-forum/callback',  # Development
+        'http://127.0.0.1:3000/api/auth/campus-forum/callback'  # Alternative dev
     ]
     client.set_redirect_uris(redirect_uris)
     
