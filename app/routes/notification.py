@@ -72,6 +72,15 @@ def mark_notification_read(notification_id):
         notification.mark_as_read()
         db.session.commit()
         
+        # Send badge update push notification
+        try:
+            from app.services.push_service import PushService
+            unread_count = Notification.get_unread_count(user_id)
+            PushService.send_badge_update(user_id, unread_count)
+        except Exception as e:
+            # Don't fail the main operation if push fails
+            pass
+        
         return jsonify(notification.to_dict()), 200
         
     except Exception as e:
@@ -88,6 +97,14 @@ def mark_all_notifications_read():
         
         # Mark all as read using service
         count = NotificationService.mark_all_as_read(user_id)
+        
+        # Send badge update push notification (should be 0 after marking all as read)
+        try:
+            from app.services.push_service import PushService
+            PushService.send_badge_update(user_id, 0)
+        except Exception as e:
+            # Don't fail the main operation if push fails
+            pass
         
         return jsonify({"message": f"Marked {count} notifications as read"}), 200
         
