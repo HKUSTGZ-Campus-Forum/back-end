@@ -4,6 +4,7 @@ from app.models.comment import Comment
 from app.models.user import User
 from app.models.reaction import Reaction
 from app.extensions import db#, limiter
+from app.services.notification_service import NotificationService
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func, desc, asc
 from datetime import datetime, timezone
@@ -93,6 +94,19 @@ def create_comment():
         
         db.session.add(comment)
         db.session.commit()
+        
+        # Create notifications for comment
+        try:
+            if parent_comment_id:
+                # This is a reply to a comment
+                NotificationService.create_comment_reply_notification(comment)
+            else:
+                # This is a comment on a post
+                NotificationService.create_post_comment_notification(comment)
+            db.session.commit()
+        except Exception as e:
+            # Log error but don't fail the comment creation
+            print(f"Failed to create notification: {str(e)}")
         
         return jsonify(comment.to_dict()), 201
     except Exception as e:
