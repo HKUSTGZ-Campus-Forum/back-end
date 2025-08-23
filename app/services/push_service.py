@@ -105,23 +105,31 @@ class PushService:
     def send_notification_push(notification: Notification) -> Dict[str, Any]:
         """Send push notification for a database notification"""
         
+        # Get current unread count for the user
+        from app.models.notification import Notification as NotificationModel
+        unread_count = NotificationModel.get_unread_count(notification.recipient_id)
+        
         # Prepare notification data for push
         notification_data = {
             "title": notification.title,
             "body": notification.message,
-            "icon": "/icons/topbar_logo.svg",
-            "badge": "/favicon.ico",
+            "icon": "/image/uniKorn.png",
+            "badge": "/image/uniKorn.png",
+            "unread_count": unread_count,  # Add unread count for badge
             "data": {
                 "notificationId": notification.id,
                 "type": notification.type,
                 "url": PushService._get_notification_url(notification),
-                "timestamp": notification.created_at.isoformat()
+                "timestamp": notification.created_at.isoformat(),
+                "post_id": notification.post_id,
+                "comment_id": notification.comment_id,
+                "unread_count": unread_count
             },
             "actions": [
                 {
                     "action": "view",
                     "title": "查看",
-                    "icon": "/icons/sidebar_logo.svg"
+                    "icon": "/image/uniKorn.png"
                 },
                 {
                     "action": "dismiss",
@@ -169,3 +177,21 @@ class PushService:
         }
         
         return PushService.send_notification_to_user(user_id, test_data)
+    
+    @staticmethod
+    def send_badge_update(user_id: int, unread_count: int) -> Dict[str, Any]:
+        """Send a silent push notification to update app badge only"""
+        badge_data = {
+            "title": "",  # Silent notification
+            "body": "",   # Silent notification
+            "silent": True,
+            "unread_count": unread_count,
+            "data": {
+                "badge_update": True,
+                "unread_count": unread_count,
+                "timestamp": "now"
+            },
+            "tag": "badge-update"
+        }
+        
+        return PushService.send_notification_to_user(user_id, badge_data)
