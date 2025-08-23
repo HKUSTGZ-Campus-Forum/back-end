@@ -4,6 +4,7 @@ from app.models.reaction_emoji import ReactionEmoji
 from app.models.post import Post
 from app.models.comment import Comment
 from app.extensions import db#, limiter
+from app.services.notification_service import NotificationService
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func, desc
 from datetime import datetime, timezone
@@ -138,6 +139,14 @@ def add_post_reaction(post_id):
         post.reaction_count = Reaction.query.filter_by(post_id=post_id).count() + 1
         
         db.session.commit()
+        
+        # Create notification for post reaction
+        try:
+            NotificationService.create_post_reaction_notification(reaction)
+            db.session.commit()
+        except Exception as e:
+            # Log error but don't fail the reaction creation
+            print(f"Failed to create notification: {str(e)}")
         
         return jsonify(reaction.to_dict()), 201
     except Exception as e:
@@ -288,6 +297,14 @@ def add_comment_reaction(comment_id):
         
         db.session.add(reaction)
         db.session.commit()
+        
+        # Create notification for comment reaction
+        try:
+            NotificationService.create_comment_reaction_notification(reaction)
+            db.session.commit()
+        except Exception as e:
+            # Log error but don't fail the reaction creation
+            print(f"Failed to create notification: {str(e)}")
         
         return jsonify(reaction.to_dict()), 201
     except Exception as e:
