@@ -1,6 +1,6 @@
 from flask import Flask
 from .config import Config
-from .extensions import db, jwt, migrate#, limiter
+from .extensions import db, jwt, migrate, cache#, limiter
 from .routes import register_blueprints
 from app.tasks.sts_pool import init_pool_maintenance
 
@@ -12,6 +12,7 @@ def create_app(config_class=Config):
     # Initialize extensions
     db.init_app(app)
     jwt.init_app(app)
+    cache.init_app(app)  # Initialize cache
 
     # Register blueprints (routes)
     register_blueprints(app)

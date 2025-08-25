@@ -15,9 +15,14 @@ werkzeug
 aliyun-python-sdk-core
 aliyun-python-sdk-sts
 oss2
+alibabacloud_green20220302
 
 APScheduler
 
 pywebpush
 
 gunicorn
+
+# Redis for caching
+redis
+flask-caching

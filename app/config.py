@@ -46,3 +46,15 @@ class Config:
     
     # Frontend URLs for email templates
     FRONTEND_BASE_URL = os.getenv('FRONTEND_BASE_URL', 'https://unikorn.axfff.com')
+    
+    # Redis Configuration for Caching
+    REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+    
+    # Cache Configuration
+    CACHE_TYPE = 'redis'
+    CACHE_REDIS_URL = REDIS_URL
+    CACHE_DEFAULT_TIMEOUT = 2700  # 45 minutes (45*60 seconds)
+    
+    # File URL Cache Settings
+    FILE_URL_CACHE_TIMEOUT = 2700  # 45 minutes - shorter than 1hr URL expiry
+    FILE_URL_CACHE_KEY_PREFIX = 'file_url:'
