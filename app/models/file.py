@@ -45,11 +45,24 @@ class File(db.Model):
 
     @property
     def url(self):
-        """Generate a signed URL for viewing the file"""
+        """Generate a cached signed URL for viewing the file"""
         from flask import current_app
+        from app.extensions import cache
         from app.services.file_service import OSSService
         from datetime import datetime, timezone
         import time
+        
+        # Create cache key
+        cache_key = f"{current_app.config.get('FILE_URL_CACHE_KEY_PREFIX', 'file_url:')}{self.id}"
+        
+        # Try to get cached URL first
+        cached_url = cache.get(cache_key)
+        if cached_url:
+            current_app.logger.debug(f"Using cached URL for file {self.id}")
+            return cached_url
+        
+        # Generate new signed URL if not cached
+        current_app.logger.info(f"Generating new signed URL for file {self.id} (cache miss)")
         
         # For private buckets, generate signed URLs for viewing
         try:
@@ -67,9 +80,10 @@ class File(db.Model):
             auth = StsAuth(token.access_key_id, token.access_key_secret, token.security_token)
             bucket = Bucket(auth, current_app.config['OSS_ENDPOINT'], current_app.config['OSS_BUCKET_NAME'])
             
-            # Calculate URL expiration: use the shorter of 1 hour or remaining STS token time minus 5 minutes buffer
+            # Calculate URL expiration: use longer duration for better caching
+            # Use 4 hours or remaining STS token time minus 5 minutes buffer, whichever is shorter
             url_duration_seconds = min(
-                3600,  # 1 hour maximum
+                14400,  # 4 hours maximum (increased from 1 hour)
                 max(1800, int(time_until_token_expiry - 300))  # At least 30 minutes, but respect token expiry with 5min buffer
             )
             
@@ -103,6 +117,11 @@ class File(db.Model):
                 expires_datetime = datetime.fromtimestamp(expires_timestamp, tz=timezone.utc)
                 current_app.logger.info(f"Generated signed URL for file {self.id} expires at {expires_datetime.isoformat()}")
             
+            # Cache the URL for 45 minutes (shorter than URL expiry to ensure freshness)
+            cache_timeout = current_app.config.get('FILE_URL_CACHE_TIMEOUT', 2700)  # 45 minutes
+            cache.set(cache_key, signed_url, timeout=cache_timeout)
+            current_app.logger.info(f"Cached URL for file {self.id} for {cache_timeout} seconds")
+            
             return signed_url
             
         except Exception as e:
@@ -116,5 +135,9 @@ class File(db.Model):
             # Ensure base_url uses HTTPS
             if base_url.startswith('http://'):
                 base_url = 'https://' + base_url[7:]
-            return f"{base_url}/{self.object_name}"
+            fallback_url = f"{base_url}/{self.object_name}"
+            
+            # Cache fallback URL too (shorter timeout since it doesn't expire)
+            cache.set(cache_key, fallback_url, timeout=3600)  # 1 hour for fallback URLs
+            return fallback_url
         return None
