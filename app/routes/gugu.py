@@ -2,7 +2,9 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
 from app.models import GuguMessage, User
 from app.extensions import db
+from app.services.content_moderation_service import content_moderation
 from datetime import datetime
+import bleach
 
 gugu_bp = Blueprint('gugu', __name__, url_prefix='/gugu')
 
@@ -100,6 +102,25 @@ def send_message():
             return jsonify({
                 'success': False,
                 'message': '消息内容不能超过1000个字符'
+            }), 400
+        
+        # Sanitize content
+        content = bleach.clean(content)
+        
+        # Content moderation check
+        moderation_result = content_moderation.moderate_comment(
+            content=content,
+            data_id=f"gugu_{current_user_id}_{datetime.now().timestamp()}"
+        )
+        
+        if not moderation_result['is_safe']:
+            from flask import current_app
+            current_app.logger.warning(f"Content moderation blocked gugu message from user {current_user_id}: {moderation_result['reason']}")
+            return jsonify({
+                'success': False,
+                'message': '您的消息违反了社区准则，无法发送',
+                'details': moderation_result['reason'],
+                'risk_level': moderation_result['risk_level']
             }), 400
         
         # 创建新消息
