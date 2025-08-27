@@ -5,6 +5,7 @@ from app.models.token import TokenBlacklist
 from app.models.user_role import UserRole
 from app.extensions import db, jwt
 from app.services.email_service import EmailService
+from app.services.content_moderation_service import content_moderation
 import re
 from flask_jwt_extended import (
     create_access_token, 
@@ -57,6 +58,21 @@ def register():
     
     if not is_hkust_email(email):
         return jsonify({"msg": "Only HKUST-GZ email addresses are allowed (connect.hkust-gz.edu.cn or hkust-gz.edu.cn)"}), 400
+    
+    # Content moderation check for username
+    moderation_result = content_moderation.moderate_text(
+        content=username,
+        data_id=f"username_register_{datetime.now().timestamp()}"
+    )
+    
+    if not moderation_result['is_safe']:
+        from flask import current_app
+        current_app.logger.warning(f"Content moderation blocked username registration: {username} - {moderation_result['reason']}")
+        return jsonify({
+            "msg": "Username violates community guidelines and cannot be used",
+            "details": moderation_result['reason'],
+            "risk_level": moderation_result['risk_level']
+        }), 400
     
     # Check if username already exists
     if User.query.filter_by(username=username, is_deleted=False).first():

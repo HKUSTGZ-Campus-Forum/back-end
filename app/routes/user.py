@@ -8,6 +8,7 @@ from app.models.oauth_token import OAuthToken
 from app.models.oauth_client import OAuthClient
 import re
 from app.extensions import db
+from app.services.content_moderation_service import content_moderation
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timezone
 from sqlalchemy.sql import func
@@ -69,6 +70,21 @@ def create_user():
         is_valid, error_msg = validate_username(data['username'])
         if not is_valid:
             return jsonify({"msg": error_msg}), 400
+        
+        # Content moderation check for username
+        moderation_result = content_moderation.moderate_text(
+            content=data['username'],
+            data_id=f"username_create_{datetime.now().timestamp()}"
+        )
+        
+        if not moderation_result['is_safe']:
+            from flask import current_app
+            current_app.logger.warning(f"Content moderation blocked username creation: {data['username']} - {moderation_result['reason']}")
+            return jsonify({
+                "msg": "Username violates community guidelines and cannot be used",
+                "details": moderation_result['reason'],
+                "risk_level": moderation_result['risk_level']
+            }), 400
         
         # Validate email format if provided
         is_valid, error_msg = validate_email(data.get('email', ''))
@@ -151,6 +167,21 @@ def update_user(user_id):
         is_valid, error_msg = validate_username(data['username'])
         if not is_valid:
             return jsonify({"msg": error_msg}), 400
+        
+        # Content moderation check for username
+        moderation_result = content_moderation.moderate_text(
+            content=data['username'],
+            data_id=f"username_update_{current_user_id}_{datetime.now().timestamp()}"
+        )
+        
+        if not moderation_result['is_safe']:
+            from flask import current_app
+            current_app.logger.warning(f"Content moderation blocked username update from user {current_user_id}: {data['username']} - {moderation_result['reason']}")
+            return jsonify({
+                "msg": "Username violates community guidelines and cannot be used",
+                "details": moderation_result['reason'],
+                "risk_level": moderation_result['risk_level']
+            }), 400
             
         # Check if username already exists
         if User.query.filter_by(username=data['username'], is_deleted=False).first():
