@@ -11,7 +11,7 @@ from app.models.comment import Comment
 from app.models.gugu_message import GuguMessage
 import json
 
-identity_bp = Blueprint('identity', __name__, url_prefix='/api/identities')
+identity_bp = Blueprint('identity', __name__, url_prefix='/identities')
 
 @identity_bp.route('/types', methods=['GET'])
 def get_identity_types():
