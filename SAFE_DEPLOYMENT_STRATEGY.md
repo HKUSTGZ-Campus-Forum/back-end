@@ -5,26 +5,31 @@
 - Cannot safely push new migration files
 - Need to deploy identity system without breaking existing migrations
 
-## Solution: Migration-Free Deployment
+## Solution: Trust Flask-Migrate Auto-Detection
 
-### Step 1: Enhanced init_db.py Approach
-Instead of using migrations, we'll make `init_db.py` handle ALL the database structure changes.
+### Why This Should Work
+Flask-Migrate is designed to handle exactly this situation:
+1. It compares your current models with database schema
+2. Detects new models (IdentityType, UserIdentity) 
+3. Detects new columns (display_identity_id)
+4. Automatically generates the needed migration
+5. Applies it safely
 
-### Step 2: What to Push
+### What to Push
 - ✅ All model files (identity_type.py, user_identity.py)  
 - ✅ Updated existing models (post.py, comment.py, gugu_message.py)
 - ✅ Route files (identity.py)
-- ✅ Enhanced init_db.py
+- ✅ Standard init_db.py (just for data population)
 - ❌ NO migration files
 
-### Step 3: Deployment Commands
+### Deployment Commands
 The GitHub workflow will run:
-1. `flask db migrate` - This will generate a new migration locally on server
-2. `flask db upgrade` - This will apply the auto-generated migration
-3. `python -m app.scripts.init_db` - This will populate identity types
+1. `flask db migrate` - Auto-generates migration for new models/columns
+2. `flask db upgrade` - Applies the generated migration
+3. `python -m app.scripts.init_db` - Populates identity types data
 
-### Step 4: If Auto-Migration Fails
-Have manual SQL ready as backup:
+### If Auto-Migration Fails (Backup Plan)
+Manual SQL ready as last resort:
 
 ```sql
 -- Create identity_types table

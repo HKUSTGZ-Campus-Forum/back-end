@@ -47,66 +47,17 @@ def init_user_roles():
         db.session.commit()
         print("User roles initialization completed")
 
-def init_identity_system():
-    """Initialize identity verification system tables and data"""
+def init_identity_types():
+    """Initialize predefined identity types if they don't exist"""
     app = create_app()
     with app.app_context():
+        # Check if identity_types table exists (flask db migrate should have created it)
         try:
-            # Check if identity_types table exists, if not create the whole system
-            try:
-                IdentityType.query.first()
-                print("Identity system tables already exist")
-            except Exception:
-                print("Creating identity verification system tables...")
-                
-                # Create identity system tables with raw SQL to avoid migration conflicts
-                db.session.execute(text("""
-                    -- Create identity_types table
-                    CREATE TABLE IF NOT EXISTS identity_types (
-                        id SERIAL PRIMARY KEY,
-                        name VARCHAR(50) UNIQUE NOT NULL,
-                        display_name VARCHAR(100) NOT NULL,
-                        color VARCHAR(7) DEFAULT '#2563eb' NOT NULL,
-                        icon_name VARCHAR(50),
-                        description TEXT,
-                        is_active BOOLEAN DEFAULT true NOT NULL,
-                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL
-                    );
-
-                    -- Create user_identities table  
-                    CREATE TABLE IF NOT EXISTS user_identities (
-                        id SERIAL PRIMARY KEY,
-                        user_id INTEGER NOT NULL REFERENCES users(id),
-                        identity_type_id INTEGER NOT NULL REFERENCES identity_types(id),
-                        status VARCHAR(20) DEFAULT 'pending' NOT NULL,
-                        verification_documents JSONB,
-                        verified_by INTEGER REFERENCES users(id),
-                        rejection_reason TEXT,
-                        notes TEXT,
-                        verified_at TIMESTAMPTZ,
-                        expires_at TIMESTAMPTZ,
-                        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                        UNIQUE(user_id, identity_type_id),
-                        CHECK (status IN ('pending', 'approved', 'rejected', 'revoked'))
-                    );
-
-                    -- Add display_identity_id columns to existing tables
-                    ALTER TABLE posts ADD COLUMN IF NOT EXISTS display_identity_id INTEGER REFERENCES user_identities(id);
-                    ALTER TABLE comments ADD COLUMN IF NOT EXISTS display_identity_id INTEGER REFERENCES user_identities(id);  
-                    ALTER TABLE gugu_messages ADD COLUMN IF NOT EXISTS display_identity_id INTEGER REFERENCES user_identities(id);
-
-                    -- Create indexes
-                    CREATE INDEX IF NOT EXISTS idx_user_identities_status ON user_identities(status);
-                    CREATE INDEX IF NOT EXISTS idx_user_identities_user_status ON user_identities(user_id, status);
-                """))
-                
-                db.session.commit()
-                print("✓ Identity system tables created successfully")
-        
+            # Try to query the table - if it fails, flask db migrate didn't work
+            IdentityType.query.first()
         except Exception as e:
-            print(f"Error creating identity system tables: {e}")
-            db.session.rollback()
+            print(f"Identity types table not found - flask db migrate may have failed: {e}")
+            print("Please check migration logs and try manual deployment")
             return
             
         # Define identity types with their display properties
@@ -168,7 +119,7 @@ def init_db():
     """Initialize database with all required predefined data"""
     init_tag_types()
     init_user_roles()
-    init_identity_system()  # This now handles both table creation and data population
+    init_identity_types()  # Back to just populating data, not creating tables
     print("Database initialization completed")
 
 if __name__ == '__main__':
