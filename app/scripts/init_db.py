@@ -50,6 +50,14 @@ def init_identity_types():
     """Initialize predefined identity types if they don't exist"""
     app = create_app()
     with app.app_context():
+        # Check if identity_types table exists
+        try:
+            # Try to query the table - if it fails, the table doesn't exist
+            IdentityType.query.first()
+        except Exception as e:
+            print(f"Identity types table not found, skipping initialization: {e}")
+            return
+            
         # Define identity types with their display properties
         identity_types_data = [
             {
