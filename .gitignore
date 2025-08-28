@@ -174,3 +174,7 @@ cython_debug/
 Docs/
 
 localExps/
+
+# Database migrations - avoid conflicts between environments
+migrations/versions/*.py
+!migrations/versions/.gitkeep
