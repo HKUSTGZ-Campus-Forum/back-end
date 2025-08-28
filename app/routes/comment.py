@@ -5,6 +5,7 @@ from app.models.user import User
 from app.models.reaction import Reaction
 from app.extensions import db#, limiter
 from app.services.notification_service import NotificationService
+from app.services.content_moderation_service import content_moderation
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func, desc, asc
 from datetime import datetime, timezone
@@ -66,11 +67,27 @@ def create_comment():
         # Sanitize content
         content = bleach.clean(data['content'])
         
-        # Check if post exists
-        post = Post.query.get_or_404(data['post_id'])
-        
         # Use authenticated user's ID
         user_id = get_jwt_identity()
+        
+        # Content moderation check
+        moderation_result = content_moderation.moderate_comment(
+            content=content,
+            data_id=f"comment_{user_id}_{datetime.now().timestamp()}"
+        )
+        
+        if not moderation_result['is_safe']:
+            from flask import current_app
+            current_app.logger.warning(f"Content moderation blocked comment from user {user_id}: {moderation_result['reason']}")
+            return jsonify({
+                "error": "Content moderation failed",
+                "message": "Your comment violates community guidelines and cannot be published.",
+                "details": moderation_result['reason'],
+                "risk_level": moderation_result['risk_level']
+            }), 400
+        
+        # Check if post exists
+        post = Post.query.get_or_404(data['post_id'])
         
         # Check parent comment if provided
         parent_comment_id = data.get('parent_comment_id')

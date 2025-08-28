@@ -13,6 +13,7 @@ from sqlalchemy import func, desc, asc, text
 from datetime import datetime, timedelta
 import json
 import bleach
+from app.services.content_moderation_service import content_moderation
 
 bp = Blueprint('post', __name__, url_prefix='/posts')
 
@@ -193,6 +194,22 @@ def create_post():
     
     # Use the authenticated user's ID
     user_id = get_jwt_identity()
+    
+    # Content moderation check
+    moderation_result = content_moderation.moderate_post(
+        title=data['title'],
+        content=data['content'],
+        data_id=f"post_{user_id}_{datetime.now().timestamp()}"
+    )
+    
+    if not moderation_result['is_safe']:
+        current_app.logger.warning(f"Content moderation blocked post from user {user_id}: {moderation_result['reason']}")
+        return jsonify({
+            "error": "Content moderation failed",
+            "message": "Your content violates community guidelines and cannot be published.",
+            "details": moderation_result['reason'],
+            "risk_level": moderation_result['risk_level']
+        }), 400
     
     # Create new post
     post = Post(
