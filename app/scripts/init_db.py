@@ -2,6 +2,7 @@ from app import create_app
 from app.extensions import db
 from app.models.tag import TagType
 from app.models.user_role import UserRole
+from app.models.identity_type import IdentityType
 
 def init_tag_types():
     """Initialize predefined tag types if they don't exist"""
@@ -45,10 +46,70 @@ def init_user_roles():
         db.session.commit()
         print("User roles initialization completed")
 
+def init_identity_types():
+    """Initialize predefined identity types if they don't exist"""
+    app = create_app()
+    with app.app_context():
+        # Define identity types with their display properties
+        identity_types_data = [
+            {
+                'name': IdentityType.PROFESSOR,
+                'display_name': 'Professor',
+                'color': '#dc2626',
+                'icon_name': 'academic-cap',
+                'description': 'University professor or teaching staff'
+            },
+            {
+                'name': IdentityType.STAFF,
+                'display_name': 'Staff Member',
+                'color': '#059669',
+                'icon_name': 'user-group',
+                'description': 'University administrative or support staff'
+            },
+            {
+                'name': IdentityType.OFFICER,
+                'display_name': 'School Officer',
+                'color': '#7c3aed',
+                'icon_name': 'shield-check',
+                'description': 'Student government or official school organization officer'
+            },
+            {
+                'name': IdentityType.STUDENT_LEADER,
+                'display_name': 'Student Leader',
+                'color': '#ea580c',
+                'icon_name': 'star',
+                'description': 'Student club president or community leader'
+            }
+        ]
+        
+        for identity_data in identity_types_data:
+            identity_type = IdentityType.query.filter_by(name=identity_data['name']).first()
+            if not identity_type:
+                print(f"Creating identity type: {identity_data['name']}")
+                identity_type = IdentityType(
+                    name=identity_data['name'],
+                    display_name=identity_data['display_name'],
+                    color=identity_data['color'],
+                    icon_name=identity_data['icon_name'],
+                    description=identity_data['description']
+                )
+                db.session.add(identity_type)
+            else:
+                # Update existing identity type properties if needed
+                identity_type.display_name = identity_data['display_name']
+                identity_type.color = identity_data['color']
+                identity_type.icon_name = identity_data['icon_name']
+                identity_type.description = identity_data['description']
+                print(f"Updated identity type: {identity_data['name']}")
+        
+        db.session.commit()
+        print("Identity types initialization completed")
+
 def init_db():
     """Initialize database with all required predefined data"""
     init_tag_types()
     init_user_roles()
+    init_identity_types()
     print("Database initialization completed")
 
 if __name__ == '__main__':

@@ -65,7 +65,7 @@ def upgrade():
     op.create_foreign_key('fk_comments_display_identity', 'comments', 'user_identities', ['display_identity_id'], ['id'])
     op.create_foreign_key('fk_gugu_messages_display_identity', 'gugu_messages', 'user_identities', ['display_identity_id'], ['id'])
     
-    # Insert default identity types
+    # Insert default identity types (PostgreSQL syntax with ON CONFLICT)
     op.execute("""
         INSERT INTO identity_types (name, display_name, color, icon_name, description, created_at)
         VALUES 
@@ -73,6 +73,11 @@ def upgrade():
         ('staff', 'Staff Member', '#059669', 'user-group', 'University administrative or support staff', NOW()),
         ('officer', 'School Officer', '#7c3aed', 'shield-check', 'Student government or official school organization officer', NOW()),
         ('student_leader', 'Student Leader', '#ea580c', 'star', 'Student club president or community leader', NOW())
+        ON CONFLICT (name) DO UPDATE SET
+            display_name = EXCLUDED.display_name,
+            color = EXCLUDED.color,
+            icon_name = EXCLUDED.icon_name,
+            description = EXCLUDED.description
     """)
 
 def downgrade():
