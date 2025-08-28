@@ -13,6 +13,7 @@ class Post(db.Model):
     comment_count = db.Column(db.Integer, default=0, nullable=False)
     reaction_count = db.Column(db.Integer, default=0, nullable=False)
     view_count = db.Column(db.Integer, default=0, nullable=False)
+    display_identity_id = db.Column(db.Integer, db.ForeignKey('user_identities.id'), nullable=True)
     is_deleted = db.Column(db.Boolean, default=False, nullable=False)
     deleted_at = db.Column(db.DateTime(timezone=True))
     created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -26,6 +27,7 @@ class Post(db.Model):
                                 cascade='all, delete-orphan',
                                 foreign_keys='Reaction.post_id')
     tags = db.relationship('Tag', secondary='post_tags', backref=db.backref('posts', lazy='dynamic'))
+    display_identity = db.relationship('UserIdentity', foreign_keys=[display_identity_id])
     
     # Files relationship - get files associated with this post
     @property
@@ -63,6 +65,13 @@ class Post(db.Model):
         if include_author and self.author:
             data["author"] = self.author.username
             data["author_avatar"] = self.author.avatar_url  # Use fresh avatar URL
+            
+            # Include display identity if present
+            if self.display_identity and self.display_identity.is_active():
+                data["display_identity"] = {
+                    "id": self.display_identity.id,
+                    "type": self.display_identity.identity_type.to_dict() if self.display_identity.identity_type else None
+                }
         
         if include_content:
             data["content"] = self.content

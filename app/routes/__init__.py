@@ -2,7 +2,7 @@
 from flask import Blueprint
 
 def register_blueprints(app):
-    from app.routes import auth, user, post, comment, tag, reaction, file, course, analytics, search, gugu, oauth, notification, push, cache
+    from app.routes import auth, user, post, comment, tag, reaction, file, course, analytics, search, gugu, oauth, notification, push, cache, identity
     
     app.register_blueprint(auth.bp)
     app.register_blueprint(user.bp)
@@ -19,3 +19,4 @@ def register_blueprints(app):
     app.register_blueprint(notification.bp)
     app.register_blueprint(push.bp)
     app.register_blueprint(cache.cache_bp)
+    app.register_blueprint(identity.identity_bp)
