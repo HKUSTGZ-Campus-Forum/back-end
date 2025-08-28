@@ -136,7 +136,7 @@ class ContentModerationService:
                     'labels': labels,
                     'advice': advice,
                     'reason': reason,
-                    'raw_response': result
+                    'raw_response': result_data
                 }
             else:
                 logger.error(f"Content moderation API error: {response.status_code}")
