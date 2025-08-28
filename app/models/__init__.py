@@ -16,4 +16,6 @@ from .oauth_token import OAuthToken
 from .oauth_authorization_code import OAuthAuthorizationCode
 from .notification import Notification
 from .push_subscription import PushSubscription
+from .identity_type import IdentityType
+from .user_identity import UserIdentity
 
