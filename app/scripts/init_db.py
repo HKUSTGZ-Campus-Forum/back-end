@@ -3,6 +3,7 @@ from app.extensions import db
 from app.models.tag import TagType
 from app.models.user_role import UserRole
 from app.models.identity_type import IdentityType
+from sqlalchemy import text
 
 def init_tag_types():
     """Initialize predefined tag types if they don't exist"""
@@ -50,6 +51,15 @@ def init_identity_types():
     """Initialize predefined identity types if they don't exist"""
     app = create_app()
     with app.app_context():
+        # Check if identity_types table exists (flask db migrate should have created it)
+        try:
+            # Try to query the table - if it fails, flask db migrate didn't work
+            IdentityType.query.first()
+        except Exception as e:
+            print(f"Identity types table not found - flask db migrate may have failed: {e}")
+            print("Please check migration logs and try manual deployment")
+            return
+            
         # Define identity types with their display properties
         identity_types_data = [
             {
@@ -109,7 +119,7 @@ def init_db():
     """Initialize database with all required predefined data"""
     init_tag_types()
     init_user_roles()
-    init_identity_types()
+    init_identity_types()  # Back to just populating data, not creating tables
     print("Database initialization completed")
 
 if __name__ == '__main__':
