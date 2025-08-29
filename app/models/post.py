@@ -70,7 +70,8 @@ class Post(db.Model):
             if self.display_identity and self.display_identity.is_active():
                 data["display_identity"] = {
                     "id": self.display_identity.id,
-                    "type": self.display_identity.identity_type.to_dict() if self.display_identity.identity_type else None
+                    "status": self.display_identity.status,
+                    "identity_type": self.display_identity.identity_type.to_dict() if self.display_identity.identity_type else None
                 }
         
         if include_content:
