@@ -211,11 +211,24 @@ def create_post():
             "risk_level": moderation_result['risk_level']
         }), 400
     
+    # Validate display_identity_id if provided
+    display_identity_id = data.get('display_identity_id')
+    if display_identity_id:
+        from app.models.user_identity import UserIdentity
+        identity = UserIdentity.query.filter_by(
+            id=display_identity_id,
+            user_id=user_id,
+            status=UserIdentity.APPROVED
+        ).first()
+        if not identity:
+            return jsonify({"error": "Invalid or unauthorized identity selected"}), 400
+    
     # Create new post
     post = Post(
         user_id=user_id,
         title=data['title'],
         content=data['content'],
+        display_identity_id=display_identity_id,
         embedding=data.get('embedding')
     )
     
