@@ -131,6 +131,25 @@ def get_my_verification_requests():
         current_app.logger.error(f"Error fetching user verification requests: {e}")
         return jsonify({"success": False, "error": "Failed to fetch verification requests"}), 500
 
+@identity_bp.route('/my-identities', methods=['GET'])
+@jwt_required()
+def get_my_identities():
+    """Get current user's all identity records (all statuses)"""
+    try:
+        current_user_id = get_jwt_identity()
+        
+        # Get all identity records for the user
+        identities = UserIdentity.query.filter_by(user_id=current_user_id).all()
+        
+        return jsonify({
+            "success": True,
+            "identities": [identity.to_dict() for identity in identities]
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error fetching user identities: {e}")
+        return jsonify({"success": False, "error": "Failed to fetch user identities"}), 500
+
 @identity_bp.route('/my-verified', methods=['GET'])
 @jwt_required()
 def get_my_verified_identities():
