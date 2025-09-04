@@ -118,13 +118,21 @@ def get_posts():
     sort_by = request.args.get('sort_by', 'created_at')
     sort_order = request.args.get('sort_order', 'desc')
     date_param = request.args.get('date')
+    tags_param = request.args.get('tags')  # Can be comma-separated list of tag names
     
     # Start building the query
-    query = Post.query
+    query = Post.query.filter(Post.is_deleted == False)
     
     # Apply filters
     if user_id:
         query = query.filter(Post.user_id == user_id)
+    
+    # Tag filtering
+    if tags_param:
+        tag_names = [tag.strip() for tag in tags_param.split(',') if tag.strip()]
+        if tag_names:
+            # Filter posts that have ANY of the specified tags
+            query = query.join(Post.tags).filter(Tag.name.in_(tag_names)).distinct()
     
     # Date filtering
     if date_param:
@@ -173,7 +181,7 @@ def get_posts():
     
     # Prepare response
     response = {
-        "posts": [post.to_dict() for post in paginated_posts.items],
+        "posts": [post.to_dict(include_tags=True, include_author=True) for post in paginated_posts.items],
         "total_count": paginated_posts.total,
         "total_pages": paginated_posts.pages,
         "current_page": page
