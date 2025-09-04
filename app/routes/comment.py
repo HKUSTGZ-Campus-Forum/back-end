@@ -97,11 +97,24 @@ def create_comment():
             if parent_comment.post_id != post.id:
                 return jsonify({"error": "Parent comment does not belong to the specified post"}), 400
         
+        # Validate display_identity_id if provided
+        display_identity_id = data.get('display_identity_id')
+        if display_identity_id:
+            from app.models.user_identity import UserIdentity
+            identity = UserIdentity.query.filter_by(
+                id=display_identity_id,
+                user_id=user_id,
+                status=UserIdentity.APPROVED
+            ).first()
+            if not identity:
+                return jsonify({"error": "Invalid or unauthorized identity selected"}), 400
+        
         # Create new comment
         comment = Comment(
             post_id=post.id,
             user_id=user_id,
             content=content,
+            display_identity_id=display_identity_id,
             embedding=data.get('embedding'),
             parent_comment_id=parent_comment_id
         )

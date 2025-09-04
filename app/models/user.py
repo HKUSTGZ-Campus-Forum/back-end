@@ -154,5 +154,23 @@ class User(db.Model):
         # Only include last_active_at if specifically requested
         if include_last_active:
             data["last_active_at"] = self.last_active_at.isoformat() if self.last_active_at else None
+        
+        # Include user identities (approved identities are public, all identities for own profile)
+        try:
+            from app.models.user_identity import UserIdentity
+            if include_contact:
+                # Own profile: include all identities
+                identities = UserIdentity.query.filter_by(user_id=self.id).all()
+            else:
+                # Other's profile: only show approved identities
+                identities = UserIdentity.query.filter_by(
+                    user_id=self.id, 
+                    status=UserIdentity.APPROVED
+                ).all()
+            
+            data["identities"] = [identity.to_dict() for identity in identities]
+        except ImportError:
+            # In case the identity system isn't available
+            data["identities"] = []
             
         return data

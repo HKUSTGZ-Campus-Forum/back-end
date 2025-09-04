@@ -11,6 +11,7 @@ class Comment(db.Model):
     content = db.Column(db.Text, nullable=False)
     embedding = db.Column(JSONB)  # Store embedding as JSON in PostgreSQL
     parent_comment_id = db.Column(db.Integer, db.ForeignKey('comments.id'))
+    display_identity_id = db.Column(db.Integer, db.ForeignKey('user_identities.id'), nullable=True)
     is_deleted = db.Column(db.Boolean, default=False, nullable=False)
     deleted_at = db.Column(db.DateTime(timezone=True))
     created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -25,6 +26,7 @@ class Comment(db.Model):
         lazy='dynamic'
     )
     reactions = db.relationship('Reaction', backref='comment', lazy='dynamic')
+    display_identity = db.relationship('UserIdentity', foreign_keys=[display_identity_id])
     
     def to_dict(self, include_author=True):
         data = {
@@ -42,6 +44,14 @@ class Comment(db.Model):
         if include_author and self.author:
             data["author"] = self.author.username
             data["author_avatar"] = self.author.avatar_url  # Use fresh avatar URL
+            
+            # Include display identity if present
+            if self.display_identity and self.display_identity.is_active():
+                data["display_identity"] = {
+                    "id": self.display_identity.id,
+                    "status": self.display_identity.status,
+                    "identity_type": self.display_identity.identity_type.to_dict() if self.display_identity.identity_type else None
+                }
             
         return data
     
