@@ -16,6 +16,8 @@ aliyun-python-sdk-core
 aliyun-python-sdk-sts
 oss2
 alibabacloud_green20220302
+openai
+dashvector
 
 APScheduler
 

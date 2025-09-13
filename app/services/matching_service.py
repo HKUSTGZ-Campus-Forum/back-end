@@ -1,0 +1,449 @@
+import os
+import logging
+from typing import List, Dict, Optional, Tuple
+from openai import OpenAI
+import dashvector
+from app.models.user_profile import UserProfile
+from app.models.project import Project
+from app.models.project_application import ProjectApplication
+from app.extensions import db
+
+logger = logging.getLogger(__name__)
+
+class MatchingService:
+    """Service for matching users to projects using semantic embeddings and compatibility scoring"""
+
+    def __init__(self):
+        # Initialize embedding client (DashScope)
+        self.emb_client = OpenAI(
+            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
+        )
+
+        # Initialize vector database client (DashVector)
+        self.dv_client = dashvector.Client(
+            api_key=os.getenv("DASHVECTOR_API_KEY"),
+            endpoint=os.getenv("DASHVECTOR_ENDPOINT"),
+        )
+
+        # Configuration
+        self.embedding_model = "text-embedding-v4"
+        self.embedding_dimensions = 1024
+        self.profiles_collection = "user_profiles"
+        self.projects_collection = "projects"
+
+        # Ensure collections exist
+        self._ensure_collections()
+
+    def _ensure_collections(self):
+        """Ensure DashVector collections exist"""
+        try:
+            existing = list(self.dv_client.list() or [])
+
+            for collection_name in [self.profiles_collection, self.projects_collection]:
+                if collection_name not in existing:
+                    result = self.dv_client.create(
+                        name=collection_name,
+                        dimension=self.embedding_dimensions,
+                        metric="cosine",
+                        dtype=float,
+                    )
+                    if not result:
+                        logger.error(f"Failed to create collection: {collection_name}")
+        except Exception as e:
+            logger.error(f"Error ensuring collections: {e}")
+
+    def generate_embedding(self, text: str) -> Optional[List[float]]:
+        """Generate embedding for text using DashScope"""
+        try:
+            response = self.emb_client.embeddings.create(
+                model=self.embedding_model,
+                input=[text],
+                dimensions=self.embedding_dimensions,
+                encoding_format="float"
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            logger.error(f"Error generating embedding: {e}")
+            return None
+
+    def update_profile_embedding(self, profile_id: int) -> bool:
+        """Update embedding for a user profile"""
+        try:
+            profile = UserProfile.query.get(profile_id)
+            if not profile:
+                return False
+
+            # Generate text representation and embedding
+            text = profile.get_text_representation()
+            if not text.strip():
+                logger.warning(f"Empty text for profile {profile_id}")
+                return False
+
+            embedding = self.generate_embedding(text)
+            if not embedding:
+                return False
+
+            # Update database
+            profile.update_embedding(embedding)
+            db.session.commit()
+
+            # Update vector database
+            self._upsert_to_vector_db(
+                collection_name=self.profiles_collection,
+                doc_id=f"profile_{profile_id}",
+                vector=embedding,
+                metadata={"profile_id": profile_id, "text": text}
+            )
+
+            return True
+        except Exception as e:
+            logger.error(f"Error updating profile embedding {profile_id}: {e}")
+            db.session.rollback()
+            return False
+
+    def update_project_embedding(self, project_id: int) -> bool:
+        """Update embedding for a project"""
+        try:
+            project = Project.query.get(project_id)
+            if not project:
+                return False
+
+            # Generate text representation and embedding
+            text = project.get_text_representation()
+            if not text.strip():
+                logger.warning(f"Empty text for project {project_id}")
+                return False
+
+            embedding = self.generate_embedding(text)
+            if not embedding:
+                return False
+
+            # Update database
+            project.update_embedding(embedding)
+            db.session.commit()
+
+            # Update vector database
+            self._upsert_to_vector_db(
+                collection_name=self.projects_collection,
+                doc_id=f"project_{project_id}",
+                vector=embedding,
+                metadata={"project_id": project_id, "text": text}
+            )
+
+            return True
+        except Exception as e:
+            logger.error(f"Error updating project embedding {project_id}: {e}")
+            db.session.rollback()
+            return False
+
+    def _upsert_to_vector_db(self, collection_name: str, doc_id: str, vector: List[float], metadata: Dict):
+        """Upsert document to vector database"""
+        try:
+            collection = self.dv_client.get(name=collection_name)
+            if not collection:
+                logger.error(f"Collection {collection_name} not found")
+                return False
+
+            result = collection.upsert([(doc_id, vector, metadata)])
+            return bool(result)
+        except Exception as e:
+            logger.error(f"Error upserting to vector DB: {e}")
+            return False
+
+    def find_project_matches(self, user_id: int, limit: int = 10) -> List[Dict]:
+        """Find projects matching a user's profile"""
+        try:
+            # Get user profile
+            profile = UserProfile.query.filter_by(user_id=user_id).first()
+            if not profile or not profile.embedding:
+                logger.warning(f"No profile or embedding for user {user_id}")
+                return []
+
+            # Search for similar projects
+            similar_projects = self._vector_search(
+                collection_name=self.projects_collection,
+                query_vector=profile.embedding,
+                limit=limit * 2  # Get more to filter
+            )
+
+            # Get project objects and calculate compatibility scores
+            matches = []
+            for result in similar_projects:
+                project_id = result.get("metadata", {}).get("project_id")
+                if not project_id:
+                    continue
+
+                project = Project.query.get(project_id)
+                if not project or not project.is_recruiting():
+                    continue
+
+                # Skip if user can't apply
+                if not project.can_user_apply(user_id):
+                    continue
+
+                # Calculate compatibility score
+                compatibility = self._calculate_compatibility_score(profile, project)
+                similarity_score = result.get("score", 0.0)
+
+                match_data = {
+                    "project": project.to_dict(include_creator=True, current_user_id=user_id),
+                    "similarity_score": similarity_score,
+                    "compatibility_score": compatibility.get("total_score", 0.0),
+                    "match_reasons": compatibility.get("reasons", []),
+                    "combined_score": (similarity_score + compatibility.get("total_score", 0.0)) / 2
+                }
+                matches.append(match_data)
+
+            # Sort by combined score and return top matches
+            matches.sort(key=lambda x: x["combined_score"], reverse=True)
+            return matches[:limit]
+
+        except Exception as e:
+            logger.error(f"Error finding project matches for user {user_id}: {e}")
+            return []
+
+    def find_teammate_matches(self, project_id: int, limit: int = 10) -> List[Dict]:
+        """Find users matching a project's requirements"""
+        try:
+            # Get project
+            project = Project.query.get(project_id)
+            if not project or not project.embedding:
+                logger.warning(f"No project or embedding for project {project_id}")
+                return []
+
+            # Search for similar profiles
+            similar_profiles = self._vector_search(
+                collection_name=self.profiles_collection,
+                query_vector=project.embedding,
+                limit=limit * 2  # Get more to filter
+            )
+
+            # Get profile objects and calculate compatibility scores
+            matches = []
+            for result in similar_profiles:
+                profile_id = result.get("metadata", {}).get("profile_id")
+                if not profile_id:
+                    continue
+
+                profile = UserProfile.query.get(profile_id)
+                if not profile or not profile.is_active:
+                    continue
+
+                # Skip project creator
+                if profile.user_id == project.user_id:
+                    continue
+
+                # Skip if user already applied
+                if not project.can_user_apply(profile.user_id):
+                    continue
+
+                # Calculate compatibility score
+                compatibility = self._calculate_compatibility_score(profile, project)
+                similarity_score = result.get("score", 0.0)
+
+                match_data = {
+                    "profile": profile.to_dict(),
+                    "similarity_score": similarity_score,
+                    "compatibility_score": compatibility.get("total_score", 0.0),
+                    "match_reasons": compatibility.get("reasons", []),
+                    "combined_score": (similarity_score + compatibility.get("total_score", 0.0)) / 2
+                }
+                matches.append(match_data)
+
+            # Sort by combined score and return top matches
+            matches.sort(key=lambda x: x["combined_score"], reverse=True)
+            return matches[:limit]
+
+        except Exception as e:
+            logger.error(f"Error finding teammate matches for project {project_id}: {e}")
+            return []
+
+    def _vector_search(self, collection_name: str, query_vector: List[float], limit: int) -> List[Dict]:
+        """Perform vector similarity search"""
+        try:
+            collection = self.dv_client.get(name=collection_name)
+            if not collection:
+                return []
+
+            result = collection.query(
+                vector=query_vector,
+                topk=limit,
+                include_vector=False,
+                output_fields=["profile_id", "project_id", "text"]
+            )
+
+            matches = []
+            if result:
+                for doc in result:
+                    match_data = {
+                        "id": doc.id,
+                        "score": getattr(doc, 'score', 0.0),  # Similarity score
+                        "metadata": doc.fields or {}
+                    }
+                    matches.append(match_data)
+
+            return matches
+        except Exception as e:
+            logger.error(f"Error in vector search: {e}")
+            return []
+
+    def _calculate_compatibility_score(self, profile: UserProfile, project: Project) -> Dict:
+        """Calculate detailed compatibility score between profile and project"""
+        reasons = []
+        scores = {}
+
+        # Skills matching (30% weight)
+        skill_score, skill_reasons = self._calculate_skill_match(profile, project)
+        scores["skills"] = skill_score
+        reasons.extend(skill_reasons)
+
+        # Experience level matching (15% weight)
+        exp_score, exp_reasons = self._calculate_experience_match(profile, project)
+        scores["experience"] = exp_score
+        reasons.extend(exp_reasons)
+
+        # Role preferences matching (25% weight)
+        role_score, role_reasons = self._calculate_role_match(profile, project)
+        scores["roles"] = role_score
+        reasons.extend(role_reasons)
+
+        # Availability/preferences matching (15% weight)
+        avail_score, avail_reasons = self._calculate_availability_match(profile, project)
+        scores["availability"] = avail_score
+        reasons.extend(avail_reasons)
+
+        # Interest alignment (15% weight)
+        interest_score, interest_reasons = self._calculate_interest_match(profile, project)
+        scores["interests"] = interest_score
+        reasons.extend(interest_reasons)
+
+        # Calculate weighted total score
+        total_score = (
+            scores["skills"] * 0.30 +
+            scores["experience"] * 0.15 +
+            scores["roles"] * 0.25 +
+            scores["availability"] * 0.15 +
+            scores["interests"] * 0.15
+        )
+
+        return {
+            "total_score": total_score,
+            "component_scores": scores,
+            "reasons": reasons[:5]  # Top 5 reasons
+        }
+
+    def _calculate_skill_match(self, profile: UserProfile, project: Project) -> Tuple[float, List[str]]:
+        """Calculate skills matching score"""
+        if not profile.skills or not project.required_skills:
+            return 0.3, []
+
+        user_skills = set(skill.lower() for skill in profile.skills)
+        required_skills = set(skill.lower() for skill in project.required_skills)
+        preferred_skills = set(skill.lower() for skill in (project.preferred_skills or []))
+
+        # Calculate matches
+        required_matches = user_skills.intersection(required_skills)
+        preferred_matches = user_skills.intersection(preferred_skills)
+
+        # Calculate score
+        required_score = len(required_matches) / len(required_skills) if required_skills else 0
+        preferred_score = len(preferred_matches) / len(preferred_skills) if preferred_skills else 0
+
+        # Weighted combination (required skills more important)
+        score = required_score * 0.8 + preferred_score * 0.2
+
+        # Generate reasons
+        reasons = []
+        if required_matches:
+            reasons.append(f"Has required skills: {', '.join(list(required_matches)[:3])}")
+        if preferred_matches:
+            reasons.append(f"Has preferred skills: {', '.join(list(preferred_matches)[:2])}")
+
+        return score, reasons
+
+    def _calculate_experience_match(self, profile: UserProfile, project: Project) -> Tuple[float, List[str]]:
+        """Calculate experience level matching"""
+        if not profile.experience_level or not project.difficulty_level:
+            return 0.5, []
+
+        # Experience levels: beginner, intermediate, advanced, expert
+        # Difficulty levels: beginner, intermediate, advanced
+        exp_levels = {"beginner": 0, "intermediate": 1, "advanced": 2, "expert": 3}
+        diff_levels = {"beginner": 0, "intermediate": 1, "advanced": 2}
+
+        user_exp = exp_levels.get(profile.experience_level.lower(), 1)
+        proj_diff = diff_levels.get(project.difficulty_level.lower(), 1)
+
+        # Perfect match: user experience matches project difficulty
+        # Good match: user experience is one level above project difficulty
+        # Poor match: significant mismatch
+        diff = abs(user_exp - proj_diff)
+
+        if diff == 0:
+            score = 1.0
+            reason = f"Perfect experience match for {project.difficulty_level} project"
+        elif diff == 1 and user_exp > proj_diff:
+            score = 0.8
+            reason = f"Good experience level for {project.difficulty_level} project"
+        elif diff == 1:
+            score = 0.6
+            reason = f"Slightly challenging but manageable project"
+        else:
+            score = 0.3
+            reason = f"Experience level mismatch"
+
+        return score, [reason] if score > 0.5 else []
+
+    def _calculate_role_match(self, profile: UserProfile, project: Project) -> Tuple[float, List[str]]:
+        """Calculate role preferences matching"""
+        if not profile.preferred_roles or not project.looking_for_roles:
+            return 0.5, []
+
+        user_roles = set(role.lower() for role in profile.preferred_roles)
+        needed_roles = set(role.lower() for role in project.looking_for_roles)
+
+        matches = user_roles.intersection(needed_roles)
+        score = len(matches) / len(needed_roles) if needed_roles else 0
+
+        reasons = []
+        if matches:
+            reasons.append(f"Wants to work as: {', '.join(list(matches)[:2])}")
+
+        return score, reasons
+
+    def _calculate_availability_match(self, profile: UserProfile, project: Project) -> Tuple[float, List[str]]:
+        """Calculate availability/preferences matching"""
+        score = 0.7  # Default decent score
+        reasons = []
+
+        # This could be enhanced with more detailed availability matching
+        if profile.availability:
+            reasons.append(f"Available: {profile.availability}")
+
+        return score, reasons
+
+    def _calculate_interest_match(self, profile: UserProfile, project: Project) -> Tuple[float, List[str]]:
+        """Calculate interest alignment"""
+        if not profile.interests:
+            return 0.5, []
+
+        # This is a simplified version - could be enhanced with semantic similarity
+        user_interests = set(interest.lower() for interest in profile.interests)
+        project_text = f"{project.title} {project.description} {project.project_type}".lower()
+
+        matches = []
+        for interest in user_interests:
+            if interest in project_text:
+                matches.append(interest)
+
+        score = min(1.0, len(matches) * 0.3 + 0.4)  # Base score + interest bonuses
+
+        reasons = []
+        if matches:
+            reasons.append(f"Matches interests: {', '.join(matches[:2])}")
+
+        return score, reasons
+
+# Global instance
+matching_service = MatchingService()
