@@ -118,13 +118,16 @@ def create_project():
         db.session.add(project)
         db.session.commit()
 
-        # Update embedding
-        matching_service.update_project_embedding(project.id)
+        # Update embedding - separate from main transaction
+        embedding_success = matching_service.update_project_embedding(project.id)
+        if not embedding_success:
+            logger.warning(f"Failed to update embedding for project {project.id}")
 
         return jsonify({
             "success": True,
             "message": "Project created successfully",
-            "project": project.to_dict(include_creator=True, current_user_id=current_user_id)
+            "project": project.to_dict(include_creator=True, current_user_id=current_user_id),
+            "embedding_updated": embedding_success
         }), 201
 
     except Exception as e:

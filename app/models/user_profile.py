@@ -114,5 +114,5 @@ class UserProfile(db.Model):
         if not profile:
             profile = cls(user_id=user_id)
             db.session.add(profile)
-            db.session.commit()
+            # Don't commit here - let the caller handle commits
         return profile

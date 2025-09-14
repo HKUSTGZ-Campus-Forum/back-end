@@ -72,6 +72,7 @@ class MatchingService:
         try:
             profile = UserProfile.query.get(profile_id)
             if not profile:
+                logger.warning(f"Profile {profile_id} not found")
                 return False
 
             # Generate text representation and embedding
@@ -82,24 +83,34 @@ class MatchingService:
 
             embedding = self.generate_embedding(text)
             if not embedding:
+                logger.warning(f"Failed to generate embedding for profile {profile_id}")
                 return False
 
-            # Update database
-            profile.update_embedding(embedding)
-            db.session.commit()
+            # Update database - separate transaction for embedding
+            try:
+                profile.update_embedding(embedding)
+                db.session.commit()
+                logger.info(f"Updated embedding for profile {profile_id}")
+            except Exception as db_error:
+                logger.error(f"Database error updating profile {profile_id} embedding: {db_error}")
+                db.session.rollback()
+                return False
 
-            # Update vector database
-            self._upsert_to_vector_db(
-                collection_name=self.profiles_collection,
-                doc_id=f"profile_{profile_id}",
-                vector=embedding,
-                metadata={"profile_id": profile_id, "text": text}
-            )
+            # Update vector database (non-critical - don't fail if this fails)
+            try:
+                self._upsert_to_vector_db(
+                    collection_name=self.profiles_collection,
+                    doc_id=f"profile_{profile_id}",
+                    vector=embedding,
+                    metadata={"profile_id": profile_id, "text": text}
+                )
+                logger.info(f"Updated vector DB for profile {profile_id}")
+            except Exception as vector_error:
+                logger.warning(f"Vector DB error for profile {profile_id}: {vector_error}")
 
             return True
         except Exception as e:
             logger.error(f"Error updating profile embedding {profile_id}: {e}")
-            db.session.rollback()
             return False
 
     def update_project_embedding(self, project_id: int) -> bool:
@@ -107,6 +118,7 @@ class MatchingService:
         try:
             project = Project.query.get(project_id)
             if not project:
+                logger.warning(f"Project {project_id} not found")
                 return False
 
             # Generate text representation and embedding
@@ -117,24 +129,34 @@ class MatchingService:
 
             embedding = self.generate_embedding(text)
             if not embedding:
+                logger.warning(f"Failed to generate embedding for project {project_id}")
                 return False
 
-            # Update database
-            project.update_embedding(embedding)
-            db.session.commit()
+            # Update database - separate transaction for embedding
+            try:
+                project.update_embedding(embedding)
+                db.session.commit()
+                logger.info(f"Updated embedding for project {project_id}")
+            except Exception as db_error:
+                logger.error(f"Database error updating project {project_id} embedding: {db_error}")
+                db.session.rollback()
+                return False
 
-            # Update vector database
-            self._upsert_to_vector_db(
-                collection_name=self.projects_collection,
-                doc_id=f"project_{project_id}",
-                vector=embedding,
-                metadata={"project_id": project_id, "text": text}
-            )
+            # Update vector database (non-critical - don't fail if this fails)
+            try:
+                self._upsert_to_vector_db(
+                    collection_name=self.projects_collection,
+                    doc_id=f"project_{project_id}",
+                    vector=embedding,
+                    metadata={"project_id": project_id, "text": text}
+                )
+                logger.info(f"Updated vector DB for project {project_id}")
+            except Exception as vector_error:
+                logger.warning(f"Vector DB error for project {project_id}: {vector_error}")
 
             return True
         except Exception as e:
             logger.error(f"Error updating project embedding {project_id}: {e}")
-            db.session.rollback()
             return False
 
     def _upsert_to_vector_db(self, collection_name: str, doc_id: str, vector: List[float], metadata: Dict):
