@@ -77,6 +77,14 @@ def create_or_update_profile():
         try:
             db.session.commit()
             logger.info(f"Successfully committed profile for user {current_user_id} with ID {profile.id}")
+
+            # Verify the record exists immediately after commit
+            verification = UserProfile.query.get(profile.id)
+            if verification:
+                logger.info(f"✅ Profile ID {profile.id} verified in database after commit")
+            else:
+                logger.error(f"❌ Profile ID {profile.id} NOT FOUND in database after commit!")
+
         except Exception as commit_error:
             logger.error(f"Failed to commit profile for user {current_user_id}: {commit_error}")
             db.session.rollback()
