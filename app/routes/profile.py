@@ -61,14 +61,18 @@ def create_or_update_profile():
         # Flush changes to get ID assigned for new profiles
         db.session.flush()
 
-        # Update embedding if profile has meaningful content
+        # Update embedding if profile has meaningful content (non-blocking)
         embedding_success = True
         if profile.is_complete():
-            embedding_success = matching_service.update_profile_embedding(profile.id)
-            if not embedding_success:
-                logger.warning(f"Failed to update embedding for profile {profile.id}")
+            try:
+                embedding_success = matching_service.update_profile_embedding(profile.id)
+                if not embedding_success:
+                    logger.warning(f"Failed to update embedding for profile {profile.id}")
+            except Exception as e:
+                logger.error(f"Error during embedding update for profile {profile.id}: {e}")
+                embedding_success = False
 
-        # Save to database after embedding update
+        # Save to database after embedding update - proceed even if embedding fails
         db.session.commit()
 
         return jsonify({

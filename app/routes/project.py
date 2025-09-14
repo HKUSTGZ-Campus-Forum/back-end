@@ -118,12 +118,17 @@ def create_project():
         db.session.add(project)
         db.session.flush()  # Flush to get the ID assigned
 
-        # Update embedding before committing
-        embedding_success = matching_service.update_project_embedding(project.id)
-        if not embedding_success:
-            logger.warning(f"Failed to update embedding for project {project.id}")
+        # Update embedding before committing (non-blocking)
+        embedding_success = True
+        try:
+            embedding_success = matching_service.update_project_embedding(project.id)
+            if not embedding_success:
+                logger.warning(f"Failed to update embedding for project {project.id}")
+        except Exception as e:
+            logger.error(f"Error during embedding update for project {project.id}: {e}")
+            embedding_success = False
 
-        # Commit everything together
+        # Commit everything together - proceed even if embedding fails
         db.session.commit()
 
         return jsonify({

@@ -1,6 +1,13 @@
 # run.py
+import logging
 from app import create_app
 from flask_cors import CORS
+
+# Set up logging to see what's happening
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 app = create_app()
 CORS(app,
