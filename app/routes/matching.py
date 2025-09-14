@@ -9,7 +9,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-matching_bp = Blueprint('matching', __name__)
+matching_bp = Blueprint('matching', __name__, url_prefix='/matching')
 
 @matching_bp.route('/projects', methods=['GET'])
 @jwt_required()

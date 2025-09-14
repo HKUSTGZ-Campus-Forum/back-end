@@ -9,9 +9,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-project_bp = Blueprint('project', __name__)
+project_bp = Blueprint('project', __name__, url_prefix='/projects')
 
-@project_bp.route('/api/projects/', methods=['GET'])
+@project_bp.route('/', methods=['GET'])
 def get_projects():
     """Get projects (public endpoint)"""
     try:
@@ -77,7 +77,7 @@ def get_projects():
         logger.error(f"Error getting projects: {e}")
         return jsonify({"success": False, "message": "Failed to get projects"}), 500
 
-@project_bp.route('/api/projects/', methods=['POST'])
+@project_bp.route('/', methods=['POST'])
 @jwt_required()
 def create_project():
     """Create a new project"""
@@ -132,7 +132,7 @@ def create_project():
         db.session.rollback()
         return jsonify({"success": False, "message": "Failed to create project"}), 500
 
-@project_bp.route('/api/projects/<int:project_id>', methods=['GET'])
+@project_bp.route('/<int:project_id>', methods=['GET'])
 def get_project(project_id):
     """Get a specific project (public endpoint)"""
     try:
@@ -167,7 +167,7 @@ def get_project(project_id):
         logger.error(f"Error getting project {project_id}: {e}")
         return jsonify({"success": False, "message": "Failed to get project"}), 500
 
-@project_bp.route('/api/projects/<int:project_id>', methods=['PUT'])
+@project_bp.route('/<int:project_id>', methods=['PUT'])
 @jwt_required()
 def update_project(project_id):
     """Update a project"""
@@ -239,7 +239,7 @@ def update_project(project_id):
         db.session.rollback()
         return jsonify({"success": False, "message": "Failed to update project"}), 500
 
-@project_bp.route('/api/projects/<int:project_id>', methods=['DELETE'])
+@project_bp.route('/<int:project_id>', methods=['DELETE'])
 @jwt_required()
 def delete_project(project_id):
     """Delete a project (soft delete)"""
@@ -270,7 +270,7 @@ def delete_project(project_id):
         db.session.rollback()
         return jsonify({"success": False, "message": "Failed to delete project"}), 500
 
-@project_bp.route('/api/projects/<int:project_id>/match', methods=['GET'])
+@project_bp.route('/<int:project_id>/match', methods=['GET'])
 @jwt_required()
 def get_project_matches(project_id):
     """Get teammate matches for a project"""
@@ -301,7 +301,7 @@ def get_project_matches(project_id):
         logger.error(f"Error getting matches for project {project_id}: {e}")
         return jsonify({"success": False, "message": "Failed to get matches"}), 500
 
-@project_bp.route('/api/projects/my', methods=['GET'])
+@project_bp.route('/my', methods=['GET'])
 @jwt_required()
 def get_my_projects():
     """Get current user's projects"""
@@ -319,7 +319,7 @@ def get_my_projects():
         logger.error(f"Error getting user projects: {e}")
         return jsonify({"success": False, "message": "Failed to get projects"}), 500
 
-@project_bp.route('/api/projects/stats', methods=['GET'])
+@project_bp.route('/stats', methods=['GET'])
 def get_project_stats():
     """Get project statistics (public endpoint)"""
     try:
