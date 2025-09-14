@@ -73,7 +73,14 @@ def create_or_update_profile():
                 embedding_success = False
 
         # Save to database after embedding update - proceed even if embedding fails
-        db.session.commit()
+        logger.info(f"About to commit profile changes for user {current_user_id}")
+        try:
+            db.session.commit()
+            logger.info(f"Successfully committed profile for user {current_user_id} with ID {profile.id}")
+        except Exception as commit_error:
+            logger.error(f"Failed to commit profile for user {current_user_id}: {commit_error}")
+            db.session.rollback()
+            raise
 
         return jsonify({
             "success": True,
