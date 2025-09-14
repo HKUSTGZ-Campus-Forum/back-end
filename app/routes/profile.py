@@ -8,7 +8,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-profile_bp = Blueprint('profile', __name__)
+profile_bp = Blueprint('profile', __name__, url_prefix='/profiles')
 
 @profile_bp.route('', methods=['GET'])
 @jwt_required()
