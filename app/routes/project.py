@@ -116,12 +116,15 @@ def create_project():
             project.team_size_min = project.team_size_max
 
         db.session.add(project)
-        db.session.commit()
+        db.session.flush()  # Flush to get the ID assigned
 
-        # Update embedding - separate from main transaction
+        # Update embedding before committing
         embedding_success = matching_service.update_project_embedding(project.id)
         if not embedding_success:
             logger.warning(f"Failed to update embedding for project {project.id}")
+
+        # Commit everything together
+        db.session.commit()
 
         return jsonify({
             "success": True,

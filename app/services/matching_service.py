@@ -122,6 +122,7 @@ class MatchingService:
 
     def generate_embedding(self, text: str) -> Optional[List[float]]:
         """Generate embedding for text using DashScope"""
+        logger.info(f"Generating embedding for text {text}")
         self._ensure_initialized()
 
         if not self.emb_client:
@@ -135,6 +136,7 @@ class MatchingService:
                 dimensions=self.embedding_dimensions,
                 encoding_format="float"
             )
+            logger.info(f"Embedding for text {text} generated")
             return response.data[0].embedding
         except Exception as e:
             logger.error(f"Error generating embedding: {e}")
@@ -159,14 +161,14 @@ class MatchingService:
                 logger.warning(f"Failed to generate embedding for profile {profile_id}")
                 return False
 
-            # Update database - separate transaction for embedding
+            # Update database - use a separate transaction to avoid affecting main transaction
             try:
                 profile.update_embedding(embedding)
-                db.session.commit()
+                db.session.flush()  # Flush changes but don't commit
                 logger.info(f"Updated embedding for profile {profile_id}")
             except Exception as db_error:
                 logger.error(f"Database error updating profile {profile_id} embedding: {db_error}")
-                db.session.rollback()
+                # Don't rollback here - just return False to indicate failure
                 return False
 
             # Update vector database (non-critical - don't fail if this fails)
@@ -205,14 +207,14 @@ class MatchingService:
                 logger.warning(f"Failed to generate embedding for project {project_id}")
                 return False
 
-            # Update database - separate transaction for embedding
+            # Update database - use flush to avoid affecting main transaction
             try:
                 project.update_embedding(embedding)
-                db.session.commit()
+                db.session.flush()  # Flush changes but don't commit
                 logger.info(f"Updated embedding for project {project_id}")
             except Exception as db_error:
                 logger.error(f"Database error updating project {project_id} embedding: {db_error}")
-                db.session.rollback()
+                # Don't rollback here - just return False to indicate failure
                 return False
 
             # Update vector database (non-critical - don't fail if this fails)
