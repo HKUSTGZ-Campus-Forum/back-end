@@ -133,6 +133,14 @@ def create_project():
         try:
             db.session.commit()
             logger.info(f"Successfully committed project for user {current_user_id} with ID {project.id}")
+
+            # Verify the record exists immediately after commit
+            verification = Project.query.get(project.id)
+            if verification:
+                logger.info(f"✅ Project ID {project.id} verified in database after commit")
+            else:
+                logger.error(f"❌ Project ID {project.id} NOT FOUND in database after commit!")
+
         except Exception as commit_error:
             logger.error(f"Failed to commit project for user {current_user_id}: {commit_error}")
             db.session.rollback()
