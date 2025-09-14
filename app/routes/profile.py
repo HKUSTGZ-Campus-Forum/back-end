@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 profile_bp = Blueprint('profile', __name__)
 
-@profile_bp.route('/api/profiles/', methods=['GET'])
+@profile_bp.route('', methods=['GET'])
 @jwt_required()
 def get_current_user_profile():
     """Get current user's profile"""
@@ -25,7 +25,7 @@ def get_current_user_profile():
         logger.error(f"Error getting profile: {e}")
         return jsonify({"success": False, "message": "Failed to get profile"}), 500
 
-@profile_bp.route('/api/profiles/', methods=['POST'])
+@profile_bp.route('', methods=['POST'])
 @jwt_required()
 def create_or_update_profile():
     """Create or update current user's profile"""
@@ -78,7 +78,7 @@ def create_or_update_profile():
         db.session.rollback()
         return jsonify({"success": False, "message": "Failed to update profile"}), 500
 
-@profile_bp.route('/api/profiles/<int:profile_id>', methods=['GET'])
+@profile_bp.route('/<int:profile_id>', methods=['GET'])
 @jwt_required()
 def get_profile_by_id(profile_id):
     """Get a specific user profile by ID"""
@@ -101,7 +101,7 @@ def get_profile_by_id(profile_id):
         logger.error(f"Error getting profile {profile_id}: {e}")
         return jsonify({"success": False, "message": "Failed to get profile"}), 500
 
-@profile_bp.route('/api/profiles/user/<int:user_id>', methods=['GET'])
+@profile_bp.route('/user/<int:user_id>', methods=['GET'])
 @jwt_required()
 def get_profile_by_user_id(user_id):
     """Get user profile by user ID"""
@@ -124,7 +124,7 @@ def get_profile_by_user_id(user_id):
         logger.error(f"Error getting profile for user {user_id}: {e}")
         return jsonify({"success": False, "message": "Failed to get profile"}), 500
 
-@profile_bp.route('/api/profiles/search', methods=['GET'])
+@profile_bp.route('/search', methods=['GET'])
 @jwt_required()
 def search_profiles():
     """Search user profiles"""
@@ -175,7 +175,7 @@ def search_profiles():
         logger.error(f"Error searching profiles: {e}")
         return jsonify({"success": False, "message": "Search failed"}), 500
 
-@profile_bp.route('/api/profiles/refresh-embedding', methods=['POST'])
+@profile_bp.route('/refresh-embedding', methods=['POST'])
 @jwt_required()
 def refresh_profile_embedding():
     """Refresh embedding for current user's profile"""
@@ -206,7 +206,7 @@ def refresh_profile_embedding():
         logger.error(f"Error refreshing embedding: {e}")
         return jsonify({"success": False, "message": "Failed to refresh embedding"}), 500
 
-@profile_bp.route('/api/profiles/stats', methods=['GET'])
+@profile_bp.route('/stats', methods=['GET'])
 @jwt_required()
 def get_profile_stats():
     """Get profile statistics"""
