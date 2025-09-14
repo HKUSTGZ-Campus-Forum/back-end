@@ -123,6 +123,7 @@ class MatchingService:
     def generate_embedding(self, text: str) -> Optional[List[float]]:
         """Generate embedding for text using DashScope"""
         logger.info(f"Generating embedding for text {text}")
+        print(f"Generating embedding for text {text}")
         self._ensure_initialized()
 
         if not self.emb_client:
@@ -137,9 +138,11 @@ class MatchingService:
                 encoding_format="float"
             )
             logger.info(f"Embedding for text {text} generated")
+            print(f"Embedding for text {text} generated")
             return response.data[0].embedding
         except Exception as e:
             logger.error(f"Error generating embedding: {e}")
+            print(f"Error generating embedding: {e}")
             return None
 
     def update_profile_embedding(self, profile_id: int) -> bool:
