@@ -58,19 +58,21 @@ def create_or_update_profile():
         if 'is_active' in data:
             profile.is_active = bool(data['is_active'])
 
-        # Save to database
+        # Save to database first
         db.session.commit()
 
         # Update embedding if profile has meaningful content
+        embedding_success = True
         if profile.is_complete():
-            success = matching_service.update_profile_embedding(profile.id)
-            if not success:
+            embedding_success = matching_service.update_profile_embedding(profile.id)
+            if not embedding_success:
                 logger.warning(f"Failed to update embedding for profile {profile.id}")
 
         return jsonify({
             "success": True,
             "message": "Profile updated successfully",
-            "profile": profile.to_dict()
+            "profile": profile.to_dict(),
+            "embedding_updated": embedding_success if profile.is_complete() else None
         }), 200
 
     except Exception as e:
