@@ -58,3 +58,8 @@ class Config:
     # File URL Cache Settings
     FILE_URL_CACHE_TIMEOUT = 2700  # 45 minutes - shorter than 1hr URL expiry
     FILE_URL_CACHE_KEY_PREFIX = 'file_url:'
+
+    # AI/ML Service Configuration
+    DASHSCOPE_API_KEY = os.getenv('DASHSCOPE_API_KEY')
+    DASHVECTOR_API_KEY = os.getenv('DASHVECTOR_API_KEY')
+    DASHVECTOR_ENDPOINT = os.getenv('DASHVECTOR_ENDPOINT')

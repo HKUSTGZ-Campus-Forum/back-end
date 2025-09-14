@@ -1,6 +1,7 @@
 import os
 import logging
 from typing import List, Dict, Optional, Tuple
+from flask import current_app
 from openai import OpenAI
 import dashvector
 from app.models.user_profile import UserProfile
@@ -14,17 +15,9 @@ class MatchingService:
     """Service for matching users to projects using semantic embeddings and compatibility scoring"""
 
     def __init__(self):
-        # Initialize embedding client (DashScope)
-        self.emb_client = OpenAI(
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
-        )
-
-        # Initialize vector database client (DashVector)
-        self.dv_client = dashvector.Client(
-            api_key=os.getenv("DASHVECTOR_API_KEY"),
-            endpoint=os.getenv("DASHVECTOR_ENDPOINT"),
-        )
+        self.emb_client = None
+        self.dv_client = None
+        self._initialized = False
 
         # Configuration
         self.embedding_model = "text-embedding-v4"
@@ -32,8 +25,82 @@ class MatchingService:
         self.profiles_collection = "user_profiles"
         self.projects_collection = "projects"
 
-        # Ensure collections exist
-        self._ensure_collections()
+    def _ensure_initialized(self):
+        """Initialize clients if not already done"""
+        if self._initialized:
+            return
+
+        try:
+            # Get config from current app context
+            dashscope_key = current_app.config.get('DASHSCOPE_API_KEY')
+            dashvector_key = current_app.config.get('DASHVECTOR_API_KEY')
+            dashvector_endpoint = current_app.config.get('DASHVECTOR_ENDPOINT')
+
+            if not dashscope_key:
+                logger.warning("DASHSCOPE_API_KEY not found in config - embedding generation will fail")
+            if not dashvector_key:
+                logger.warning("DASHVECTOR_API_KEY not found in config - vector search will be disabled")
+            if not dashvector_endpoint:
+                logger.warning("DASHVECTOR_ENDPOINT not found in config - vector search will be disabled")
+
+            # Initialize embedding client (DashScope)
+            if dashscope_key:
+                try:
+                    self.emb_client = OpenAI(
+                        api_key=dashscope_key,
+                        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
+                    )
+                    logger.info("DashScope embedding client initialized")
+                except Exception as e:
+                    logger.error(f"Failed to initialize DashScope client: {e}")
+
+            # Initialize vector database client (DashVector)
+            if dashvector_key and dashvector_endpoint:
+                try:
+                    self.dv_client = dashvector.Client(
+                        api_key=dashvector_key,
+                        endpoint=dashvector_endpoint,
+                    )
+                    logger.info("DashVector client initialized")
+                except Exception as e:
+                    logger.error(f"Failed to initialize DashVector client: {e}")
+
+            # Ensure collections exist (only if we have vector client)
+            if self.dv_client:
+                self._ensure_collections()
+            else:
+                logger.warning("Skipping vector collection setup - DashVector client not available")
+
+            self._initialized = True
+
+        except RuntimeError:
+            # Not in app context - use environment variables as fallback
+            logger.warning("No Flask app context - falling back to environment variables")
+            dashscope_key = os.getenv("DASHSCOPE_API_KEY")
+            dashvector_key = os.getenv("DASHVECTOR_API_KEY")
+            dashvector_endpoint = os.getenv("DASHVECTOR_ENDPOINT")
+
+            if dashscope_key:
+                try:
+                    self.emb_client = OpenAI(
+                        api_key=dashscope_key,
+                        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
+                    )
+                    logger.info("DashScope embedding client initialized (fallback)")
+                except Exception as e:
+                    logger.error(f"Failed to initialize DashScope client: {e}")
+
+            if dashvector_key and dashvector_endpoint:
+                try:
+                    self.dv_client = dashvector.Client(
+                        api_key=dashvector_key,
+                        endpoint=dashvector_endpoint,
+                    )
+                    logger.info("DashVector client initialized (fallback)")
+                except Exception as e:
+                    logger.error(f"Failed to initialize DashVector client: {e}")
+
+            self._initialized = True
 
     def _ensure_collections(self):
         """Ensure DashVector collections exist"""
@@ -55,6 +122,12 @@ class MatchingService:
 
     def generate_embedding(self, text: str) -> Optional[List[float]]:
         """Generate embedding for text using DashScope"""
+        self._ensure_initialized()
+
+        if not self.emb_client:
+            logger.warning("No embedding client available - skipping embedding generation")
+            return None
+
         try:
             response = self.emb_client.embeddings.create(
                 model=self.embedding_model,
