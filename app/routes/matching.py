@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 matching_bp = Blueprint('matching', __name__)
 
-@matching_bp.route('/api/matching/projects', methods=['GET'])
+@matching_bp.route('/projects', methods=['GET'])
 @jwt_required()
 def get_project_recommendations():
     """Get project recommendations for current user"""
@@ -48,7 +48,7 @@ def get_project_recommendations():
         logger.error(f"Error getting project recommendations: {e}")
         return jsonify({"success": False, "message": "Failed to get recommendations"}), 500
 
-@matching_bp.route('/api/matching/teammates/<int:project_id>', methods=['GET'])
+@matching_bp.route('/teammates/<int:project_id>', methods=['GET'])
 @jwt_required()
 def get_teammate_recommendations(project_id):
     """Get teammate recommendations for a specific project"""
@@ -82,7 +82,7 @@ def get_teammate_recommendations(project_id):
         logger.error(f"Error getting teammate recommendations for project {project_id}: {e}")
         return jsonify({"success": False, "message": "Failed to get recommendations"}), 500
 
-@matching_bp.route('/api/matching/applications', methods=['POST'])
+@matching_bp.route('/applications', methods=['POST'])
 @jwt_required()
 def apply_to_project():
     """Apply to a project"""
@@ -143,7 +143,7 @@ def apply_to_project():
         db.session.rollback()
         return jsonify({"success": False, "message": "Failed to submit application"}), 500
 
-@matching_bp.route('/api/matching/applications', methods=['GET'])
+@matching_bp.route('/applications', methods=['GET'])
 @jwt_required()
 def get_my_applications():
     """Get current user's project applications"""
@@ -179,7 +179,7 @@ def get_my_applications():
         logger.error(f"Error getting user applications: {e}")
         return jsonify({"success": False, "message": "Failed to get applications"}), 500
 
-@matching_bp.route('/api/matching/applications/<int:application_id>', methods=['PUT'])
+@matching_bp.route('/applications/<int:application_id>', methods=['PUT'])
 @jwt_required()
 def update_application(application_id):
     """Update an application (accept/reject by project creator, or withdraw by applicant)"""
@@ -225,7 +225,7 @@ def update_application(application_id):
         db.session.rollback()
         return jsonify({"success": False, "message": "Failed to update application"}), 500
 
-@matching_bp.route('/api/matching/applications/received', methods=['GET'])
+@matching_bp.route('/applications/received', methods=['GET'])
 @jwt_required()
 def get_received_applications():
     """Get applications received for current user's projects"""
@@ -275,7 +275,7 @@ def get_received_applications():
         logger.error(f"Error getting received applications: {e}")
         return jsonify({"success": False, "message": "Failed to get applications"}), 500
 
-@matching_bp.route('/api/matching/dashboard', methods=['GET'])
+@matching_bp.route('/dashboard', methods=['GET'])
 @jwt_required()
 def get_matching_dashboard():
     """Get dashboard data for matching system"""
