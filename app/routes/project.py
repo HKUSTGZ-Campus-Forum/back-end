@@ -129,7 +129,14 @@ def create_project():
             embedding_success = False
 
         # Commit everything together - proceed even if embedding fails
-        db.session.commit()
+        logger.info(f"About to commit project changes for user {current_user_id}")
+        try:
+            db.session.commit()
+            logger.info(f"Successfully committed project for user {current_user_id} with ID {project.id}")
+        except Exception as commit_error:
+            logger.error(f"Failed to commit project for user {current_user_id}: {commit_error}")
+            db.session.rollback()
+            raise
 
         return jsonify({
             "success": True,
