@@ -197,14 +197,25 @@ def get_project(project_id):
 def update_project(project_id):
     """Update a project"""
     try:
+        # Get JWT details for debugging
         current_user_id = get_jwt_identity()
+        jwt_header = get_jwt()
+
         project = Project.query.get(project_id)
+
+        logger.info(f"🔄 Update request for project {project_id}:")
+        logger.info(f"   JWT user_id: {current_user_id} (type: {type(current_user_id)})")
+        logger.info(f"   JWT claims: {jwt_header}")
+        logger.info(f"   Project user_id: {project.user_id if project else 'N/A'} (type: {type(project.user_id) if project else 'N/A'})")
+        logger.info(f"   Are they equal? {current_user_id == project.user_id if project else 'N/A'}")
 
         if not project or project.is_deleted:
             return jsonify({"success": False, "message": "Project not found"}), 404
 
-        if project.user_id != current_user_id:
-            return jsonify({"success": False, "message": "Permission denied"}), 403
+        # Use string comparison for JWT compatibility (like post.py does)
+        if str(project.user_id) != str(current_user_id):
+            logger.warning(f"❌ Permission denied: project.user_id={project.user_id} != current_user_id={current_user_id}")
+            return jsonify({"success": False, "message": f"Permission denied: You can only update your own projects (project owner: {project.user_id}, current user: {current_user_id})"}), 403
 
         data = request.get_json()
         if not data:
@@ -275,7 +286,7 @@ def delete_project(project_id):
         if not project or project.is_deleted:
             return jsonify({"success": False, "message": "Project not found"}), 404
 
-        if project.user_id != current_user_id:
+        if str(project.user_id) != str(current_user_id):
             return jsonify({"success": False, "message": "Permission denied"}), 403
 
         # Soft delete
@@ -306,7 +317,7 @@ def get_project_matches(project_id):
         if not project or project.is_deleted:
             return jsonify({"success": False, "message": "Project not found"}), 404
 
-        if project.user_id != current_user_id:
+        if str(project.user_id) != str(current_user_id):
             return jsonify({"success": False, "message": "Permission denied"}), 403
 
         limit = min(int(request.args.get('limit', 10)), 20)
@@ -332,6 +343,9 @@ def get_my_projects():
     """Get current user's projects"""
     try:
         current_user_id = get_jwt_identity()
+
+        logger.info(f"🔄 Getting projects for user: {current_user_id}")
+
         projects = Project.query.filter_by(user_id=current_user_id, is_deleted=False)\
                                 .order_by(Project.created_at.desc()).all()
 
