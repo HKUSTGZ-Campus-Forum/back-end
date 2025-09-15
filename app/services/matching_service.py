@@ -32,6 +32,10 @@ class MatchingService:
         self.profiles_collection = "user_profiles"
         self.projects_collection = "projects"
 
+        # Enhanced matching configuration
+        self.include_user_projects_in_matching = True  # Enable project-enhanced matching by default
+        self.max_projects_for_matching = 3  # Limit number of projects to include
+
     def _ensure_initialized(self):
         """Initialize clients if not already done"""
         if self._initialized:
@@ -176,7 +180,7 @@ class MatchingService:
             logger.error(f"Error generating embedding: {e}")
             return None
 
-    def update_profile_embedding(self, profile_id: int) -> bool:
+    def update_profile_embedding(self, profile_id: int, include_projects: bool = True) -> bool:
         """Update embedding for a user profile"""
         try:
             profile = UserProfile.query.get(profile_id)
@@ -184,8 +188,14 @@ class MatchingService:
                 logger.warning(f"Profile {profile_id} not found")
                 return False
 
-            # Generate text representation and embedding
-            text = profile.get_text_representation()
+            # Generate text representation and embedding (with projects for richer context)
+            if include_projects:
+                text = profile.get_text_representation_with_projects()
+                logger.info(f"Generating embedding for profile {profile_id} with projects included")
+            else:
+                text = profile.get_text_representation()
+                logger.info(f"Generating embedding for profile {profile_id} without projects")
+
             if not text.strip():
                 logger.warning(f"Empty text for profile {profile_id}")
                 return False

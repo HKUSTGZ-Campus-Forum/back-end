@@ -67,6 +67,51 @@ class UserProfile(db.Model):
 
         return " | ".join(parts)
 
+    def get_text_representation_with_projects(self, project_limit=3):
+        """Generate enhanced text representation including user's own projects for better semantic matching"""
+        # Start with basic profile info
+        parts = [self.get_text_representation()]
+
+        # Import here to avoid circular imports
+        from app.models.project import Project
+
+        # Get user's recent projects (non-deleted, ordered by creation date)
+        user_projects = Project.query.filter_by(
+            user_id=self.user_id,
+            is_deleted=False
+        ).order_by(Project.created_at.desc()).limit(project_limit).all()
+
+        for project in user_projects:
+            # Create concise project summary for semantic matching
+            project_parts = []
+            project_parts.append(f"Created Project: {project.title}")
+
+            # Include description (truncated to avoid too much text)
+            if project.description:
+                desc = project.description[:200] + "..." if len(project.description) > 200 else project.description
+                project_parts.append(desc)
+
+            # Include goal if available
+            if project.goal:
+                goal = project.goal[:150] + "..." if len(project.goal) > 150 else project.goal
+                project_parts.append(f"Goal: {goal}")
+
+            # Include project type and difficulty
+            if project.project_type:
+                project_parts.append(f"Type: {project.project_type}")
+            if project.difficulty_level:
+                project_parts.append(f"Difficulty: {project.difficulty_level}")
+
+            # Include skills used in the project
+            if project.required_skills:
+                project_parts.append(f"Skills Used: {', '.join(project.required_skills)}")
+
+            # Combine project info
+            project_summary = " - ".join(project_parts)
+            parts.append(project_summary)
+
+        return " | ".join(parts)
+
     def update_embedding(self, embedding_vector):
         """Update the embedding vector and invalidate related caches"""
         self.embedding = embedding_vector
@@ -75,6 +120,8 @@ class UserProfile(db.Model):
         # Invalidate related caches
         try:
             from app.extensions import cache
+            import logging
+            logger = logging.getLogger(__name__)
 
             # Clear compatibility scores for this profile
             cache_pattern = f"compat:{self.id}:*"
@@ -88,6 +135,8 @@ class UserProfile(db.Model):
             # For now, we'll let TTL handle cache expiration
 
         except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
             logger.debug(f"Cache invalidation failed for profile {self.id}: {e}")
 
     def to_dict(self, include_embedding=False):

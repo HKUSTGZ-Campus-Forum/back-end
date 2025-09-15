@@ -148,3 +148,48 @@ def check_contact_visibility(target_user_id):
             "message": "Failed to check contact visibility",
             "can_see_contact": False
         }), 500
+
+@matching_bp.route('/profile/refresh-embedding', methods=['POST'])
+@jwt_required()
+def refresh_profile_embedding():
+    """Refresh user's profile embedding with project-enhanced mode"""
+    try:
+        current_user_id = get_jwt_identity()
+
+        # Get optional parameter for including projects
+        include_projects = request.json.get('include_projects', True) if request.json else True
+
+        # Get user profile
+        profile = UserProfile.query.filter_by(user_id=current_user_id).first()
+        if not profile:
+            return jsonify({
+                "success": False,
+                "message": "Please create your profile first"
+            }), 400
+
+        # Update embedding with enhanced mode
+        success = matching_service.update_profile_embedding(
+            profile.id,
+            include_projects=include_projects
+        )
+
+        if success:
+            db.session.commit()
+            return jsonify({
+                "success": True,
+                "message": "Profile embedding updated successfully",
+                "enhanced_mode": include_projects
+            }), 200
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Failed to update profile embedding"
+            }), 500
+
+    except Exception as e:
+        logger.error(f"Error refreshing profile embedding: {e}")
+        db.session.rollback()
+        return jsonify({
+            "success": False,
+            "message": "Failed to refresh embedding"
+        }), 500
