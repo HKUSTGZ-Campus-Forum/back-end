@@ -60,7 +60,7 @@ def get_teammate_recommendations(project_id):
         if not project or project.is_deleted:
             return jsonify({"success": False, "message": "Project not found"}), 404
 
-        if project.user_id != current_user_id:
+        if str(project.user_id) != str(current_user_id):
             return jsonify({"success": False, "message": "Permission denied"}), 403
 
         limit = min(int(request.args.get('limit', 10)), 20)
