@@ -1,7 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import get_jwt_identity, jwt_required, get_jwt
 from app.models.project import Project
-from app.models.project_application import ProjectApplication
 from app.models.user_profile import UserProfile
 from app.extensions import db
 from app.services.matching_service import matching_service
