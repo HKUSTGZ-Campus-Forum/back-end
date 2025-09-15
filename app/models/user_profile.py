@@ -13,14 +13,16 @@ class UserProfile(db.Model):
     bio = db.Column(db.Text)
     skills = db.Column(JSONB, default=list)  # List of skill names
     interests = db.Column(JSONB, default=list)  # List of interest areas
+    thrust = db.Column(JSONB, default=list)  # List of research thrust areas
 
     # Experience and preferences
     experience_level = db.Column(db.String(20))  # beginner, intermediate, advanced, expert
     preferred_roles = db.Column(JSONB, default=list)  # List of preferred project roles
     availability = db.Column(db.String(50))  # full-time, part-time, weekends, flexible
 
-    # Contact preferences
+    # Contact information
     contact_preferences = db.Column(JSONB, default=dict)  # How they prefer to be contacted
+    contact_methods = db.Column(JSONB, default=list)  # Specific contact methods with values
 
     # Semantic search
     embedding = db.Column(JSONB)  # Store embedding vector for similarity search
@@ -54,6 +56,9 @@ class UserProfile(db.Model):
         if self.interests:
             parts.append(f"Interests: {', '.join(self.interests)}")
 
+        if self.thrust:
+            parts.append(f"Research Thrust: {', '.join(self.thrust)}")
+
         if self.experience_level:
             parts.append(f"Experience Level: {self.experience_level}")
 
@@ -75,10 +80,12 @@ class UserProfile(db.Model):
             "bio": self.bio,
             "skills": self.skills or [],
             "interests": self.interests or [],
+            "thrust": self.thrust or [],
             "experience_level": self.experience_level,
             "preferred_roles": self.preferred_roles or [],
             "availability": self.availability,
             "contact_preferences": self.contact_preferences or {},
+            "contact_methods": self.contact_methods or [],
             "is_active": self.is_active,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat()
