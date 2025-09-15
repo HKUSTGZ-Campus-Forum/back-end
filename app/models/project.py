@@ -47,7 +47,6 @@ class Project(db.Model):
 
     # Relationships
     creator = db.relationship('User', backref=db.backref('created_projects', lazy='dynamic'))
-    applications = db.relationship('ProjectApplication', backref='project', lazy='dynamic', cascade='all, delete-orphan')
 
     # Constants for status
     STATUS_RECRUITING = 'recruiting'
@@ -130,8 +129,8 @@ class Project(db.Model):
         self.interest_count += 1
 
     def get_current_team_size(self):
-        """Get current number of accepted team members"""
-        return self.applications.filter_by(status='accepted').count() + 1  # +1 for creator
+        """Get current number of team members (simplified - just returns 1 for creator)"""
+        return 1  # Just the creator in simplified system
 
     def is_recruiting(self):
         """Check if project is still recruiting"""
@@ -139,17 +138,6 @@ class Project(db.Model):
                 not self.is_deleted and
                 self.get_current_team_size() < self.team_size_max)
 
-    def can_user_apply(self, user_id):
-        """Check if user can apply to this project"""
-        if self.user_id == user_id:  # Creator can't apply to own project
-            return False
-
-        if not self.is_recruiting():
-            return False
-
-        # Check if user already applied
-        existing_application = self.applications.filter_by(user_id=user_id).first()
-        return existing_application is None
 
     def to_dict(self, include_creator=True, include_applications=False, include_embedding=False, current_user_id=None):
         """Convert to dictionary for API responses"""
@@ -187,16 +175,9 @@ class Project(db.Model):
                 "avatar_url": self.creator.avatar_url
             }
 
-        # Check if current user can apply
+        # In simplified system, focus on basic project info
         if current_user_id:
-            data["can_apply"] = self.can_user_apply(current_user_id)
-            # Check if current user already applied
-            existing_app = self.applications.filter_by(user_id=current_user_id).first()
-            data["user_application_status"] = existing_app.status if existing_app else None
-
-        # Include applications if requested
-        if include_applications:
-            data["applications"] = [app.to_dict(include_user=True) for app in self.applications]
+            data["is_own_project"] = self.user_id == current_user_id
 
         if include_embedding and self.embedding:
             data["embedding"] = self.embedding

@@ -6,7 +6,6 @@ from openai import OpenAI
 import dashvector
 from app.models.user_profile import UserProfile
 from app.models.project import Project
-from app.models.project_application import ProjectApplication
 from app.extensions import db
 # Cache service imports - safely handle if cache service is not available
 try:
@@ -339,9 +338,9 @@ class MatchingService:
                     logger.debug(f"Project {project_id} ({project.title}) is not recruiting (status: {project.status})")
                     continue
 
-                # Skip if user can't apply
-                if not project.can_user_apply(user_id):
-                    logger.debug(f"User {user_id} can't apply to project {project_id} ({project.title})")
+                # Skip own projects
+                if project.user_id == user_id:
+                    logger.debug(f"Skipping own project {project_id} ({project.title})")
                     continue
 
                 # Calculate compatibility score
@@ -412,8 +411,8 @@ class MatchingService:
                 if profile.user_id == project.user_id:
                     continue
 
-                # Skip if user already applied
-                if not project.can_user_apply(profile.user_id):
+                # Skip own projects
+                if profile.user_id == project.user_id:
                     continue
 
                 # Calculate compatibility score
