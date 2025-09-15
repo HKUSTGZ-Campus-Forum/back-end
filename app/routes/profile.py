@@ -46,6 +46,8 @@ def create_or_update_profile():
             profile.skills = data['skills'] if isinstance(data['skills'], list) else []
         if 'interests' in data:
             profile.interests = data['interests'] if isinstance(data['interests'], list) else []
+        if 'thrust' in data:
+            profile.thrust = data['thrust'] if isinstance(data['thrust'], list) else []
         if 'experience_level' in data:
             if data['experience_level'] in ['beginner', 'intermediate', 'advanced', 'expert']:
                 profile.experience_level = data['experience_level']
@@ -55,6 +57,8 @@ def create_or_update_profile():
             profile.availability = data['availability']
         if 'contact_preferences' in data:
             profile.contact_preferences = data['contact_preferences'] if isinstance(data['contact_preferences'], dict) else {}
+        if 'contact_methods' in data:
+            profile.contact_methods = data['contact_methods'] if isinstance(data['contact_methods'], list) else []
         if 'is_active' in data:
             profile.is_active = bool(data['is_active'])
 
@@ -126,22 +130,44 @@ def get_profile_by_id(profile_id):
         return jsonify({"success": False, "message": "Failed to get profile"}), 500
 
 @profile_bp.route('/user/<int:user_id>', methods=['GET'])
-@jwt_required()
+@jwt_required(optional=True)
 def get_profile_by_user_id(user_id):
-    """Get user profile by user ID"""
+    """Get user profile by user ID (public endpoint for viewing profiles)"""
     try:
         profile = UserProfile.query.filter_by(user_id=user_id).first()
         if not profile:
             return jsonify({"success": False, "message": "Profile not found"}), 404
 
-        # Only show active profiles to others
-        current_user_id = get_jwt_identity()
-        if user_id != current_user_id and not profile.is_active:
+        # Only show active profiles
+        if not profile.is_active:
             return jsonify({"success": False, "message": "Profile not found"}), 404
+
+        # Get current user ID if authenticated (for checking if it's their own profile)
+        current_user_id = None
+        try:
+            current_user_id = get_jwt_identity()
+        except:
+            pass
+
+        # Include contact info only if it's their own profile or if they choose to make it public
+        include_contact = current_user_id == user_id
+        profile_data = profile.to_dict()
+
+        # Filter contact info for privacy
+        if not include_contact:
+            # Only show contact methods without actual contact details for privacy
+            if profile_data.get('contact_preferences'):
+                profile_data['contact_methods'] = []
+                for method, value in profile_data['contact_preferences'].items():
+                    if value:  # Only show methods they have enabled
+                        profile_data['contact_methods'].append({
+                            'method': method,
+                            'value': '***'  # Hide actual contact details
+                        })
 
         return jsonify({
             "success": True,
-            "profile": profile.to_dict()
+            "profile": profile_data
         }), 200
 
     except Exception as e:
