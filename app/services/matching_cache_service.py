@@ -9,7 +9,6 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime, timedelta
 import logging
 
-from app.extensions import cache
 from app.models.user_profile import UserProfile
 from app.models.project import Project
 
@@ -63,6 +62,7 @@ class MatchingCacheService:
             Cached embedding vector or None
         """
         try:
+            from app.extensions import cache
             cache_key = cls._generate_cache_key(cls.EMBEDDING_PREFIX, entity_type, entity_id)
             cached_data = cache.get(cache_key)
 
@@ -74,7 +74,7 @@ class MatchingCacheService:
             return None
 
         except Exception as e:
-            logger.error(f"Error retrieving cached embedding: {e}")
+            logger.debug(f"Cache operation failed, proceeding without cache: {e}")
             return None
 
     @classmethod

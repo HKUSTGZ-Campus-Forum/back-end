@@ -8,7 +8,14 @@ from app.models.user_profile import UserProfile
 from app.models.project import Project
 from app.models.project_application import ProjectApplication
 from app.extensions import db
-from app.services.matching_cache_service import MatchingCacheService, cache_embedding_result, cache_compatibility_result
+# Cache service imports - safely handle if cache service is not available
+try:
+    from app.services.matching_cache_service import MatchingCacheService, cache_embedding_result, cache_compatibility_result
+    CACHE_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Cache service not available: {e}")
+    CACHE_AVAILABLE = False
+    MatchingCacheService = None
 
 logger = logging.getLogger(__name__)
 
@@ -125,19 +132,19 @@ class MatchingService:
         """Generate embedding for text using DashScope with caching"""
         # Create a simple hash for the text to use as cache key
         import hashlib
+        import json
         text_hash = hashlib.md5(text.encode()).hexdigest()[:12]
 
-        # Check cache first
+        # Check cache first (graceful fallback if cache fails)
         try:
             from app.extensions import cache
             cache_key = f"embed:text:{text_hash}"
             cached_embedding = cache.get(cache_key)
             if cached_embedding:
                 logger.info(f"🎯 Embedding cache HIT for text hash {text_hash}")
-                import json
                 return json.loads(cached_embedding)
         except Exception as e:
-            logger.debug(f"Cache lookup failed: {e}")
+            logger.debug(f"Cache lookup failed, proceeding without cache: {e}")
 
         logger.info(f"Generating embedding for text {text[:50]}...")
         self._ensure_initialized()
@@ -155,15 +162,14 @@ class MatchingService:
             )
             embedding = response.data[0].embedding
 
-            # Cache the result for 7 days
+            # Cache the result for 7 days (graceful fallback if cache fails)
             try:
                 from app.extensions import cache
-                import json
                 cache_key = f"embed:text:{text_hash}"
                 cache.set(cache_key, json.dumps(embedding), timeout=7*24*3600)
                 logger.info(f"💾 Cached embedding for text hash {text_hash}")
             except Exception as e:
-                logger.debug(f"Cache save failed: {e}")
+                logger.debug(f"Cache save failed, proceeding without cache: {e}")
 
             logger.info(f"Embedding for text {text[:50]}... generated")
             return embedding
@@ -280,12 +286,12 @@ class MatchingService:
     def find_project_matches(self, user_id: int, limit: int = 10) -> List[Dict]:
         """Find projects matching a user's profile with caching"""
         try:
-            # Check cache first
+            import json
+            from datetime import datetime
+
+            # Check cache first (graceful fallback if cache fails)
             try:
                 from app.extensions import cache
-                from datetime import datetime
-                import json
-
                 # Include current hour for cache key to refresh hourly
                 current_hour = datetime.now().strftime('%Y%m%d%H')
                 cache_key = f"matches:projects:{user_id}:{limit}:{current_hour}"
@@ -295,7 +301,7 @@ class MatchingService:
                     logger.info(f"🎯 Project matches cache HIT for user {user_id}")
                     return json.loads(cached_matches)
             except Exception as e:
-                logger.debug(f"Cache lookup failed: {e}")
+                logger.debug(f"Cache lookup failed, proceeding without cache: {e}")
 
             # Get user profile
             profile = UserProfile.query.filter_by(user_id=user_id).first()
@@ -310,19 +316,32 @@ class MatchingService:
                 limit=limit * 2  # Get more to filter
             )
 
+            logger.info(f"Found {len(similar_projects)} similar projects from vector search for user {user_id}")
+
             # Get project objects and calculate compatibility scores
             matches = []
             for result in similar_projects:
                 project_id = result.get("metadata", {}).get("project_id")
                 if not project_id:
+                    logger.debug(f"Skipping result with no project_id: {result}")
                     continue
 
                 project = Project.query.get(project_id)
-                if not project or not project.is_recruiting():
+                if not project:
+                    logger.debug(f"Project {project_id} not found in database")
+                    continue
+
+                if project.is_deleted:
+                    logger.debug(f"Project {project_id} is deleted")
+                    continue
+
+                if not project.is_recruiting():
+                    logger.debug(f"Project {project_id} ({project.title}) is not recruiting (status: {project.status})")
                     continue
 
                 # Skip if user can't apply
                 if not project.can_user_apply(user_id):
+                    logger.debug(f"User {user_id} can't apply to project {project_id} ({project.title})")
                     continue
 
                 # Calculate compatibility score
@@ -337,25 +356,29 @@ class MatchingService:
                     "combined_score": (similarity_score + compatibility.get("total_score", 0.0)) / 2
                 }
                 matches.append(match_data)
+                logger.debug(f"Added match: project {project_id} ({project.title}) with combined score {match_data['combined_score']:.3f}")
 
             # Sort by combined score and return top matches
             matches.sort(key=lambda x: x["combined_score"], reverse=True)
             final_matches = matches[:limit]
 
-            # Cache the results for 1 hour
+            logger.info(f"Returning {len(final_matches)} project matches for user {user_id}")
+
+            # Cache the results for 1 hour (graceful fallback if cache fails)
             try:
                 from app.extensions import cache
-                import json
                 cache_key = f"matches:projects:{user_id}:{limit}:{current_hour}"
                 cache.set(cache_key, json.dumps(final_matches), timeout=3600)
                 logger.info(f"💾 Cached project matches for user {user_id} ({len(final_matches)} matches)")
             except Exception as e:
-                logger.debug(f"Cache save failed: {e}")
+                logger.debug(f"Cache save failed, proceeding without cache: {e}")
 
             return final_matches
 
         except Exception as e:
             logger.error(f"Error finding project matches for user {user_id}: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return []
 
     def find_teammate_matches(self, project_id: int, limit: int = 10) -> List[Dict]:
@@ -417,8 +440,15 @@ class MatchingService:
     def _vector_search(self, collection_name: str, query_vector: List[float], limit: int) -> List[Dict]:
         """Perform vector similarity search"""
         try:
+            self._ensure_initialized()
+
+            if not self.dv_client:
+                logger.warning("Vector client not available - returning empty results")
+                return []
+
             collection = self.dv_client.get(name=collection_name)
             if not collection:
+                logger.warning(f"Collection {collection_name} not found - returning empty results")
                 return []
 
             result = collection.query(
@@ -434,7 +464,7 @@ class MatchingService:
                     match_data = {
                         "id": doc.id,
                         "score": getattr(doc, 'score', 0.0),  # Similarity score
-                        "metadata": doc.fields or {}
+                        "metadata": getattr(doc, 'fields', {}) or {}
                     }
                     matches.append(match_data)
 
