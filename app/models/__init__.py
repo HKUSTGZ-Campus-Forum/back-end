@@ -18,4 +18,6 @@ from .notification import Notification
 from .push_subscription import PushSubscription
 from .identity_type import IdentityType
 from .user_identity import UserIdentity
+from .user_profile import UserProfile
+from .project import Project
 
