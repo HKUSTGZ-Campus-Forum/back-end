@@ -149,20 +149,27 @@ def get_profile_by_user_id(user_id):
         except:
             pass
 
+        # In the matching system, contact info should be visible to facilitate collaboration
         # Include contact info only if it's their own profile or if they choose to make it public
         include_contact = current_user_id == user_id
         profile_data = profile.to_dict()
 
-        # Filter contact info for privacy
+        # For the matching system, show actual contact details if available
+        # The system is designed for team collaboration, so contact visibility is important
         if not include_contact:
-            # Only show contact methods without actual contact details for privacy
-            if profile_data.get('contact_preferences'):
+            # Show actual contact methods for the matching/collaboration system
+            # If user has contact_methods (new format), use those
+            if profile_data.get('contact_methods'):
+                # contact_methods already contains actual values, keep them as-is
+                pass
+            elif profile_data.get('contact_preferences'):
+                # Legacy format: convert contact_preferences to contact_methods with real values
                 profile_data['contact_methods'] = []
                 for method, value in profile_data['contact_preferences'].items():
-                    if value:  # Only show methods they have enabled
+                    if value and isinstance(value, str) and value != '***':  # Only show real values
                         profile_data['contact_methods'].append({
                             'method': method,
-                            'value': '***'  # Hide actual contact details
+                            'value': value  # Show actual contact details for team collaboration
                         })
 
         return jsonify({
