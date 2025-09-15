@@ -80,12 +80,26 @@ class ProjectApplication(db.Model):
 
     def can_be_modified_by_user(self, user_id):
         """Check if user can modify this application"""
+        # Debug logging
+        import logging
+        logger = logging.getLogger(__name__)
+
+        logger.debug(f"Checking permission for user {user_id} on application {self.id}")
+        logger.debug(f"Application user_id: {self.user_id}, status: {self.status}")
+        logger.debug(f"Project exists: {self.project is not None}")
+        if self.project:
+            logger.debug(f"Project user_id: {self.project.user_id}")
+
         # Applicant can withdraw pending applications
         if self.user_id == user_id and self.is_pending():
+            logger.debug("Permission granted: User is applicant and application is pending")
             return True
         # Project creator can accept/reject pending applications
         if self.project and self.project.user_id == user_id and self.is_pending():
+            logger.debug("Permission granted: User is project creator and application is pending")
             return True
+
+        logger.debug("Permission denied: No matching conditions")
         return False
 
     def set_match_score(self, score, reasons=None):
