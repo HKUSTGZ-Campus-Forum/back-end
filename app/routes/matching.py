@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import get_jwt_identity, jwt_required
+from sqlalchemy.orm import joinedload
 from app.models.user_profile import UserProfile
 from app.models.project import Project
 from app.models.project_application import ProjectApplication
@@ -185,7 +186,7 @@ def update_application(application_id):
     """Update an application (accept/reject by project creator, or withdraw by applicant)"""
     try:
         current_user_id = get_jwt_identity()
-        application = ProjectApplication.query.get(application_id)
+        application = ProjectApplication.query.options(joinedload(ProjectApplication.project)).get(application_id)
 
         if not application:
             return jsonify({"success": False, "message": "Application not found"}), 404
