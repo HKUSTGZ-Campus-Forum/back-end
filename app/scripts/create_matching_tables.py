@@ -5,7 +5,6 @@ Database migration script to create teammate matching tables.
 This script creates the necessary tables for the teammate matching system:
 - user_profiles: Extended user profiles with skills, interests, and embeddings
 - projects: Project ideas and proposals
-- project_applications: Applications and matches between users and projects
 
 Usage: python create_matching_tables.py
 """
@@ -20,7 +19,6 @@ from app import create_app
 from app.extensions import db
 from app.models.user_profile import UserProfile
 from app.models.project import Project
-from app.models.project_application import ProjectApplication
 
 def create_tables():
     """Create all the new tables"""
@@ -34,8 +32,8 @@ def create_tables():
         Project.__table__.create(db.engine, checkfirst=True)
         print("✓ Created projects table")
 
-        ProjectApplication.__table__.create(db.engine, checkfirst=True)
-        print("✓ Created project_applications table")
+        # ProjectApplication table removed in simplified matching system
+        print("✓ Skipped project_applications table (removed in simplified system)")
 
         print("\nAll tables created successfully!")
         print("\nTable structure:")
