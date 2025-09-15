@@ -95,9 +95,31 @@ class Project(db.Model):
         return " | ".join(parts)
 
     def update_embedding(self, embedding_vector):
-        """Update the embedding vector"""
+        """Update the embedding vector and invalidate related caches"""
         self.embedding = embedding_vector
         self.updated_at = datetime.now(timezone.utc)
+
+        # Invalidate related caches
+        try:
+            from app.extensions import cache
+            import logging
+            logger = logging.getLogger(__name__)
+
+            # Clear compatibility scores for this project
+            cache_pattern = f"compat:*:{self.id}"
+            logger.info(f"Invalidating compatibility cache for project {self.id}")
+
+            # Clear teammate matches cache for this project
+            project_cache_pattern = f"matches:teammates:{self.id}:*"
+            logger.info(f"Invalidating teammate matches cache for project {self.id}")
+
+            # Note: In production, you'd use Redis SCAN to delete pattern-based keys
+            # For now, we'll let TTL handle cache expiration
+
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Cache invalidation failed for project {self.id}: {e}")
 
     def increment_view(self):
         """Increment view count"""

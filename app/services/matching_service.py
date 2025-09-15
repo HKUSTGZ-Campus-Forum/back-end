@@ -8,6 +8,7 @@ from app.models.user_profile import UserProfile
 from app.models.project import Project
 from app.models.project_application import ProjectApplication
 from app.extensions import db
+from app.services.matching_cache_service import MatchingCacheService, cache_embedding_result, cache_compatibility_result
 
 logger = logging.getLogger(__name__)
 
@@ -121,9 +122,24 @@ class MatchingService:
             logger.error(f"Error ensuring collections: {e}")
 
     def generate_embedding(self, text: str) -> Optional[List[float]]:
-        """Generate embedding for text using DashScope"""
-        logger.info(f"Generating embedding for text {text}")
-        print(f"Generating embedding for text {text}")
+        """Generate embedding for text using DashScope with caching"""
+        # Create a simple hash for the text to use as cache key
+        import hashlib
+        text_hash = hashlib.md5(text.encode()).hexdigest()[:12]
+
+        # Check cache first
+        try:
+            from app.extensions import cache
+            cache_key = f"embed:text:{text_hash}"
+            cached_embedding = cache.get(cache_key)
+            if cached_embedding:
+                logger.info(f"🎯 Embedding cache HIT for text hash {text_hash}")
+                import json
+                return json.loads(cached_embedding)
+        except Exception as e:
+            logger.debug(f"Cache lookup failed: {e}")
+
+        logger.info(f"Generating embedding for text {text[:50]}...")
         self._ensure_initialized()
 
         if not self.emb_client:
@@ -137,12 +153,22 @@ class MatchingService:
                 dimensions=self.embedding_dimensions,
                 encoding_format="float"
             )
-            logger.info(f"Embedding for text {text} generated")
-            print(f"Embedding for text {text} generated")
-            return response.data[0].embedding
+            embedding = response.data[0].embedding
+
+            # Cache the result for 7 days
+            try:
+                from app.extensions import cache
+                import json
+                cache_key = f"embed:text:{text_hash}"
+                cache.set(cache_key, json.dumps(embedding), timeout=7*24*3600)
+                logger.info(f"💾 Cached embedding for text hash {text_hash}")
+            except Exception as e:
+                logger.debug(f"Cache save failed: {e}")
+
+            logger.info(f"Embedding for text {text[:50]}... generated")
+            return embedding
         except Exception as e:
             logger.error(f"Error generating embedding: {e}")
-            print(f"Error generating embedding: {e}")
             return None
 
     def update_profile_embedding(self, profile_id: int) -> bool:
@@ -252,8 +278,25 @@ class MatchingService:
             return False
 
     def find_project_matches(self, user_id: int, limit: int = 10) -> List[Dict]:
-        """Find projects matching a user's profile"""
+        """Find projects matching a user's profile with caching"""
         try:
+            # Check cache first
+            try:
+                from app.extensions import cache
+                from datetime import datetime
+                import json
+
+                # Include current hour for cache key to refresh hourly
+                current_hour = datetime.now().strftime('%Y%m%d%H')
+                cache_key = f"matches:projects:{user_id}:{limit}:{current_hour}"
+                cached_matches = cache.get(cache_key)
+
+                if cached_matches:
+                    logger.info(f"🎯 Project matches cache HIT for user {user_id}")
+                    return json.loads(cached_matches)
+            except Exception as e:
+                logger.debug(f"Cache lookup failed: {e}")
+
             # Get user profile
             profile = UserProfile.query.filter_by(user_id=user_id).first()
             if not profile or not profile.embedding:
@@ -297,7 +340,19 @@ class MatchingService:
 
             # Sort by combined score and return top matches
             matches.sort(key=lambda x: x["combined_score"], reverse=True)
-            return matches[:limit]
+            final_matches = matches[:limit]
+
+            # Cache the results for 1 hour
+            try:
+                from app.extensions import cache
+                import json
+                cache_key = f"matches:projects:{user_id}:{limit}:{current_hour}"
+                cache.set(cache_key, json.dumps(final_matches), timeout=3600)
+                logger.info(f"💾 Cached project matches for user {user_id} ({len(final_matches)} matches)")
+            except Exception as e:
+                logger.debug(f"Cache save failed: {e}")
+
+            return final_matches
 
         except Exception as e:
             logger.error(f"Error finding project matches for user {user_id}: {e}")
@@ -389,7 +444,21 @@ class MatchingService:
             return []
 
     def _calculate_compatibility_score(self, profile: UserProfile, project: Project) -> Dict:
-        """Calculate detailed compatibility score between profile and project"""
+        """Calculate detailed compatibility score between profile and project with caching"""
+        # Check cache first
+        try:
+            from app.extensions import cache
+            import json
+
+            cache_key = f"compat:{profile.id}:{project.id}"
+            cached_score = cache.get(cache_key)
+
+            if cached_score:
+                logger.debug(f"🎯 Compatibility cache HIT: profile:{profile.id} project:{project.id}")
+                return json.loads(cached_score)
+        except Exception as e:
+            logger.debug(f"Compatibility cache lookup failed: {e}")
+
         reasons = []
         scores = {}
 
@@ -427,11 +496,23 @@ class MatchingService:
             scores["interests"] * 0.15
         )
 
-        return {
+        result = {
             "total_score": total_score,
             "component_scores": scores,
             "reasons": reasons[:5]  # Top 5 reasons
         }
+
+        # Cache the result for 6 hours
+        try:
+            from app.extensions import cache
+            import json
+            cache_key = f"compat:{profile.id}:{project.id}"
+            cache.set(cache_key, json.dumps(result), timeout=6*3600)
+            logger.debug(f"💾 Cached compatibility: profile:{profile.id} project:{project.id} score:{total_score:.3f}")
+        except Exception as e:
+            logger.debug(f"Compatibility cache save failed: {e}")
+
+        return result
 
     def _calculate_skill_match(self, profile: UserProfile, project: Project) -> Tuple[float, List[str]]:
         """Calculate skills matching score"""
