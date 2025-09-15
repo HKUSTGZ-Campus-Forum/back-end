@@ -96,3 +96,98 @@ def refresh_cache():
     except Exception as e:
         current_app.logger.error(f"Failed to refresh cache: {e}")
         return jsonify({'error': 'Failed to refresh cache'}), 500
+
+# ===== MATCHING CACHE ENDPOINTS =====
+
+@cache_bp.route('/api/admin/cache/matching/stats', methods=['GET'])
+@jwt_required()
+def get_matching_cache_stats():
+    """Get matching cache performance statistics - admin only"""
+    try:
+        current_user = User.query.get(get_jwt_identity())
+        if not current_user or current_user.role.name != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        from app.services.matching_cache_service import MatchingCacheService
+        stats = MatchingCacheService.get_cache_stats()
+
+        return jsonify({
+            'success': True,
+            'matching_cache_stats': stats
+        })
+
+    except Exception as e:
+        current_app.logger.error(f"Failed to get matching cache stats: {e}")
+        return jsonify({'error': 'Failed to get matching cache stats'}), 500
+
+@cache_bp.route('/api/admin/cache/matching/warm/<int:user_id>', methods=['POST'])
+@jwt_required()
+def warm_matching_cache(user_id):
+    """Proactively warm cache for a user - admin only"""
+    try:
+        current_user = User.query.get(get_jwt_identity())
+        if not current_user or current_user.role.name != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        from app.services.matching_cache_service import MatchingCacheService
+        success = MatchingCacheService.warm_cache_for_user(user_id)
+
+        return jsonify({
+            'success': success,
+            'message': f'Cache warming {"completed" if success else "failed"} for user {user_id}'
+        })
+
+    except Exception as e:
+        current_app.logger.error(f"Failed to warm matching cache: {e}")
+        return jsonify({'error': 'Failed to warm matching cache'}), 500
+
+@cache_bp.route('/api/admin/cache/matching/clear', methods=['POST'])
+@jwt_required()
+def clear_matching_cache():
+    """Clear all matching caches - admin only"""
+    try:
+        current_user = User.query.get(get_jwt_identity())
+        if not current_user or current_user.role.name != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        from app.services.matching_cache_service import MatchingCacheService
+        success = MatchingCacheService.clear_all_matching_cache()
+
+        return jsonify({
+            'success': success,
+            'message': 'Matching cache cleared'
+        })
+
+    except Exception as e:
+        current_app.logger.error(f"Failed to clear matching cache: {e}")
+        return jsonify({'error': 'Failed to clear matching cache'}), 500
+
+@cache_bp.route('/api/cache/matching/invalidate/profile/<int:profile_id>', methods=['POST'])
+@jwt_required()
+def invalidate_profile_cache(profile_id):
+    """Invalidate cache for a specific profile - user can invalidate their own"""
+    try:
+        current_user_id = get_jwt_identity()
+
+        # Check if user owns the profile or is admin
+        from app.models.user_profile import UserProfile
+        profile = UserProfile.query.get(profile_id)
+        if not profile:
+            return jsonify({'error': 'Profile not found'}), 404
+
+        current_user = User.query.get(current_user_id)
+        if profile.user_id != current_user_id and (not current_user or current_user.role.name != 'admin'):
+            return jsonify({'error': 'Permission denied'}), 403
+
+        from app.services.matching_cache_service import MatchingCacheService
+        invalidated = MatchingCacheService.invalidate_compatibility_for_profile(profile_id)
+
+        return jsonify({
+            'success': True,
+            'message': f'Invalidated {invalidated} cache entries for profile {profile_id}',
+            'invalidated_count': invalidated
+        })
+
+    except Exception as e:
+        current_app.logger.error(f"Failed to invalidate profile cache: {e}")
+        return jsonify({'error': 'Failed to invalidate profile cache'}), 500

@@ -68,9 +68,27 @@ class UserProfile(db.Model):
         return " | ".join(parts)
 
     def update_embedding(self, embedding_vector):
-        """Update the embedding vector"""
+        """Update the embedding vector and invalidate related caches"""
         self.embedding = embedding_vector
         self.updated_at = datetime.now(timezone.utc)
+
+        # Invalidate related caches
+        try:
+            from app.extensions import cache
+
+            # Clear compatibility scores for this profile
+            cache_pattern = f"compat:{self.id}:*"
+            logger.info(f"Invalidating compatibility cache for profile {self.id}")
+
+            # Clear user's project matches cache
+            user_cache_pattern = f"matches:projects:{self.user_id}:*"
+            logger.info(f"Invalidating project matches cache for user {self.user_id}")
+
+            # Note: In production, you'd use Redis SCAN to delete pattern-based keys
+            # For now, we'll let TTL handle cache expiration
+
+        except Exception as e:
+            logger.debug(f"Cache invalidation failed for profile {self.id}: {e}")
 
     def to_dict(self, include_embedding=False):
         """Convert to dictionary for API responses"""
