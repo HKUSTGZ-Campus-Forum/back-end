@@ -64,14 +64,14 @@ class ProjectInterviewService:
                 "message": f"Failed to start interview: {str(e)}"
             }
 
-    def continue_interview(self, interview_history: List[Dict], round_number: int) -> Dict[str, Any]:
+    def continue_interview(self, interview_history: List[Dict], round_number: int, initial_description: str = None) -> Dict[str, Any]:
         """Continue interview based on previous answers"""
         try:
             if round_number >= 5:  # Max 5 rounds
-                return self.synthesize_description(interview_history)
+                return self.synthesize_description(interview_history, initial_description)
 
             # Build context from previous answers
-            context = self._build_interview_context(interview_history)
+            context = self._build_interview_context(interview_history, initial_description)
 
             system_prompt = f"""你是一个项目顾问，已经和用户进行了{round_number-1}轮对话。基于之前的对话内容，提出下一个有价值的问题来进一步完善项目描述。
 
@@ -115,19 +115,22 @@ class ProjectInterviewService:
                 "message": f"Failed to continue interview: {str(e)}"
             }
 
-    def synthesize_description(self, interview_history: List[Dict]) -> Dict[str, Any]:
+    def synthesize_description(self, interview_history: List[Dict], initial_description: str = None) -> Dict[str, Any]:
         """Synthesize final comprehensive description from interview"""
         try:
-            context = self._build_interview_context(interview_history)
+            context = self._build_interview_context(interview_history, initial_description)
 
-            system_prompt = """你是一个项目顾问，需要根据与用户的多轮对话，生成一个完整、专业的项目描述。
+            system_prompt = """你是一个项目顾问，需要根据用户的原始想法和多轮问答对话，生成一个完整、专业的项目描述。
 
 要求：
-1. 综合所有对话内容，形成连贯的项目描述
-2. 包含项目目标、目标用户、主要功能、技术实现思路
+1. **核心要求**：必须保持用户最初项目想法的核心内容，这是项目的本质
+2. 基于问答内容补充细节：目标用户、具体功能、技术实现思路、项目规模等
 3. 描述要具体、可执行，适合招募队友
 4. 语言简洁专业，长度控制在200-400字
-5. 只返回项目描述内容，不要额外说明
+5. 结构清晰：问题背景 → 解决方案 → 实现计划 → 团队需求
+6. 只返回项目描述内容，不要额外说明
+
+**重要**：生成的描述应该让读者明确知道这就是用户最初想法的完善版，而不是一个全新的项目。
 
 对话记录：
 {context}"""
@@ -156,9 +159,17 @@ class ProjectInterviewService:
                 "message": f"Failed to synthesize description: {str(e)}"
             }
 
-    def _build_interview_context(self, interview_history: List[Dict]) -> str:
+    def _build_interview_context(self, interview_history: List[Dict], initial_description: str = None) -> str:
         """Build context string from interview history"""
         context = []
+
+        # Add initial description at the beginning
+        if initial_description:
+            context.append("=== 用户最初的项目想法 ===")
+            context.append(initial_description)
+            context.append("")
+            context.append("=== AI问答对话记录 ===")
+
         for i, entry in enumerate(interview_history, 1):
             if entry.get('question') and entry.get('answer'):
                 context.append(f"第{i}轮 - 问题：{entry['question']}")

@@ -65,6 +65,7 @@ def submit_answer():
         interview_history = data['interview_history']
         current_answer = data['current_answer'].strip()
         round_number = data['round']
+        initial_description = data.get('initial_description', '')  # Get initial description
 
         if not current_answer:
             return jsonify({
@@ -77,7 +78,7 @@ def submit_answer():
             interview_history[-1]['answer'] = current_answer
 
         next_round = round_number + 1
-        result = project_interview_service.continue_interview(interview_history, next_round)
+        result = project_interview_service.continue_interview(interview_history, next_round, initial_description)
 
         if result.get('success'):
             if result.get('completed'):
@@ -123,8 +124,9 @@ def synthesize_description():
             }), 400
 
         interview_history = data['interview_history']
+        initial_description = data.get('initial_description', '')  # Get initial description
 
-        result = project_interview_service.synthesize_description(interview_history)
+        result = project_interview_service.synthesize_description(interview_history, initial_description)
 
         if result.get('success'):
             return jsonify({
