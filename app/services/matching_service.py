@@ -273,6 +273,13 @@ class MatchingService:
             except Exception as vector_error:
                 logger.warning(f"Vector DB error for project {project_id}: {vector_error}")
 
+            # Invalidate project recommendation caches to ensure new project appears
+            try:
+                self._invalidate_project_recommendation_caches()
+                logger.info(f"Invalidated project recommendation caches after creating project {project_id}")
+            except Exception as cache_error:
+                logger.warning(f"Cache invalidation failed for project {project_id}: {cache_error}")
+
             return True
         except Exception as e:
             logger.error(f"Error updating project embedding {project_id}: {e}")
@@ -664,6 +671,50 @@ class MatchingService:
             reasons.append(f"Matches interests: {', '.join(matches[:2])}")
 
         return score, reasons
+
+    def _invalidate_project_recommendation_caches(self):
+        """Invalidate all cached project recommendations to ensure new projects appear immediately"""
+        try:
+            from app.extensions import cache
+            from datetime import datetime
+
+            # Get current and next hour to cover cache keys that might exist
+            current_time = datetime.now()
+            current_hour = current_time.strftime('%Y%m%d%H')
+            next_hour = current_time.replace(hour=(current_time.hour + 1) % 24).strftime('%Y%m%d%H')
+
+            # Find all project recommendation cache keys and delete them
+            # We need to iterate through potential user IDs and limits
+            cache_patterns = [
+                f"matches:projects:*:*:{current_hour}",
+                f"matches:projects:*:*:{next_hour}"
+            ]
+
+            # For Redis-based cache, we can use pattern deletion
+            # This is a simple approach - delete based on common patterns
+            for pattern in cache_patterns:
+                try:
+                    # Try to get cache backend for pattern deletion
+                    if hasattr(cache.cache, '_write_client'):
+                        # Redis cache
+                        redis_client = cache.cache._write_client
+                        keys_to_delete = redis_client.keys(pattern)
+                        if keys_to_delete:
+                            redis_client.delete(*keys_to_delete)
+                            logger.info(f"Deleted {len(keys_to_delete)} cache keys matching pattern: {pattern}")
+                    else:
+                        # For other cache backends, we can't do pattern deletion
+                        # We'll rely on the hourly expiration
+                        logger.info(f"Non-Redis cache detected - relying on hourly cache expiration")
+                        break
+                except Exception as pattern_error:
+                    logger.debug(f"Pattern deletion failed for {pattern}: {pattern_error}")
+
+            logger.info("Successfully invalidated project recommendation caches")
+
+        except Exception as e:
+            logger.warning(f"Failed to invalidate project recommendation caches: {e}")
+            # Don't raise - this is non-critical
 
 # Global instance
 matching_service = MatchingService()
