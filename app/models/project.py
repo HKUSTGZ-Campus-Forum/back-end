@@ -70,16 +70,18 @@ class Project(db.Model):
         """Generate text representation for embedding"""
         parts = []
 
+        # Always include title and description
         parts.append(f"Title: {self.title}")
         parts.append(f"Description: {self.description}")
 
+        # Add optional fields with fallback values for better semantic matching
         if self.goal:
             parts.append(f"Goal: {self.goal}")
 
-        if self.required_skills:
+        if self.required_skills and len(self.required_skills) > 0:
             parts.append(f"Required Skills: {', '.join(self.required_skills)}")
 
-        if self.preferred_skills:
+        if self.preferred_skills and len(self.preferred_skills) > 0:
             parts.append(f"Preferred Skills: {', '.join(self.preferred_skills)}")
 
         if self.project_type:
@@ -88,7 +90,7 @@ class Project(db.Model):
         if self.difficulty_level:
             parts.append(f"Difficulty: {self.difficulty_level}")
 
-        if self.looking_for_roles:
+        if self.looking_for_roles and len(self.looking_for_roles) > 0:
             parts.append(f"Looking for: {', '.join(self.looking_for_roles)}")
 
         return " | ".join(parts)
