@@ -181,15 +181,16 @@ def get_profile_by_user_id(user_id):
         logger.error(f"Error getting profile for user {user_id}: {e}")
         return jsonify({"success": False, "message": "Failed to get profile"}), 500
 
-@profile_bp.route('/search', methods=['GET'])
-@jwt_required()
+@profile_bp.route('/', methods=['GET'])
+@jwt_required(optional=True)
 def search_profiles():
-    """Search user profiles"""
+    """Search user profiles (public endpoint for discovery)"""
     try:
         # Query parameters
         query = request.args.get('q', '').strip()
         skills = request.args.get('skills', '').strip()
         experience_level = request.args.get('experience_level', '').strip()
+        availability = request.args.get('availability', '').strip()
         page = int(request.args.get('page', 1))
         limit = min(int(request.args.get('limit', 20)), 50)
 
@@ -200,9 +201,20 @@ def search_profiles():
         if experience_level and experience_level in ['beginner', 'intermediate', 'advanced', 'expert']:
             profiles_query = profiles_query.filter(UserProfile.experience_level == experience_level)
 
-        # Text search in bio
+        # Filter by availability
+        if availability and availability in ['full-time', 'part-time', 'weekends', 'flexible']:
+            profiles_query = profiles_query.filter(UserProfile.availability == availability)
+
+        # Text search in bio, skills, and interests
         if query:
-            profiles_query = profiles_query.filter(UserProfile.bio.ilike(f'%{query}%'))
+            search_term = f'%{query.lower()}%'
+            profiles_query = profiles_query.filter(
+                db.or_(
+                    UserProfile.bio.ilike(search_term),
+                    UserProfile.skills.op('::text').ilike(search_term),
+                    UserProfile.interests.op('::text').ilike(search_term)
+                )
+            )
 
         # Filter by skills (simplified - could be enhanced with better matching)
         if skills:
@@ -211,6 +223,11 @@ def search_profiles():
                 profiles_query = profiles_query.filter(
                     UserProfile.skills.op('::text')().__contains__(skill)
                 )
+
+        # Order by most recently updated and complete profiles first
+        profiles_query = profiles_query.order_by(
+            UserProfile.updated_at.desc()
+        )
 
         # Pagination
         offset = (page - 1) * limit
