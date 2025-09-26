@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
+# app/scripts/cleanup_duplicate_vectors.py
 """
 Cleanup script for duplicate vectors in DashVector collections
 This script identifies and removes duplicate vectors that may have been created
 due to inconsistent embedding generation
 """
-
 import sys
 import os
-from datetime import datetime
 import json
+import logging
+from datetime import datetime
 
 # Add the project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -18,7 +19,6 @@ from app.models.user_profile import UserProfile
 from app.models.project import Project
 from app.services.matching_service import matching_service
 from app.extensions import db
-import logging
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
