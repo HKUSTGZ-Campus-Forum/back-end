@@ -196,7 +196,7 @@ def refresh_profile_embedding():
 
 @matching_bp.route('/teammates', methods=['GET'])
 @jwt_required()
-def get_teammate_recommendations():
+def get_profile_based_teammates():
     """Get teammate recommendations based on user's profile"""
     try:
         current_user_id = get_jwt_identity()
@@ -283,3 +283,132 @@ def get_teammate_recommendations():
     except Exception as e:
         logger.error(f"Error getting teammate recommendations: {e}")
         return jsonify({"success": False, "message": "Failed to get teammate recommendations"}), 500
+
+# Unified Template-Based Search Endpoints
+
+@matching_bp.route('/search-projects', methods=['GET'])
+@jwt_required()
+def search_projects_by_text():
+    """Unified semantic search for projects using text input"""
+    try:
+        current_user_id = get_jwt_identity()
+
+        # Get search text from query parameter
+        search_text = request.args.get('q', '').strip()
+        if not search_text:
+            return jsonify({
+                "success": False,
+                "message": "Search text is required"
+            }), 400
+
+        limit = min(int(request.args.get('limit', 10)), 20)
+
+        # Use the new text-based search method
+        matches = matching_service.find_projects_by_text(search_text, current_user_id, limit)
+
+        return jsonify({
+            "success": True,
+            "matches": matches,
+            "search_text": search_text,
+            "search_type": "semantic"
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error searching projects by text: {e}")
+        return jsonify({"success": False, "message": "Failed to search projects"}), 500
+
+@matching_bp.route('/search-teammates', methods=['GET'])
+@jwt_required()
+def search_teammates_by_text():
+    """Unified semantic search for teammates using text input"""
+    try:
+        current_user_id = get_jwt_identity()
+
+        # Get search text from query parameter
+        search_text = request.args.get('q', '').strip()
+        if not search_text:
+            return jsonify({
+                "success": False,
+                "message": "Search text is required"
+            }), 400
+
+        limit = min(int(request.args.get('limit', 10)), 20)
+
+        # Use the new text-based search method
+        matches = matching_service.find_teammates_by_text(search_text, current_user_id, limit)
+
+        return jsonify({
+            "success": True,
+            "matches": matches,
+            "search_text": search_text,
+            "search_type": "semantic"
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error searching teammates by text: {e}")
+        return jsonify({"success": False, "message": "Failed to search teammates"}), 500
+
+# Template Endpoints
+
+@matching_bp.route('/templates/profile', methods=['GET'])
+@jwt_required()
+def get_profile_template():
+    """Get user's profile as a search template"""
+    try:
+        current_user_id = get_jwt_identity()
+
+        profile = UserProfile.query.filter_by(user_id=current_user_id).first()
+        if not profile:
+            return jsonify({
+                "success": False,
+                "message": "Profile not found"
+            }), 404
+
+        # Get the text representation that would be used for search
+        template_text = profile.get_text_representation()
+
+        return jsonify({
+            "success": True,
+            "template": {
+                "type": "profile",
+                "title": "My Profile",
+                "text": template_text,
+                "description": "Search based on your profile, skills, and interests"
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error getting profile template: {e}")
+        return jsonify({"success": False, "message": "Failed to get profile template"}), 500
+
+@matching_bp.route('/templates/projects', methods=['GET'])
+@jwt_required()
+def get_project_templates():
+    """Get user's projects as search templates"""
+    try:
+        current_user_id = get_jwt_identity()
+
+        # Get user's recent projects
+        projects = Project.query.filter_by(user_id=current_user_id, is_deleted=False)\
+                               .order_by(Project.created_at.desc())\
+                               .limit(5).all()
+
+        templates = []
+        for project in projects:
+            template_text = project.get_text_representation()
+            templates.append({
+                "type": "project",
+                "id": project.id,
+                "title": project.title,
+                "text": template_text,
+                "description": f"Search based on your project: {project.title}"
+            })
+
+        return jsonify({
+            "success": True,
+            "templates": templates
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error getting project templates: {e}")
+        return jsonify({"success": False, "message": "Failed to get project templates"}), 500

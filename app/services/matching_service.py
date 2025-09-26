@@ -489,6 +489,110 @@ class MatchingService:
             logger.error(f"Error in vector search: {e}")
             return []
 
+    def find_projects_by_text(self, search_text: str, user_id: int, limit: int = 10) -> List[Dict]:
+        """Find projects using semantic search with arbitrary text input"""
+        try:
+            if not search_text.strip():
+                return []
+
+            # Generate embedding for search text
+            search_embedding = self.generate_embedding(search_text.strip())
+            if not search_embedding:
+                logger.warning(f"Failed to generate embedding for search text: {search_text[:100]}...")
+                return []
+
+            # Search for similar projects
+            similar_projects = self._vector_search(
+                collection_name=self.projects_collection,
+                query_vector=search_embedding,
+                limit=limit * 2  # Get more to filter
+            )
+
+            logger.info(f"Found {len(similar_projects)} similar projects from text search for user {user_id}")
+
+            # Get project objects and calculate match scores
+            matches = []
+            for result in similar_projects:
+                project_id = result.get("metadata", {}).get("project_id")
+                if not project_id:
+                    continue
+
+                project = Project.query.get(project_id)
+                if not project or project.is_deleted or not project.is_recruiting():
+                    continue
+
+                # Skip own projects
+                if project.user_id == user_id:
+                    continue
+
+                similarity_score = result.get("score", 0.0)
+                match_data = {
+                    "project": project.to_dict(include_creator=True, current_user_id=user_id),
+                    "similarity_score": similarity_score,
+                    "compatibility_score": similarity_score,  # Use similarity as compatibility
+                    "match_reasons": [f"Matches search: '{search_text[:50]}...'"],
+                    "combined_score": similarity_score
+                }
+                matches.append(match_data)
+
+            # Sort by similarity score and return top matches
+            matches.sort(key=lambda x: x["combined_score"], reverse=True)
+            return matches[:limit]
+
+        except Exception as e:
+            logger.error(f"Error finding projects by text '{search_text[:50]}...' for user {user_id}: {e}")
+            return []
+
+    def find_teammates_by_text(self, search_text: str, user_id: int, limit: int = 10) -> List[Dict]:
+        """Find teammates using semantic search with arbitrary text input"""
+        try:
+            if not search_text.strip():
+                return []
+
+            # Generate embedding for search text
+            search_embedding = self.generate_embedding(search_text.strip())
+            if not search_embedding:
+                logger.warning(f"Failed to generate embedding for search text: {search_text[:100]}...")
+                return []
+
+            # Search for similar profiles
+            similar_profiles = self._vector_search(
+                collection_name=self.profiles_collection,
+                query_vector=search_embedding,
+                limit=limit * 2  # Get more to filter
+            )
+
+            logger.info(f"Found {len(similar_profiles)} similar profiles from text search for user {user_id}")
+
+            # Get profile objects and calculate match scores
+            matches = []
+            for result in similar_profiles:
+                profile_id = result.get("metadata", {}).get("profile_id")
+                if not profile_id:
+                    continue
+
+                profile = UserProfile.query.get(profile_id)
+                if not profile or not profile.is_active or profile.user_id == user_id:
+                    continue
+
+                similarity_score = result.get("score", 0.0)
+                match_data = {
+                    "profile": profile.to_dict(),
+                    "similarity_score": similarity_score,
+                    "compatibility_score": similarity_score,  # Use similarity as compatibility
+                    "match_reasons": [f"Matches search: '{search_text[:50]}...'"],
+                    "combined_score": similarity_score
+                }
+                matches.append(match_data)
+
+            # Sort by similarity score and return top matches
+            matches.sort(key=lambda x: x["combined_score"], reverse=True)
+            return matches[:limit]
+
+        except Exception as e:
+            logger.error(f"Error finding teammates by text '{search_text[:50]}...' for user {user_id}: {e}")
+            return []
+
     def _calculate_compatibility_score(self, profile: UserProfile, project: Project) -> Dict:
         """Calculate detailed compatibility score between profile and project with caching"""
         # Check cache first
