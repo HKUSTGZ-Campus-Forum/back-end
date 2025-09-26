@@ -193,3 +193,93 @@ def refresh_profile_embedding():
             "success": False,
             "message": "Failed to refresh embedding"
         }), 500
+
+@matching_bp.route('/teammates', methods=['GET'])
+@jwt_required()
+def get_teammate_recommendations():
+    """Get teammate recommendations based on user's profile"""
+    try:
+        current_user_id = get_jwt_identity()
+
+        # Check if user has a profile
+        profile = UserProfile.query.filter_by(user_id=current_user_id).first()
+        if not profile:
+            return jsonify({
+                "success": False,
+                "message": "Please complete your profile first to get teammate recommendations",
+                "profile_required": True
+            }), 400
+
+        if not profile.is_complete():
+            return jsonify({
+                "success": False,
+                "message": "Please complete your profile (bio, skills, experience level) to get better teammate recommendations",
+                "profile_incomplete": True,
+                "profile": profile.to_dict()
+            }), 400
+
+        limit = min(int(request.args.get('limit', 10)), 20)
+
+        # Use the matching service to find compatible profiles
+        from app.services.matching_service import matching_service
+
+        # Get similar profiles using the profile's embedding directly
+        if not profile.embedding:
+            return jsonify({
+                "success": False,
+                "message": "Profile embedding not found. Please refresh your profile embedding.",
+                "embedding_required": True
+            }), 400
+
+        # Search for similar profiles
+        similar_profiles = matching_service._vector_search(
+            collection_name=matching_service.profiles_collection,
+            query_vector=profile.embedding,
+            limit=limit * 2  # Get more to filter
+        )
+
+        # Process results similar to find_teammate_matches
+        matches = []
+        for result in similar_profiles:
+            profile_id = result.get("metadata", {}).get("profile_id")
+            if not profile_id:
+                continue
+
+            candidate_profile = UserProfile.query.get(profile_id)
+            if not candidate_profile or not candidate_profile.is_active:
+                continue
+
+            # Skip own profile
+            if candidate_profile.user_id == current_user_id:
+                continue
+
+            # Create a simple compatibility score based on similarity
+            similarity_score = result.get("score", 0.0)
+
+            match_data = {
+                "profile": candidate_profile.to_dict(),
+                "similarity_score": similarity_score,
+                "compatibility_score": similarity_score,  # Use similarity as compatibility for now
+                "match_reasons": [
+                    f"Similar profile and interests",
+                    f"Complementary skills and experience"
+                ],
+                "combined_score": similarity_score
+            }
+            matches.append(match_data)
+
+        # Sort by similarity score and return top matches
+        matches.sort(key=lambda x: x["combined_score"], reverse=True)
+        final_matches = matches[:limit]
+
+        logger.info(f"Returning {len(final_matches)} teammate recommendations for user {current_user_id}")
+
+        return jsonify({
+            "success": True,
+            "matches": final_matches,
+            "profile": profile.to_dict()
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error getting teammate recommendations: {e}")
+        return jsonify({"success": False, "message": "Failed to get teammate recommendations"}), 500
