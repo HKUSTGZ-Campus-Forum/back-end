@@ -156,9 +156,6 @@ def refresh_profile_embedding():
     try:
         current_user_id = get_jwt_identity()
 
-        # Get optional parameter for including projects
-        include_projects = request.json.get('include_projects', True) if request.json else True
-
         # Get user profile
         profile = UserProfile.query.filter_by(user_id=current_user_id).first()
         if not profile:
@@ -167,18 +164,14 @@ def refresh_profile_embedding():
                 "message": "Please create your profile first"
             }), 400
 
-        # Update embedding with enhanced mode
-        success = matching_service.update_profile_embedding(
-            profile.id,
-            include_projects=include_projects
-        )
+        # Update embedding (always includes projects for consistency)
+        success = matching_service.update_profile_embedding(profile.id)
 
         if success:
             db.session.commit()
             return jsonify({
                 "success": True,
-                "message": "Profile embedding updated successfully",
-                "enhanced_mode": include_projects
+                "message": "Profile embedding updated successfully with project context"
             }), 200
         else:
             return jsonify({

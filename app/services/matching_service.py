@@ -180,21 +180,17 @@ class MatchingService:
             logger.error(f"Error generating embedding: {e}")
             return None
 
-    def update_profile_embedding(self, profile_id: int, include_projects: bool = True) -> bool:
-        """Update embedding for a user profile"""
+    def update_profile_embedding(self, profile_id: int) -> bool:
+        """Update embedding for a user profile - always includes projects for consistency"""
         try:
             profile = UserProfile.query.get(profile_id)
             if not profile:
                 logger.warning(f"Profile {profile_id} not found")
                 return False
 
-            # Generate text representation and embedding (with projects for richer context)
-            if include_projects:
-                text = profile.get_text_representation_with_projects()
-                logger.info(f"Generating embedding for profile {profile_id} with projects included")
-            else:
-                text = profile.get_text_representation()
-                logger.info(f"Generating embedding for profile {profile_id} without projects")
+            # Always generate text representation with projects for consistency
+            text = profile.get_text_representation_with_projects()
+            logger.info(f"Generating embedding for profile {profile_id} with projects included")
 
             if not text.strip():
                 logger.warning(f"Empty text for profile {profile_id}")
@@ -215,13 +211,25 @@ class MatchingService:
                 # Don't rollback here - just return False to indicate failure
                 return False
 
-            # Update vector database (non-critical - don't fail if this fails)
+            # Update vector database with cleanup (non-critical - don't fail if this fails)
             try:
+                # First, try to delete any existing vector to prevent duplicates
+                self._delete_from_vector_db(
+                    collection_name=self.profiles_collection,
+                    doc_id=f"profile_{profile_id}"
+                )
+
+                # Then upsert the new vector
                 self._upsert_to_vector_db(
                     collection_name=self.profiles_collection,
                     doc_id=f"profile_{profile_id}",
                     vector=embedding,
-                    metadata={"profile_id": profile_id, "text": text}
+                    metadata={
+                        "profile_id": profile_id,
+                        "text": text,
+                        "updated_at": str(profile.updated_at),
+                        "type": "profile"
+                    }
                 )
                 logger.info(f"Updated vector DB for profile {profile_id}")
             except Exception as vector_error:
@@ -261,13 +269,25 @@ class MatchingService:
                 # Don't rollback here - just return False to indicate failure
                 return False
 
-            # Update vector database (non-critical - don't fail if this fails)
+            # Update vector database with cleanup (non-critical - don't fail if this fails)
             try:
+                # First, try to delete any existing vector to prevent duplicates
+                self._delete_from_vector_db(
+                    collection_name=self.projects_collection,
+                    doc_id=f"project_{project_id}"
+                )
+
+                # Then upsert the new vector
                 self._upsert_to_vector_db(
                     collection_name=self.projects_collection,
                     doc_id=f"project_{project_id}",
                     vector=embedding,
-                    metadata={"project_id": project_id, "text": text}
+                    metadata={
+                        "project_id": project_id,
+                        "text": text,
+                        "updated_at": str(project.updated_at),
+                        "type": "project"
+                    }
                 )
                 logger.info(f"Updated vector DB for project {project_id}")
             except Exception as vector_error:
@@ -283,6 +303,22 @@ class MatchingService:
             return True
         except Exception as e:
             logger.error(f"Error updating project embedding {project_id}: {e}")
+            return False
+
+    def _delete_from_vector_db(self, collection_name: str, doc_id: str):
+        """Delete document from vector database to prevent duplicates"""
+        try:
+            collection = self.dv_client.get(name=collection_name)
+            if not collection:
+                logger.warning(f"Collection {collection_name} not found for deletion")
+                return False
+
+            # Try to delete the document - don't fail if it doesn't exist
+            result = collection.delete([doc_id])
+            logger.info(f"Attempted to delete {doc_id} from {collection_name}")
+            return True
+        except Exception as e:
+            logger.warning(f"Error deleting from vector DB (non-critical): {e}")
             return False
 
     def _upsert_to_vector_db(self, collection_name: str, doc_id: str, vector: List[float], metadata: Dict):
