@@ -2,10 +2,34 @@
 """
 Embedding Maintenance Tasks using APScheduler
 
-Integrates with the existing task system to provide:
-- Auto-recovery for missing embeddings
-- Validation of existing embeddings
-- Performance monitoring
+CRITICAL: This module solves the duplicate search results problem by ensuring
+all profiles and projects have consistent, up-to-date embeddings.
+
+Problem Solved:
+- Missing embeddings cause profiles/projects to disappear from search results
+- Inconsistent embedding generation (with/without project context) caused duplicates
+- No automatic recovery when embedding generation failed during profile/project creation
+
+Solution:
+- Unified embedding generation (always includes project context for profiles)
+- Automatic detection and recovery of missing embeddings
+- Batch processing with configurable performance limits
+- Comprehensive error handling and statistics tracking
+
+Integration Points:
+- Uses existing APScheduler infrastructure (unified with STS pool maintenance)
+- Integrates with centralized embedding service for consistency
+- Follows established patterns from app/tasks/sts_pool.py
+
+Configuration:
+- EMBEDDING_MAINTENANCE_INTERVAL_MINUTES: How often to run (default: 60)
+- EMBEDDING_MAINTENANCE_BATCH_SIZE: Records per batch (default: 50)
+- EMBEDDING_MAINTENANCE_MAX_TIME_MINUTES: Max time per run (default: 30)
+
+Monitoring:
+- Comprehensive statistics tracking (total fixed, errors, etc.)
+- API endpoints for status monitoring and manual execution
+- Detailed logging for debugging and performance monitoring
 """
 import logging
 from datetime import datetime, timezone, timedelta

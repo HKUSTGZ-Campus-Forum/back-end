@@ -25,7 +25,34 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 def cleanup_duplicate_vectors():
-    """Remove duplicate vectors and regenerate clean embeddings"""
+    """
+    Remove duplicate vectors and regenerate clean embeddings
+
+    CRITICAL: Run this script ONCE after deploying the unified embedding system
+    to fix the duplicate search results issue.
+
+    What this script does:
+    1. Deletes ALL existing vectors from DashVector collections (profiles & projects)
+    2. Regenerates embeddings using the new unified approach (consistent formatting)
+    3. Ensures all profiles use project-enhanced embeddings
+    4. Provides comprehensive logging and statistics
+
+    When to run:
+    - After deploying the embedding system fixes
+    - When you notice duplicate search results
+    - After any major changes to embedding generation logic
+
+    Safety notes:
+    - This script is safe to run multiple times
+    - It only affects vector database, not your main PostgreSQL data
+    - Profile/project data remains intact
+    - Regenerated embeddings will match the current codebase logic
+
+    Expected results after running:
+    - No more duplicate profiles/projects in search results
+    - All embeddings use consistent text representation
+    - Background task system prevents future issues
+    """
     app = create_app()
 
     with app.app_context():

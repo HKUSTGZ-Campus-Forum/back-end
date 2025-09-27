@@ -7,7 +7,31 @@ from flask import current_app
 unified_scheduler = BackgroundScheduler(daemon=True)
 
 def init_pool_maintenance(app):
-    """Initializes and starts the unified background task scheduler."""
+    """
+    Initializes and starts the unified background task scheduler.
+
+    IMPORTANT: This is the central entry point for ALL background tasks.
+
+    Current Tasks:
+    1. STS Pool Maintenance (every 15 minutes) - Existing functionality
+    2. Embedding Maintenance (every 60 minutes) - New auto-recovery system
+
+    Adding New Tasks:
+    To add a new background task, follow this pattern:
+    1. Create your task module in app/tasks/your_task.py
+    2. Import and call your init function here
+    3. Use the same unified_scheduler instance
+    4. Follow the app context wrapper pattern (_your_task_job)
+
+    Example:
+    ```python
+    try:
+        from app.tasks.your_task import init_your_task
+        init_your_task(app, unified_scheduler)
+    except Exception as e:
+        app.logger.warning(f"Could not initialize your task: {e}")
+    ```
+    """
     global unified_scheduler
 
     if not unified_scheduler.running:

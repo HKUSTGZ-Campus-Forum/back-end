@@ -19,11 +19,29 @@ class EmbeddingService:
     """
     Centralized service for embedding generation and management.
 
+    IMPORTANT: This service is designed for extensibility beyond just matching.
+    As the platform grows, new AI/ML features can easily be added by:
+    1. Adding new use cases to model_configs
+    2. Calling generate_embedding() with the new use_case parameter
+    3. Implementing feature-specific logic that uses the embeddings
+
     Features:
-    - Text embedding generation with caching
-    - Multiple embedding model support
+    - Text embedding generation with intelligent caching (7-day TTL)
+    - Multiple embedding model support with per-use-case configuration
     - Extensible for different use cases (matching, search, recommendations, etc.)
-    - Performance monitoring and error handling
+    - Performance monitoring and comprehensive error handling
+    - Graceful degradation when external services are unavailable
+
+    Current Use Cases:
+    - "matching": User/project compatibility and matching
+    - "search": Semantic search and content discovery
+    - "content": Content analysis, classification, moderation
+
+    Future Use Cases (easy to add):
+    - "recommendation": Personalized content recommendations
+    - "classification": Automatic content categorization
+    - "similarity": Content similarity and duplicate detection
+    - "analytics": User behavior analysis and insights
     """
 
     def __init__(self):
