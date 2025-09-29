@@ -131,70 +131,22 @@ class MatchingService:
         except Exception as e:
             logger.error(f"Error ensuring collections: {e}")
 
-    def generate_embedding(self, text: str) -> Optional[List[float]]:
-        """Generate embedding for text using DashScope with caching"""
-        # Create a simple hash for the text to use as cache key
-        import hashlib
-        import json
-        text_hash = hashlib.md5(text.encode()).hexdigest()[:12]
+    def generate_embedding(self, text: str, use_case: str = "matching") -> Optional[List[float]]:
+        """Generate embedding for text using centralized embedding service"""
+        from app.services.embedding_service import embedding_service
+        return embedding_service.generate_embedding(text, use_case=use_case)
 
-        # Check cache first (graceful fallback if cache fails)
-        try:
-            from app.extensions import cache
-            cache_key = f"embed:text:{text_hash}"
-            cached_embedding = cache.get(cache_key)
-            if cached_embedding:
-                logger.info(f"🎯 Embedding cache HIT for text hash {text_hash}")
-                return json.loads(cached_embedding)
-        except Exception as e:
-            logger.debug(f"Cache lookup failed, proceeding without cache: {e}")
-
-        logger.info(f"Generating embedding for text {text[:50]}...")
-        self._ensure_initialized()
-
-        if not self.emb_client:
-            logger.warning("No embedding client available - skipping embedding generation")
-            return None
-
-        try:
-            response = self.emb_client.embeddings.create(
-                model=self.embedding_model,
-                input=[text],
-                dimensions=self.embedding_dimensions,
-                encoding_format="float"
-            )
-            embedding = response.data[0].embedding
-
-            # Cache the result for 7 days (graceful fallback if cache fails)
-            try:
-                from app.extensions import cache
-                cache_key = f"embed:text:{text_hash}"
-                cache.set(cache_key, json.dumps(embedding), timeout=7*24*3600)
-                logger.info(f"💾 Cached embedding for text hash {text_hash}")
-            except Exception as e:
-                logger.debug(f"Cache save failed, proceeding without cache: {e}")
-
-            logger.info(f"Embedding for text {text[:50]}... generated")
-            return embedding
-        except Exception as e:
-            logger.error(f"Error generating embedding: {e}")
-            return None
-
-    def update_profile_embedding(self, profile_id: int, include_projects: bool = True) -> bool:
-        """Update embedding for a user profile"""
+    def update_profile_embedding(self, profile_id: int) -> bool:
+        """Update embedding for a user profile - always includes projects for consistency"""
         try:
             profile = UserProfile.query.get(profile_id)
             if not profile:
                 logger.warning(f"Profile {profile_id} not found")
                 return False
 
-            # Generate text representation and embedding (with projects for richer context)
-            if include_projects:
-                text = profile.get_text_representation_with_projects()
-                logger.info(f"Generating embedding for profile {profile_id} with projects included")
-            else:
-                text = profile.get_text_representation()
-                logger.info(f"Generating embedding for profile {profile_id} without projects")
+            # Always generate text representation with projects for consistency
+            text = profile.get_text_representation_with_projects()
+            logger.info(f"Generating embedding for profile {profile_id} with projects included")
 
             if not text.strip():
                 logger.warning(f"Empty text for profile {profile_id}")
@@ -215,13 +167,25 @@ class MatchingService:
                 # Don't rollback here - just return False to indicate failure
                 return False
 
-            # Update vector database (non-critical - don't fail if this fails)
+            # Update vector database with cleanup (non-critical - don't fail if this fails)
             try:
+                # First, try to delete any existing vector to prevent duplicates
+                self._delete_from_vector_db(
+                    collection_name=self.profiles_collection,
+                    doc_id=f"profile_{profile_id}"
+                )
+
+                # Then upsert the new vector
                 self._upsert_to_vector_db(
                     collection_name=self.profiles_collection,
                     doc_id=f"profile_{profile_id}",
                     vector=embedding,
-                    metadata={"profile_id": profile_id, "text": text}
+                    metadata={
+                        "profile_id": profile_id,
+                        "text": text,
+                        "updated_at": str(profile.updated_at),
+                        "type": "profile"
+                    }
                 )
                 logger.info(f"Updated vector DB for profile {profile_id}")
             except Exception as vector_error:
@@ -261,13 +225,25 @@ class MatchingService:
                 # Don't rollback here - just return False to indicate failure
                 return False
 
-            # Update vector database (non-critical - don't fail if this fails)
+            # Update vector database with cleanup (non-critical - don't fail if this fails)
             try:
+                # First, try to delete any existing vector to prevent duplicates
+                self._delete_from_vector_db(
+                    collection_name=self.projects_collection,
+                    doc_id=f"project_{project_id}"
+                )
+
+                # Then upsert the new vector
                 self._upsert_to_vector_db(
                     collection_name=self.projects_collection,
                     doc_id=f"project_{project_id}",
                     vector=embedding,
-                    metadata={"project_id": project_id, "text": text}
+                    metadata={
+                        "project_id": project_id,
+                        "text": text,
+                        "updated_at": str(project.updated_at),
+                        "type": "project"
+                    }
                 )
                 logger.info(f"Updated vector DB for project {project_id}")
             except Exception as vector_error:
@@ -283,6 +259,22 @@ class MatchingService:
             return True
         except Exception as e:
             logger.error(f"Error updating project embedding {project_id}: {e}")
+            return False
+
+    def _delete_from_vector_db(self, collection_name: str, doc_id: str):
+        """Delete document from vector database to prevent duplicates"""
+        try:
+            collection = self.dv_client.get(name=collection_name)
+            if not collection:
+                logger.warning(f"Collection {collection_name} not found for deletion")
+                return False
+
+            # Try to delete the document - don't fail if it doesn't exist
+            result = collection.delete([doc_id])
+            logger.info(f"Attempted to delete {doc_id} from {collection_name}")
+            return True
+        except Exception as e:
+            logger.warning(f"Error deleting from vector DB (non-critical): {e}")
             return False
 
     def _upsert_to_vector_db(self, collection_name: str, doc_id: str, vector: List[float], metadata: Dict):
@@ -487,6 +479,110 @@ class MatchingService:
             return matches
         except Exception as e:
             logger.error(f"Error in vector search: {e}")
+            return []
+
+    def find_projects_by_text(self, search_text: str, user_id: int, limit: int = 10) -> List[Dict]:
+        """Find projects using semantic search with arbitrary text input"""
+        try:
+            if not search_text.strip():
+                return []
+
+            # Generate embedding for search text
+            search_embedding = self.generate_embedding(search_text.strip())
+            if not search_embedding:
+                logger.warning(f"Failed to generate embedding for search text: {search_text[:100]}...")
+                return []
+
+            # Search for similar projects
+            similar_projects = self._vector_search(
+                collection_name=self.projects_collection,
+                query_vector=search_embedding,
+                limit=limit * 2  # Get more to filter
+            )
+
+            logger.info(f"Found {len(similar_projects)} similar projects from text search for user {user_id}")
+
+            # Get project objects and calculate match scores
+            matches = []
+            for result in similar_projects:
+                project_id = result.get("metadata", {}).get("project_id")
+                if not project_id:
+                    continue
+
+                project = Project.query.get(project_id)
+                if not project or project.is_deleted or not project.is_recruiting():
+                    continue
+
+                # Skip own projects
+                if project.user_id == user_id:
+                    continue
+
+                similarity_score = result.get("score", 0.0)
+                match_data = {
+                    "project": project.to_dict(include_creator=True, current_user_id=user_id),
+                    "similarity_score": similarity_score,
+                    "compatibility_score": similarity_score,  # Use similarity as compatibility
+                    "match_reasons": [f"Matches search: '{search_text[:50]}...'"],
+                    "combined_score": similarity_score
+                }
+                matches.append(match_data)
+
+            # Sort by similarity score and return top matches
+            matches.sort(key=lambda x: x["combined_score"], reverse=True)
+            return matches[:limit]
+
+        except Exception as e:
+            logger.error(f"Error finding projects by text '{search_text[:50]}...' for user {user_id}: {e}")
+            return []
+
+    def find_teammates_by_text(self, search_text: str, user_id: int, limit: int = 10) -> List[Dict]:
+        """Find teammates using semantic search with arbitrary text input"""
+        try:
+            if not search_text.strip():
+                return []
+
+            # Generate embedding for search text
+            search_embedding = self.generate_embedding(search_text.strip())
+            if not search_embedding:
+                logger.warning(f"Failed to generate embedding for search text: {search_text[:100]}...")
+                return []
+
+            # Search for similar profiles
+            similar_profiles = self._vector_search(
+                collection_name=self.profiles_collection,
+                query_vector=search_embedding,
+                limit=limit * 2  # Get more to filter
+            )
+
+            logger.info(f"Found {len(similar_profiles)} similar profiles from text search for user {user_id}")
+
+            # Get profile objects and calculate match scores
+            matches = []
+            for result in similar_profiles:
+                profile_id = result.get("metadata", {}).get("profile_id")
+                if not profile_id:
+                    continue
+
+                profile = UserProfile.query.get(profile_id)
+                if not profile or not profile.is_active or profile.user_id == user_id:
+                    continue
+
+                similarity_score = result.get("score", 0.0)
+                match_data = {
+                    "profile": profile.to_dict(),
+                    "similarity_score": similarity_score,
+                    "compatibility_score": similarity_score,  # Use similarity as compatibility
+                    "match_reasons": [f"Matches search: '{search_text[:50]}...'"],
+                    "combined_score": similarity_score
+                }
+                matches.append(match_data)
+
+            # Sort by similarity score and return top matches
+            matches.sort(key=lambda x: x["combined_score"], reverse=True)
+            return matches[:limit]
+
+        except Exception as e:
+            logger.error(f"Error finding teammates by text '{search_text[:50]}...' for user {user_id}: {e}")
             return []
 
     def _calculate_compatibility_score(self, profile: UserProfile, project: Project) -> Dict:

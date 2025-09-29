@@ -1,27 +1,63 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from app.extensions import db
 from app.services.file_service import OSSService
-from flask import current_app # Import current_app if needed within maintain_pool directly, though app_context is better
+from flask import current_app
 
-scheduler = BackgroundScheduler(daemon=True) # Set daemon=True so it exits when main thread exits
+# Unified scheduler for all background tasks
+unified_scheduler = BackgroundScheduler(daemon=True)
 
 def init_pool_maintenance(app):
-    """Initializes and starts the STS token pool maintenance scheduler."""
-    if not scheduler.running:
-        # Add the job with the app instance passed as an argument
-        # The actual function `_maintain_pool_job` will run within the app context
-        scheduler.add_job(
+    """
+    Initializes and starts the unified background task scheduler.
+
+    IMPORTANT: This is the central entry point for ALL background tasks.
+
+    Current Tasks:
+    1. STS Pool Maintenance (every 15 minutes) - Existing functionality
+    2. Embedding Maintenance (every 60 minutes) - New auto-recovery system
+
+    Adding New Tasks:
+    To add a new background task, follow this pattern:
+    1. Create your task module in app/tasks/your_task.py
+    2. Import and call your init function here
+    3. Use the same unified_scheduler instance
+    4. Follow the app context wrapper pattern (_your_task_job)
+
+    Example:
+    ```python
+    try:
+        from app.tasks.your_task import init_your_task
+        init_your_task(app, unified_scheduler)
+    except Exception as e:
+        app.logger.warning(f"Could not initialize your task: {e}")
+    ```
+    """
+    global unified_scheduler
+
+    if not unified_scheduler.running:
+        # Add STS pool maintenance job
+        unified_scheduler.add_job(
             id='sts_pool_maintenance',
-            func=_maintain_pool_job, # Target the wrapper function
-            args=[app], # Pass the app instance
+            func=_maintain_pool_job,
+            args=[app],
             trigger='interval',
-            minutes=15, # Consider making this configurable
+            minutes=15,  # Consider making this configurable
             max_instances=1,
-            coalesce=True, # Prevent job from running multiple times if scheduler was down
-            misfire_grace_time=60 # Allow 60 seconds grace period if job misfires
+            coalesce=True,
+            misfire_grace_time=60
         )
-        scheduler.start()
-        app.logger.info("STS pool maintenance scheduler started.")
+
+        # Initialize embedding maintenance (will add its job to the same scheduler)
+        try:
+            from app.tasks.embedding_maintenance import init_embedding_maintenance
+            init_embedding_maintenance(app, unified_scheduler)
+        except Exception as e:
+            app.logger.warning(f"Could not initialize embedding maintenance: {e}")
+
+        unified_scheduler.start()
+        app.logger.info("Unified background task scheduler started with STS and embedding maintenance.")
+    else:
+        app.logger.info("Unified scheduler already running.")
 
 def _maintain_pool_job(app):
     """Wrapper function to run the maintenance task within app context."""

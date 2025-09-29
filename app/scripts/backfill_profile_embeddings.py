@@ -53,11 +53,8 @@ def backfill_profile_embeddings():
                     logger.info(f"  Skipping incomplete profile {profile.id}")
                     continue
 
-                # Generate embedding with project enhancement
-                success = matching_service.update_profile_embedding(
-                    profile.id,
-                    include_projects=True
-                )
+                # Generate embedding (always includes projects for consistency)
+                success = matching_service.update_profile_embedding(profile.id)
 
                 if success:
                     # Commit the embedding update

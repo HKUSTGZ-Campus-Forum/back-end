@@ -20,13 +20,13 @@ def create_app(config_class=Config):
     # # Create DB tables (for dev; in production use migrations)
     # with app.app_context():
     #     db.create_all()
-    
+
     # Initialize in create_app()
     migrate.init_app(app, db)
 
     # limiter.init_app(app)
-    
-    # Initialize pool maintenance
+
+    # Initialize unified background task system (includes STS pool and embedding maintenance)
     init_pool_maintenance(app)
     
     return app
