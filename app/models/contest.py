@@ -20,8 +20,15 @@ class ContestInfo(db.Model):
         nullable=False,
     )
 
-    def to_dict(self):
-        return {
+    def is_organizer(self, user_id: int) -> bool:
+        """判断指定用户是否是本比赛的 organizer"""
+        from app.models.contest_organizer import ContestOrganizer
+        return ContestOrganizer.query.filter_by(
+            contest_id=self.id, user_id=user_id
+        ).first() is not None
+
+    def to_dict(self, include_organizers: bool = False):
+        data = {
             "id": self.id,
             "title": self.title,
             "description": self.description,
@@ -32,3 +39,6 @@ class ContestInfo(db.Model):
             "is_active": self.is_active,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+        if include_organizers:
+            data["organizers"] = [o.to_dict() for o in self.organizers]
+        return data
