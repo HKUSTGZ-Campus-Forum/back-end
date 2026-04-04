@@ -20,4 +20,6 @@ from .identity_type import IdentityType
 from .user_identity import UserIdentity
 from .user_profile import UserProfile
 from .project import Project
+from .contest import ContestInfo
+from .contest_submission import ContestSubmission
 
