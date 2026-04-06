@@ -54,15 +54,14 @@ def _auto_init_contest():
         contest = ContestInfo.query.first()
         if not contest:
             contest = ContestInfo(
-                title='百块奖金Web大赛',
-                description='',
+                title='「百块奖金」校园生活 Web 开发大赛',
+                description='想解锁校园版 Web 开发新体验？想用代码给校园生活加 buff？第一届「百块奖金」校园生活 Web 开发大赛来啦！主打一个技术玩出圈，创意贴校园～',
                 rules='',
                 prizes='',
-                # 开始：2026-04-14 10:00 CST = UTC 02:00
+                announcements='',
                 start_time=datetime(2026, 4, 14, 2, 0, 0, tzinfo=timezone.utc),
-                # 结束：2026-04-21 00:00 CST = UTC 2026-04-20 16:00
                 end_time=datetime(2026, 4, 20, 16, 0, 0, tzinfo=timezone.utc),
-                is_active=False,
+                is_active=True,
             )
             db.session.add(contest)
             db.session.flush()

@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response
 from app.extensions import db
 from app.models.contest import ContestInfo
 from app.models.contest_submission import ContestSubmission
@@ -145,6 +145,8 @@ def update_contest():
         if 'end_time' in data and data['end_time']:
             from datetime import datetime
             contest.end_time = datetime.fromisoformat(data['end_time'])
+        if 'announcements' in data:
+            contest.announcements = data['announcements']
         if 'is_active' in data:
             contest.is_active = bool(data['is_active'])
 
@@ -257,4 +259,50 @@ def remove_organizer(target_user_id: int):
         return jsonify({"message": "已移除 organizer"}), 200
     except Exception as e:
         db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
+@bp.route('/submissions/export', methods=['GET'])
+@jwt_required()
+def export_submissions_csv():
+    """导出提交列表为 CSV（admin 或 organizer）"""
+    import csv
+    import io
+
+    try:
+        user = User.query.get(get_jwt_identity())
+        if not user or not _is_manager(user):
+            return jsonify({"error": "需要管理者权限"}), 403
+
+        submissions = ContestSubmission.query.order_by(
+            ContestSubmission.submitted_at.desc()
+        ).all()
+
+        output = io.StringIO()
+        output.write('\ufeff')  # BOM for Excel
+        writer = csv.writer(output)
+        writer.writerow(['#', '用户名', 'UID', '作品名称', '作品介绍', '项目链接', '团队成员', '提交时间', '最后更新'])
+
+        for idx, sub in enumerate(submissions, 1):
+            writer.writerow([
+                idx,
+                sub.user.username if sub.user else '',
+                sub.user_id,
+                sub.project_name,
+                sub.description,
+                sub.project_url or '',
+                sub.team_members or '',
+                sub.submitted_at.isoformat() if sub.submitted_at else '',
+                sub.updated_at.isoformat() if sub.updated_at else '',
+            ])
+
+        csv_data = output.getvalue()
+        output.close()
+
+        return Response(
+            csv_data,
+            mimetype='text/csv',
+            headers={'Content-Disposition': 'attachment; filename=contest_submissions.csv'},
+        )
+    except Exception as e:
         return jsonify({"error": str(e)}), 500

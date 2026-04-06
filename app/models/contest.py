@@ -12,6 +12,7 @@ class ContestInfo(db.Model):
     prizes = db.Column(db.Text, nullable=False, default='')
     start_time = db.Column(db.DateTime(timezone=True), nullable=True)
     end_time = db.Column(db.DateTime(timezone=True), nullable=True)
+    announcements = db.Column(db.Text, nullable=False, default='')
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     updated_at = db.Column(
         db.DateTime(timezone=True),
@@ -36,6 +37,7 @@ class ContestInfo(db.Model):
             "prizes": self.prizes,
             "start_time": self.start_time.isoformat() if self.start_time else None,
             "end_time": self.end_time.isoformat() if self.end_time else None,
+            "announcements": self.announcements,
             "is_active": self.is_active,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
