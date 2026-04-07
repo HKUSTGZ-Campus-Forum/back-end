@@ -6,7 +6,7 @@ from app.models.contest_organizer import ContestOrganizer
 from app.models.user import User
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
-bp = Blueprint('contest', __name__, url_prefix='/api/contest')
+bp = Blueprint('contest', __name__, url_prefix='/contest')
 
 
 # ── 权限辅助 ──────────────────────────────────────────────────
