@@ -36,17 +36,37 @@ def create_app(config_class=Config):
     return app
 
 
+def _auto_migrate_contest_columns():
+    """启动时自动补齐 contest_info 表缺失的列（防止 flask db migrate 失败导致 500）"""
+    from sqlalchemy import text, inspect
+    try:
+        with db.engine.connect() as conn:
+            inspector = inspect(db.engine)
+            if 'contest_info' not in inspector.get_table_names():
+                return
+            existing = {c['name'] for c in inspector.get_columns('contest_info')}
+            if 'announcements' not in existing:
+                conn.execute(text(
+                    "ALTER TABLE contest_info ADD COLUMN announcements TEXT NOT NULL DEFAULT ''"
+                ))
+                conn.commit()
+    except Exception:
+        pass
+
+
 def _auto_init_contest():
     """
     应用启动时自动执行：
+    - 补齐数据库缺失列
     - 若 contest_info 表为空，创建默认比赛记录
     - 若 UID=6（Mount）还不是 organizer，自动添加
-    用 try/except 包裹，表不存在时静默跳过（迁移前的第一次启动）
+    用 try/except 包裹，表不存在时静默跳过
     """
+    _auto_migrate_contest_columns()
+
     try:
         from app.models.contest import ContestInfo
         from app.models.contest_organizer import ContestOrganizer
-        from app.extensions import db
         from datetime import datetime, timezone
 
         ORGANIZER_UID = 6
@@ -74,5 +94,4 @@ def _auto_init_contest():
 
         db.session.commit()
     except Exception:
-        # 表还不存在（迁移尚未执行）时静默跳过，不影响启动
         pass
