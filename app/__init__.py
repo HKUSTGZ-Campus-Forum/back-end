@@ -54,6 +54,24 @@ def _auto_migrate_contest_columns():
         pass
 
 
+def _merge_legacy_prizes_into_rules():
+    """旧版「奖项设置」单独字段并入 rules（仅当 prizes 非空时执行一次，随后清空 prizes）"""
+    try:
+        from app.models.contest import ContestInfo
+        contest = ContestInfo.query.first()
+        if not contest or not (contest.prizes or '').strip():
+            return
+        block = contest.prizes.strip()
+        if (contest.rules or '').strip():
+            contest.rules = contest.rules.rstrip() + '\n\n## 奖项设置\n\n' + block
+        else:
+            contest.rules = block
+        contest.prizes = ''
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
 def _auto_init_contest():
     """
     应用启动时自动执行：
@@ -70,6 +88,8 @@ def _auto_init_contest():
         from datetime import datetime, timezone
 
         ORGANIZER_UID = 6
+
+        _merge_legacy_prizes_into_rules()
 
         contest = ContestInfo.query.first()
         if not contest:
