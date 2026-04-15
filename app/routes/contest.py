@@ -1,3 +1,6 @@
+from typing import Optional
+from urllib.parse import urlparse
+
 from flask import Blueprint, request, jsonify, Response
 from app.extensions import db
 from app.models.contest import ContestInfo
@@ -7,6 +10,48 @@ from app.models.user import User
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 bp = Blueprint('contest', __name__, url_prefix='/contest')
+
+# 报名占位记录专用队名（与「正式队名」区分）
+_PLACEHOLDER_TEAM_NAME = '待提交'
+# 正式提交不再收集作品介绍，数据库列保留，写入占位符
+_SUBMISSION_DESC_PLACEHOLDER = '-'
+
+
+def _is_placeholder_registration(data: dict) -> bool:
+    return (data.get('project_name') or '').strip() == _PLACEHOLDER_TEAM_NAME
+
+
+def _validate_placeholder_registration(data: dict) -> Optional[str]:
+    if not (data.get('project_name') or '').strip():
+        return '参数无效'
+    if not (data.get('description') or '').strip():
+        return '报名说明不能为空'
+    return None
+
+
+def _looks_like_http_url(url: str) -> bool:
+    try:
+        p = urlparse(url)
+        return p.scheme in ('http', 'https') and bool(p.netloc)
+    except Exception:
+        return False
+
+
+def _validate_real_submission(data: dict) -> Optional[str]:
+    name = (data.get('project_name') or '').strip()
+    if not name:
+        return '队名不能为空'
+    if name == _PLACEHOLDER_TEAM_NAME:
+        return '队名不能使用保留词「待提交」'
+    url = (data.get('project_url') or '').strip()
+    if not url:
+        return '项目链接不能为空'
+    if not _looks_like_http_url(url):
+        return '项目链接需为有效的 http(s) 地址'
+    members = (data.get('team_members') or '').strip()
+    if not members:
+        return '团队成员不能为空'
+    return None
 
 
 # ── 权限辅助 ──────────────────────────────────────────────────
@@ -76,7 +121,7 @@ def get_my_submission():
 @bp.route('/submit', methods=['POST'])
 @jwt_required()
 def submit_project():
-    """提交或更新作品"""
+    """提交或更新作品：正式提交仅需队名、项目链接、团队成员；报名为占位记录。"""
     try:
         user_id = get_jwt_identity()
         data = request.get_json() or {}
@@ -85,26 +130,56 @@ def submit_project():
         if not contest or not contest.is_active:
             return jsonify({"error": "比赛暂未开放提交"}), 400
 
-        if not data.get('project_name', '').strip():
-            return jsonify({"error": "作品名称不能为空"}), 400
-        if not data.get('description', '').strip():
-            return jsonify({"error": "作品介绍不能为空"}), 400
-
         existing = ContestSubmission.query.filter_by(user_id=user_id).first()
+
         if existing:
+            if _is_placeholder_registration(data):
+                err = _validate_placeholder_registration(data)
+                if err:
+                    return jsonify({"error": err}), 400
+                existing.project_name = _PLACEHOLDER_TEAM_NAME
+                existing.description = data['description'].strip()
+                pu = (data.get('project_url') or '').strip()
+                existing.project_url = pu if pu else None
+                tm = (data.get('team_members') or '').strip()
+                existing.team_members = tm if tm else None
+                db.session.commit()
+                return jsonify({"message": "提交已更新", "submission": existing.to_dict()}), 200
+
+            err = _validate_real_submission(data)
+            if err:
+                return jsonify({"error": err}), 400
             existing.project_name = data['project_name'].strip()
-            existing.description = data['description'].strip()
-            existing.project_url = data.get('project_url', existing.project_url)
-            existing.team_members = data.get('team_members', existing.team_members)
+            existing.description = (data.get('description') or '').strip() or _SUBMISSION_DESC_PLACEHOLDER
+            existing.project_url = data['project_url'].strip()
+            existing.team_members = data['team_members'].strip()
             db.session.commit()
             return jsonify({"message": "提交已更新", "submission": existing.to_dict()}), 200
 
+        if _is_placeholder_registration(data):
+            err = _validate_placeholder_registration(data)
+            if err:
+                return jsonify({"error": err}), 400
+            submission = ContestSubmission(
+                user_id=user_id,
+                project_name=_PLACEHOLDER_TEAM_NAME,
+                description=data['description'].strip(),
+                project_url=None,
+                team_members=None,
+            )
+            db.session.add(submission)
+            db.session.commit()
+            return jsonify({"message": "提交成功", "submission": submission.to_dict()}), 201
+
+        err = _validate_real_submission(data)
+        if err:
+            return jsonify({"error": err}), 400
         submission = ContestSubmission(
             user_id=user_id,
             project_name=data['project_name'].strip(),
-            description=data['description'].strip(),
-            project_url=data.get('project_url'),
-            team_members=data.get('team_members'),
+            description=(data.get('description') or '').strip() or _SUBMISSION_DESC_PLACEHOLDER,
+            project_url=data['project_url'].strip(),
+            team_members=data['team_members'].strip(),
         )
         db.session.add(submission)
         db.session.commit()
@@ -281,7 +356,7 @@ def export_submissions_csv():
         output = io.StringIO()
         output.write('\ufeff')  # BOM for Excel
         writer = csv.writer(output)
-        writer.writerow(['#', '用户名', 'UID', '作品名称', '作品介绍', '项目链接', '团队成员', '提交时间', '最后更新'])
+        writer.writerow(['#', '用户名', 'UID', '队名', '项目链接', '团队成员', '提交时间', '最后更新'])
 
         for idx, sub in enumerate(submissions, 1):
             writer.writerow([
@@ -289,7 +364,6 @@ def export_submissions_csv():
                 sub.user.username if sub.user else '',
                 sub.user_id,
                 sub.project_name,
-                sub.description,
                 sub.project_url or '',
                 sub.team_members or '',
                 sub.submitted_at.isoformat() if sub.submitted_at else '',

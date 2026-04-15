@@ -1,6 +1,6 @@
 from aliyunsdkcore.client import AcsClient
 from aliyunsdksts.request.v20150401 import AssumeRoleRequest
-from oss2 import StsAuth, Bucket
+from oss2 import Auth, StsAuth, Bucket
 from app.models.token import STSTokenPool
 from app.extensions import db
 from datetime import datetime, timedelta, timezone
@@ -17,7 +17,48 @@ class OSSService:
     MAX_POOL_SIZE = 20
 
     @staticmethod
+    def _has_sts_config():
+        required_keys = [
+            'ALIBABA_CLOUD_ACCESS_KEY_ID',
+            'ALIBABA_CLOUD_ACCESS_KEY_SECRET',
+            'OSS_ROLE_ARN',
+            'OSS_REGION_ID'
+        ]
+        return all(current_app.config.get(key) for key in required_keys)
+
+    @staticmethod
+    def _create_upload_bucket():
+        endpoint = current_app.config.get('OSS_ENDPOINT')
+        bucket_name = current_app.config.get('OSS_BUCKET_NAME')
+
+        if not endpoint or not bucket_name:
+            raise Exception('OSS endpoint or bucket name is not configured.')
+
+        token = None
+        try:
+            token = OSSService.get_available_token()
+        except Exception as e:
+            current_app.logger.error(f'STS token lookup failed, falling back to direct OSS signing: {e}')
+
+        if token:
+            auth = StsAuth(token.access_key_id, token.access_key_secret, token.security_token)
+            return Bucket(auth, endpoint, bucket_name)
+
+        access_key_id = current_app.config.get('ALIBABA_CLOUD_ACCESS_KEY_ID')
+        access_key_secret = current_app.config.get('ALIBABA_CLOUD_ACCESS_KEY_SECRET')
+        if not access_key_id or not access_key_secret:
+            raise Exception('No usable OSS credentials available for signing upload URL.')
+
+        current_app.logger.warning('STS unavailable, falling back to long-lived OSS credentials for upload signing.')
+        auth = Auth(access_key_id, access_key_secret)
+        return Bucket(auth, endpoint, bucket_name)
+
+    @staticmethod
     def get_available_token():
+        if not OSSService._has_sts_config():
+            current_app.logger.info('STS configuration incomplete, skipping STS token pool lookup.')
+            return None
+
         # Get a token with at least 15 minutes remaining (increased buffer for safety)
         min_expiration = datetime.now(timezone.utc) + timedelta(minutes=15)
         valid_token = STSTokenPool.query.filter(
@@ -130,6 +171,10 @@ class OSSService:
 
     @staticmethod
     def maintain_pool():
+        if not OSSService._has_sts_config():
+            current_app.logger.info('Skipping STS pool maintenance because STS configuration is incomplete.')
+            return
+
         # Cleanup expired tokens
         deleted_count = STSTokenPool.query.filter(
             STSTokenPool.expiration <= datetime.now(timezone.utc)
@@ -177,14 +222,7 @@ class OSSService:
 
     @staticmethod
     def generate_signed_url(user_id, filename, file_type=File.GENERAL, entity_type=None, entity_id=None, callback_url=None, content_type=None): # Added categorization params
-        token = OSSService.get_available_token()
-        # Handle case where token could not be obtained
-        if not token:
-             current_app.logger.error(f"User {user_id} failed to obtain STS token.")
-             raise Exception("Could not obtain a valid STS token for signing URL.")
-
-        auth = StsAuth(token.access_key_id, token.access_key_secret, token.security_token)
-        bucket = Bucket(auth, current_app.config['OSS_ENDPOINT'], current_app.config['OSS_BUCKET_NAME'])
+        bucket = OSSService._create_upload_bucket()
 
         # Format timestamp as YYYYMMDD_HHMMSS for better readability
         timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')

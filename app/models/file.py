@@ -23,6 +23,7 @@ class File(db.Model):
     AVATAR = 'avatar'
     POST_IMAGE = 'post_image'
     COMMENT_ATTACHMENT = 'comment_attachment'
+    IDENTITY_DOCUMENT = 'identity_document'
     GENERAL = 'general'
 
     def to_dict(self):
