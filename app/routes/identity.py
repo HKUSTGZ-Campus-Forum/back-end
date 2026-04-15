@@ -26,7 +26,7 @@ def get_identity_types():
         current_app.logger.error(f"Error fetching identity types: {e}")
         return jsonify({"success": False, "error": "Failed to fetch identity types"}), 500
 
-@identity_bp.route('/request', methods=['POST'])
+@identity_bp.route('/requests', methods=['POST'])
 @jwt_required()
 def request_verification():
     """Request identity verification"""
@@ -38,7 +38,7 @@ def request_verification():
             return jsonify({"success": False, "error": "No data provided"}), 400
         
         identity_type_id = data.get('identity_type_id')
-        verification_documents = data.get('verification_documents', [])
+        verification_documents = data.get('verification_documents') or data.get('document_file_ids') or []
         notes = data.get('notes', '')
         
         if not identity_type_id:
@@ -230,6 +230,37 @@ def update_verification_request(verification_id):
         current_app.logger.error(f"Error updating verification request: {e}")
         return jsonify({"success": False, "error": "Failed to update verification request"}), 500
 
+@identity_bp.route('/<int:verification_id>/withdraw', methods=['POST'])
+@jwt_required()
+def withdraw_verification_request(verification_id):
+    """Withdraw a pending verification request"""
+    try:
+        current_user_id = get_jwt_identity()
+
+        verification = UserIdentity.query.filter_by(
+            id=verification_id,
+            user_id=current_user_id
+        ).first()
+
+        if not verification:
+            return jsonify({"success": False, "error": "Verification request not found"}), 404
+
+        if verification.status != UserIdentity.PENDING:
+            return jsonify({"success": False, "error": "Can only withdraw pending verification requests"}), 400
+
+        db.session.delete(verification)
+        db.session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Verification request withdrawn successfully"
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error withdrawing verification request: {e}")
+        return jsonify({"success": False, "error": "Failed to withdraw verification request"}), 500
+
 # Admin endpoints for identity verification management
 @identity_bp.route('/admin/pending', methods=['GET'])
 @jwt_required()
@@ -386,6 +417,53 @@ def revoke_verification(verification_id):
         return jsonify({"success": False, "error": "Failed to revoke verification"}), 500
 
 # Display identity selection endpoints
+@identity_bp.route('/display-identity', methods=['POST'])
+@jwt_required()
+def set_user_display_identity():
+    """Set or clear the user's default display identity"""
+    try:
+        current_user_id = get_jwt_identity()
+        data = request.get_json() or {}
+
+        identity_id = data.get('identity_id')
+
+        current_user = User.query.get(current_user_id)
+        if not current_user:
+            return jsonify({"success": False, "error": "User not found"}), 404
+
+        # If identity_id is None or 0, clear the display identity
+        if not identity_id:
+            current_user.display_identity_id = None
+            db.session.commit()
+            return jsonify({
+                "success": True,
+                "message": "Display identity cleared"
+            }), 200
+
+        # Validate the identity belongs to the user and is active
+        user_identity = UserIdentity.query.filter_by(
+            id=identity_id,
+            user_id=current_user_id,
+            status=UserIdentity.APPROVED
+        ).first()
+
+        if not user_identity or not user_identity.is_active():
+            return jsonify({"success": False, "error": "Invalid or inactive identity"}), 400
+
+        current_user.display_identity_id = identity_id
+        db.session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Display identity updated successfully",
+            "display_identity_id": identity_id
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error setting user display identity: {e}")
+        return jsonify({"success": False, "error": "Failed to set display identity"}), 500
+
 @identity_bp.route('/posts/<int:post_id>/set-identity', methods=['POST'])
 @jwt_required()
 def set_post_display_identity(post_id):
