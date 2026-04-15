@@ -26,7 +26,6 @@ class User(db.Model):
     updated_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
                           onupdate=lambda: datetime.now(timezone.utc), nullable=False)
     last_active_at = db.Column(db.DateTime(timezone=True), nullable=True)
-    display_identity_id = db.Column(db.Integer, db.ForeignKey('user_identities.id'), nullable=True)
 
     # Relationships
     role = db.relationship('UserRole', backref=db.backref('users', lazy='dynamic'))
@@ -35,8 +34,7 @@ class User(db.Model):
     reactions = db.relationship('Reaction', backref='user', lazy='dynamic', cascade='all, delete-orphan')
     calendar_entries = db.relationship('UserCalendar', backref='user', lazy='dynamic', cascade='all, delete-orphan')
     files = db.relationship('File', foreign_keys='File.user_id', backref='owner', lazy='dynamic', cascade='all, delete-orphan')
-    profile_picture_file = db.relationship('File', foreign_keys=[profile_picture_file_id], post_update=True, uselist=False)
-    display_identity = db.relationship('UserIdentity', foreign_keys=[display_identity_id], post_update=True, uselist=False)
+    profile_picture_file = db.relationship('File', foreign_keys=[profile_picture_file_id], post_update=True, uselist=False) 
 
     # Add constraint for unique username among active users
     __table_args__ = (
@@ -143,7 +141,6 @@ class User(db.Model):
             "avatar_url": avatar_url,  # New field for fresh signed URLs
             "role_id": self.role_id,
             "role_name": self.get_role_name(),
-            "display_identity_id": self.display_identity_id,
             "is_deleted": self.is_deleted,
             "created_at": self.created_at.isoformat() if self.created_at else None
         }
