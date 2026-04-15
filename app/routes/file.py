@@ -29,7 +29,13 @@ def generate_upload_url():
         return jsonify({"error": "Invalid content type"}), 400
 
     # Basic validation for file_type (optional but good practice)
-    allowed_file_types = [File.AVATAR, File.POST_IMAGE, File.COMMENT_ATTACHMENT, File.GENERAL]
+    allowed_file_types = [
+        File.AVATAR,
+        File.POST_IMAGE,
+        File.COMMENT_ATTACHMENT,
+        File.IDENTITY_DOCUMENT,
+        File.GENERAL
+    ]
     if file_type not in allowed_file_types:
         return jsonify({"error": f"Invalid file_type. Allowed types: {', '.join(allowed_file_types)}"}), 400
 

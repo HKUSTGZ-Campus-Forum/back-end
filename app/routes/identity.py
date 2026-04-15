@@ -73,7 +73,7 @@ def request_verification():
                 if file_record:
                     validated_documents.append({
                         "file_id": file_id,
-                        "filename": file_record.filename,
+                        "filename": file_record.original_filename,
                         "uploaded_at": file_record.created_at.isoformat()
                     })
         
@@ -208,7 +208,7 @@ def update_verification_request(verification_id):
                     if file_record:
                         validated_documents.append({
                             "file_id": file_id,
-                            "filename": file_record.filename,
+                            "filename": file_record.original_filename,
                             "uploaded_at": file_record.created_at.isoformat()
                         })
             
