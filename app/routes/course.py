@@ -9,7 +9,8 @@ from app.utils.semester import (
     parse_semester_tag, format_semester_tag, get_semester_display_name,
     format_academic_year_semester_display,
     normalize_semester_code, sort_semesters, is_valid_semester_format,
-    find_matching_semester_tag
+    find_matching_semester_tag, format_offering_display_tag,
+    normalize_offering_identifier
 )
 from flask_jwt_extended import jwt_required, get_jwt_identity, current_user
 from sqlalchemy import func, desc, asc
@@ -26,6 +27,38 @@ def admin_required(fn):
             return jsonify({"error": "Admin privileges required"}), 403
         return fn(*args, **kwargs)
     return wrapper
+
+
+def _build_semester_info(year, semester_code, language='zh'):
+    return {
+        "code": f"{year}{semester_code}",
+        "display_name": format_academic_year_semester_display(year, semester_code, language),
+        "year": year,
+        "season": semester_code,
+        "season_display": get_semester_display_name(semester_code, language),
+        "offering_tag": format_offering_display_tag(year, semester_code),
+    }
+
+
+def _get_course_semester_entries(course, language='zh'):
+    course_tags = Course.get_course_tags(code=course.code)
+    semester_entries = {}
+
+    for tag in course_tags:
+        parsed = parse_semester_tag(tag.name)
+        if not parsed:
+            continue
+
+        course_code, year, semester_code = parsed
+        if course_code != course.code:
+            continue
+
+        key = f"{year}{semester_code}"
+        if key not in semester_entries:
+            semester_entries[key] = _build_semester_info(year, semester_code, language)
+
+    sorted_codes = sort_semesters(list(semester_entries.keys()))
+    return [semester_entries[code] for code in sorted_codes if code in semester_entries]
 
 @bp.route('/filters', methods=['GET'])
 def get_course_filters():
@@ -48,7 +81,6 @@ def get_course_filters():
         
         # Get semesters from existing course tags
         course_tags = Course.get_course_tags()
-        semester_codes = set()
         
         for tag in course_tags:
             parsed = parse_semester_tag(tag.name)
@@ -56,17 +88,15 @@ def get_course_filters():
                 _, year, semester_code = parsed
                 semester_key = f"{year}{semester_code}"
                 if semester_key not in semester_data:
-                    semester_data[semester_key] = {
-                        "code": semester_key,
-                        "display_name": format_academic_year_semester_display(
-                            year, semester_code, 'zh'
-                        ),
-                        "year": year,
-                        "season": semester_code
-                    }
+                    semester_data[semester_key] = _build_semester_info(year, semester_code, 'zh')
         
         # Sort semesters (latest first)
-        sorted_semesters = sorted(semester_data.values(), key=lambda x: (x["year"], x["season"]), reverse=True)
+        sorted_semester_codes = sort_semesters(list(semester_data.keys()))
+        sorted_semesters = [
+            semester_data[semester_code]
+            for semester_code in sorted_semester_codes
+            if semester_code in semester_data
+        ]
         
         # Format course types
         formatted_course_types = [
@@ -109,6 +139,12 @@ def get_courses():
     
     # Apply semester filter if provided
     if semester_filter:
+        normalized_filter = normalize_offering_identifier(semester_filter)
+        normalized_filter_code = (
+            f"{normalized_filter[0]}{normalized_filter[1]}"
+            if normalized_filter else semester_filter
+        )
+
         # Get all course codes that have tags for this semester
         course_tags = Course.get_course_tags()
         valid_course_codes = []
@@ -118,7 +154,7 @@ def get_courses():
             if parsed:
                 course_code, year, semester_code = parsed
                 semester_key = f"{year}{semester_code}"
-                if semester_key == semester_filter:
+                if semester_key == normalized_filter_code:
                     valid_course_codes.append(course_code)
         
         if valid_course_codes:
@@ -320,43 +356,7 @@ def get_course_semesters(course_id):
     """Get all available semesters for a course based on existing tags"""
     course = Course.query.filter_by(id=course_id, is_deleted=False).first_or_404()
     language = request.args.get('lang', 'zh')  # Default to Chinese
-    
-    # Get all course tags for this course code
-    course_tags = Course.get_course_tags(code=course.code)
-    
-    # Extract and normalize semesters from tag names
-    semester_data = []
-    seen_combinations = set()
-    
-    for tag in course_tags:
-        parsed = parse_semester_tag(tag.name)
-        if parsed:
-            course_code, year, semester_code = parsed
-            if course_code == course.code:
-                # Create unique key for this year-semester combination
-                combo_key = f"{year}-{semester_code}"
-                if combo_key not in seen_combinations:
-                    seen_combinations.add(combo_key)
-                    
-                    # Create semester data with both code and display name
-                    semester_info = {
-                        "code": f"{year}{semester_code}",  # Standard format: "2024fall"
-                        "display_name": format_academic_year_semester_display(
-                            year, semester_code, language
-                        ),
-                        "year": year,
-                        "season": semester_code,
-                        "season_display": get_semester_display_name(semester_code, language)
-                    }
-                    semester_data.append(semester_info)
-    
-    # Sort semesters using the utility function
-    semester_codes = [s["code"] for s in semester_data]
-    sorted_codes = sort_semesters(semester_codes)
-    
-    # Reorder semester_data based on sorted codes
-    code_to_data = {s["code"]: s for s in semester_data}
-    sorted_semester_data = [code_to_data[code] for code in sorted_codes if code in code_to_data]
+    sorted_semester_data = _get_course_semester_entries(course, language)
     
     return jsonify({
         "course_id": course_id,
@@ -378,16 +378,25 @@ def validate_course_semester(course_id):
     
     course = Course.query.filter_by(id=course_id, is_deleted=False).first_or_404()
     
-    # Parse the semester input to extract year and season
-    # Handle various formats: "2024fall", "2024秋", "24Fall", etc.
-    parsed = parse_semester_tag(f"{course.code}-{semester_input}")
-    if not parsed:
+    normalized_offering = normalize_offering_identifier(semester_input)
+    if normalized_offering:
+        year, semester_code = normalized_offering
+    else:
+        # Parse the semester input to extract year and season
+        # Handle various formats: "2024fall", "2024秋", "24Fall", etc.
+        parsed = parse_semester_tag(f"{course.code}-{semester_input}")
+        if not parsed:
+            return jsonify({
+                "valid": False,
+                "error": "Invalid semester format"
+            }), 400
+        _, year, semester_code = parsed
+
+    if not year or not semester_code:
         return jsonify({
             "valid": False,
             "error": "Invalid semester format"
         }), 400
-    
-    _, year, semester_code = parsed
     
     # Check if this specific course-semester combination exists in tags
     all_course_tags = Course.get_course_tags(code=course.code)
@@ -395,19 +404,29 @@ def validate_course_semester(course_id):
     
     if not matching_tag:
         available_semesters = [tag.name.split('-', 1)[1] for tag in all_course_tags if '-' in tag.name]
+        suggested_offerings = [
+            format_offering_display_tag(*normalized[:2])
+            for normalized in [
+                parse_semester_tag(tag.name)[1:]
+                for tag in all_course_tags
+                if parse_semester_tag(tag.name)
+            ]
+        ]
         return jsonify({
             "valid": False,
             "error": (
                 f"Course {course.code} was not offered in "
                 f"{format_academic_year_semester_display(year, semester_code, 'zh')}"
             ),
-            "suggested_semesters": available_semesters
+            "suggested_semesters": available_semesters,
+            "suggested_offerings": list(dict.fromkeys(suggested_offerings)),
         }), 400
     
     return jsonify({
         "valid": True,
         "normalized_semester": f"{year}{semester_code}",
         "display_name": format_academic_year_semester_display(year, semester_code, 'zh'),
+        "offering_tag": format_offering_display_tag(year, semester_code),
         "tag_name": matching_tag.name,
         "matched_tag_id": matching_tag.id
     }), 200

@@ -6,7 +6,7 @@ from app.models.reaction import Reaction
 from app.extensions import db
 from app.utils.semester import (
     parse_semester_tag, normalize_semester_code, format_semester_tag,
-    find_matching_semester_tag
+    find_matching_semester_tag, parse_offering_display_tag
 )
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func, desc, asc, text
@@ -19,6 +19,7 @@ bp = Blueprint('post', __name__, url_prefix='/posts')
 
 MAX_POST_TAG_COUNT = 5
 MAX_POST_TAG_LENGTH = 50
+SYSTEM_REVIEW_TAG = "course-review"
 
 def normalize_post_tags(raw_tag_names):
     if raw_tag_names is None:
@@ -51,6 +52,31 @@ def normalize_post_tags(raw_tag_names):
 
     return tag_names
 
+
+def _get_or_create_tag_type(type_name):
+    tag_type = TagType.query.filter_by(name=type_name).first()
+    if not tag_type:
+        tag_type = TagType(name=type_name)
+        db.session.add(tag_type)
+        db.session.flush()
+    return tag_type
+
+
+def _get_or_create_system_tag(tag_name, description=None):
+    existing_tag = Tag.query.filter_by(name=tag_name).first()
+    if existing_tag:
+        return existing_tag
+
+    system_type = _get_or_create_tag_type(TagType.SYSTEM)
+    tag = Tag(
+        name=tag_name,
+        tag_type_id=system_type.id,
+        description=description or f"System tag: {tag_name}",
+    )
+    db.session.add(tag)
+    db.session.flush()
+    return tag
+
 def validate_and_get_tag(tag_name, allow_course_creation=False):
     """
     Validate and get existing tag, with strict validation for course tags.
@@ -66,6 +92,12 @@ def validate_and_get_tag(tag_name, allow_course_creation=False):
     existing_tag = Tag.query.filter_by(name=tag_name).first()
     if existing_tag:
         return existing_tag
+
+    if tag_name == SYSTEM_REVIEW_TAG:
+        return _get_or_create_system_tag(
+            tag_name,
+            description="System tag for course review posts"
+        )
     
     # Parse if this looks like a course tag
     parsed = parse_semester_tag(tag_name)
@@ -100,17 +132,21 @@ def validate_and_get_tag(tag_name, allow_course_creation=False):
                 if available_semesters:
                     error_msg += f". Available semesters: {', '.join(available_semesters)}"
                 raise ValueError(error_msg)
+
+    parsed_offering = parse_offering_display_tag(tag_name)
+    if parsed_offering:
+        year, semester_code = parsed_offering
+        return _get_or_create_system_tag(
+            tag_name,
+            description=f"Offering tag for {year} {semester_code}"
+        )
     
     # For non-course tags, optionally map real course codes to course tags.
     # If the course doesn't exist, treat it as a normal user tag instead.
-    elif tag_name.replace(' ', '').replace('-', '').isalnum() and len(tag_name.split()) <= 3:
+    if tag_name.replace(' ', '').replace('-', '').isalnum() and len(tag_name.split()) <= 3:
         course = Course.query.filter_by(code=tag_name, is_deleted=False).first()
         if course:
-            tag_type = TagType.query.filter_by(name=TagType.COURSE).first()
-            if not tag_type:
-                tag_type = TagType(name=TagType.COURSE)
-                db.session.add(tag_type)
-                db.session.flush()
+            tag_type = _get_or_create_tag_type(TagType.COURSE)
             
             tag = Tag(
                 name=tag_name,
@@ -122,11 +158,7 @@ def validate_and_get_tag(tag_name, allow_course_creation=False):
             return tag
     
     # For user tags, allow creation
-    tag_type = TagType.query.filter_by(name=TagType.USER).first()
-    if not tag_type:
-        tag_type = TagType(name=TagType.USER)
-        db.session.add(tag_type)
-        db.session.flush()
+    tag_type = _get_or_create_tag_type(TagType.USER)
     
     tag = Tag(
         name=tag_name,
@@ -150,6 +182,8 @@ def get_posts():
     sort_order = request.args.get('sort_order', 'desc')
     date_param = request.args.get('date')
     tags_param = request.args.get('tags')  # Can be comma-separated list of tag names
+    tag_match = request.args.get('tag_match', 'any').lower()
+    exclude_tags_param = request.args.get('exclude_tags')
     
     # Start building the query
     query = Post.query.filter(Post.is_deleted == False)
@@ -162,8 +196,20 @@ def get_posts():
     if tags_param:
         tag_names = [tag.strip() for tag in tags_param.split(',') if tag.strip()]
         if tag_names:
-            # Filter posts that have ANY of the specified tags
-            query = query.join(Post.tags).filter(Tag.name.in_(tag_names)).distinct()
+            if tag_match not in {'any', 'all'}:
+                return jsonify({"error": "Invalid tag_match. Use 'any' or 'all'."}), 400
+
+            if tag_match == 'all':
+                for tag_name in tag_names:
+                    query = query.filter(Post.tags.any(Tag.name == tag_name))
+            else:
+                # Filter posts that have ANY of the specified tags
+                query = query.join(Post.tags).filter(Tag.name.in_(tag_names)).distinct()
+
+    if exclude_tags_param:
+        exclude_tag_names = [tag.strip() for tag in exclude_tags_param.split(',') if tag.strip()]
+        for tag_name in exclude_tag_names:
+            query = query.filter(~Post.tags.any(Tag.name == tag_name))
     
     # Date filtering
     if date_param:

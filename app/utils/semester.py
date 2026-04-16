@@ -3,6 +3,7 @@ Semester utilities for handling semester codes and conversions.
 Supports internationalization by separating codes from display names.
 """
 
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 import re
 
@@ -162,6 +163,48 @@ def format_academic_year_semester_display(year: str, semester_code: str, languag
     return f"{yy0:02d}-{yy1:02d} {season_label}"
 
 
+def format_offering_display_tag(year: str, semester_code: str) -> str:
+    """
+    Format an offering tag used in routes and standalone semester post tags.
+
+    Examples:
+        "2025", "fall" -> "25-26Fall"
+        "2024", "spring" -> "24-25Spring"
+    """
+    y = int(year)
+    yy0 = y % 100
+    yy1 = (y + 1) % 100
+    season_label = get_semester_display_name(semester_code, 'en')
+    return f"{yy0:02d}-{yy1:02d}{season_label}"
+
+
+def parse_offering_display_tag(tag_name: str) -> Optional[Tuple[str, str]]:
+    """
+    Parse a display-style offering tag like ``25-26Fall`` or ``24-25Spring``.
+
+    Returns:
+        Tuple of (anchor_year, semester_code), where anchor_year is 4-digit.
+    """
+    if not isinstance(tag_name, str):
+        return None
+
+    match = re.match(r'^\s*(\d{2})-(\d{2})(Spring|Summer|Fall|Winter|春|夏|秋|冬)\s*$', tag_name)
+    if not match:
+        return None
+
+    start_year_2d, end_year_2d, season_part = match.groups()
+    anchor_year = f"20{start_year_2d}"
+    expected_end_year = f"{(int(anchor_year) + 1) % 100:02d}"
+    if end_year_2d != expected_end_year:
+        return None
+
+    semester_code = normalize_semester_code(season_part)
+    if not semester_code:
+        return None
+
+    return anchor_year, semester_code
+
+
 def normalize_semester_code(input_semester: str) -> Optional[str]:
     """
     Normalize various semester inputs to standard codes.
@@ -207,6 +250,26 @@ def normalize_semester_code(input_semester: str) -> Optional[str]:
     
     return variations.get(lower_input)
 
+
+def normalize_offering_identifier(value: str) -> Optional[Tuple[str, str]]:
+    """
+    Normalize either an internal semester key (``2025fall``) or a display tag
+    (``25-26Fall``) into ``(anchor_year, semester_code)``.
+    """
+    if not value or not isinstance(value, str):
+        return None
+
+    parsed_display = parse_offering_display_tag(value)
+    if parsed_display:
+        return parsed_display
+
+    match = re.match(r'^\s*(\d{4})(spring|summer|fall|winter)\s*$', value, re.IGNORECASE)
+    if match:
+        year, season = match.groups()
+        return year, season.lower()
+
+    return None
+
 def sort_semesters(semesters: List[str], parse_year: bool = True) -> List[str]:
     """
     Sort semesters by year and season order.
@@ -224,6 +287,13 @@ def sort_semesters(semesters: List[str], parse_year: bool = True) -> List[str]:
             parsed = parse_semester_tag(semester)
             if parsed:
                 _, year_str, season_code = parsed
+                year = int(year_str)
+                season_order = SEMESTER_ORDER.get(season_code, 0)
+                return (-year, -season_order)
+
+            normalized_offering = normalize_offering_identifier(semester)
+            if normalized_offering:
+                year_str, season_code = normalized_offering
                 year = int(year_str)
                 season_order = SEMESTER_ORDER.get(season_code, 0)
                 return (-year, -season_order)
@@ -322,3 +392,22 @@ def normalize_semester_tag_format(tag_name: str) -> Optional[Tuple[str, str, str
     normalized_season = normalize_semester_code(semester_code) or semester_code.lower()
     
     return course_code, normalized_year, normalized_season
+
+
+def infer_offering_from_datetime(dt: datetime) -> Tuple[str, str]:
+    """
+    Infer an offering from a post timestamp for backfilling historical reviews.
+
+    Rules:
+    - Feb-Jul  -> Spring of the academic year that started the previous calendar year
+    - Aug-Dec  -> Fall of the academic year that starts in the current calendar year
+    - Jan      -> Fall of the academic year that started in the previous calendar year
+    """
+    month = dt.month
+    year = dt.year
+
+    if 2 <= month <= 7:
+        return str(year - 1), SemesterCode.SPRING
+    if month == 1:
+        return str(year - 1), SemesterCode.FALL
+    return str(year), SemesterCode.FALL
