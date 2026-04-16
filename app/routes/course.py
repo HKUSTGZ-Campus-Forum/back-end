@@ -7,6 +7,7 @@ from app.models.user_role import UserRole
 from app.extensions import db
 from app.utils.semester import (
     parse_semester_tag, format_semester_tag, get_semester_display_name,
+    format_academic_year_semester_display,
     normalize_semester_code, sort_semesters, is_valid_semester_format,
     find_matching_semester_tag
 )
@@ -57,7 +58,9 @@ def get_course_filters():
                 if semester_key not in semester_data:
                     semester_data[semester_key] = {
                         "code": semester_key,
-                        "display_name": f"{year}{get_semester_display_name(semester_code, 'zh')}",
+                        "display_name": format_academic_year_semester_display(
+                            year, semester_code, 'zh'
+                        ),
                         "year": year,
                         "season": semester_code
                     }
@@ -338,7 +341,9 @@ def get_course_semesters(course_id):
                     # Create semester data with both code and display name
                     semester_info = {
                         "code": f"{year}{semester_code}",  # Standard format: "2024fall"
-                        "display_name": f"{year}{get_semester_display_name(semester_code, language)}",
+                        "display_name": format_academic_year_semester_display(
+                            year, semester_code, language
+                        ),
                         "year": year,
                         "season": semester_code,
                         "season_display": get_semester_display_name(semester_code, language)
@@ -392,14 +397,17 @@ def validate_course_semester(course_id):
         available_semesters = [tag.name.split('-', 1)[1] for tag in all_course_tags if '-' in tag.name]
         return jsonify({
             "valid": False,
-            "error": f"Course {course.code} was not offered in {year} {get_semester_display_name(semester_code)}",
+            "error": (
+                f"Course {course.code} was not offered in "
+                f"{format_academic_year_semester_display(year, semester_code, 'zh')}"
+            ),
             "suggested_semesters": available_semesters
         }), 400
     
     return jsonify({
         "valid": True,
         "normalized_semester": f"{year}{semester_code}",
-        "display_name": f"{year}{get_semester_display_name(semester_code)}",
+        "display_name": format_academic_year_semester_display(year, semester_code, 'zh'),
         "tag_name": matching_tag.name,
         "matched_tag_id": matching_tag.id
     }), 200
