@@ -5,8 +5,61 @@ from app.models.user import User
 from app.models.file import File
 from app.models.token import STSTokenPool
 from datetime import datetime, timezone, timedelta
+import os
 
 bp = Blueprint('file', __name__, url_prefix='/files')
+
+# Extensions blocked for security (executables / script delivery / HTML smuggling)
+_UPLOAD_BLOCKED_EXTENSIONS = frozenset({
+    '.exe', '.bat', '.cmd', '.com', '.msi', '.scr', '.dll', '.pif', '.application',
+    '.gadget', '.msp', '.wsf', '.wsh', '.vbs', '.vbe', '.js', '.jse', '.jar',
+    '.hta', '.cpl', '.msc', '.sh', '.bash', '.ps1', '.ps1xml', '.ps2', '.ps2xml',
+    '.psc1', '.psc2', '.scf', '.lnk', '.inf', '.reg', '.desktop', '.html', '.htm',
+})
+
+_POST_IMAGE_EXTENSIONS = frozenset({
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.ico', '.svg', '.avif', '.heic',
+})
+
+_BLOCKED_CONTENT_TYPE_PREFIXES = (
+    'text/html',
+    'application/javascript',
+    'application/x-javascript',
+    'text/javascript',
+    'application/ecmascript',
+)
+
+_ALLOWED_CONTENT_TYPE_PREFIXES = (
+    'image/', 'video/', 'audio/', 'text/', 'application/', 'font/', 'message/', 'model/',
+)
+
+
+def _validate_upload_request(filename, file_type, content_type):
+    """Returns (True, None) or (False, error_message)."""
+    ext = os.path.splitext(filename or '')[1].lower()
+    if ext in _UPLOAD_BLOCKED_EXTENSIONS:
+        return False, '该文件类型不允许上传'
+
+    if file_type == File.POST_IMAGE:
+        if ext and ext not in _POST_IMAGE_EXTENSIONS:
+            return False, '图片附件仅支持常见图片格式'
+        if content_type and content_type.strip():
+            ct = content_type.strip().lower()
+            if not ct.startswith('image/'):
+                return False, '图片附件必须是图片类型'
+
+    if file_type == File.POST_ATTACHMENT:
+        # Arbitrary files except dangerous extensions (already filtered above).
+        pass
+
+    if content_type and content_type.strip():
+        ct = content_type.strip().lower()
+        if any(ct.startswith(b) for b in _BLOCKED_CONTENT_TYPE_PREFIXES):
+            return False, 'Invalid content type'
+        if not any(ct.startswith(p) for p in _ALLOWED_CONTENT_TYPE_PREFIXES):
+            return False, 'Invalid content type'
+
+    return True, None
 
 @bp.route('/upload', methods=['POST'])
 @jwt_required()
@@ -23,21 +76,32 @@ def generate_upload_url():
     entity_type = data.get('entity_type')
     entity_id = data.get('entity_id')
     content_type = data.get('content_type')  # Get MIME type from frontend
-    
-    # Validate content type for security
-    if content_type and not content_type.startswith(('image/', 'video/', 'audio/', 'text/', 'application/')):
-        return jsonify({"error": "Invalid content type"}), 400
 
     # Basic validation for file_type (optional but good practice)
     allowed_file_types = [
         File.AVATAR,
         File.POST_IMAGE,
+        File.POST_ATTACHMENT,
         File.COMMENT_ATTACHMENT,
         File.IDENTITY_DOCUMENT,
         File.GENERAL
     ]
     if file_type not in allowed_file_types:
         return jsonify({"error": f"Invalid file_type. Allowed types: {', '.join(allowed_file_types)}"}), 400
+
+    ok, err_msg = _validate_upload_request(filename, file_type, content_type)
+    if not ok:
+        return jsonify({"error": err_msg}), 400
+
+    # Optional declared size (client hint) — reject before signing URL
+    declared_size = data.get('file_size')
+    if declared_size is not None:
+        try:
+            declared_size = int(declared_size)
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid file_size"}), 400
+        if declared_size > File.MAX_UPLOAD_BYTES:
+            return jsonify({"error": f"File exceeds maximum size of {File.MAX_UPLOAD_BYTES} bytes"}), 400
 
     # Validate entity_id if entity_type is provided (optional)
     # Some flows upload files before the entity record exists.
@@ -393,29 +457,99 @@ def debug_sts_pool():
 def debug_maintain_sts_pool():
     """Debug endpoint to manually trigger STS pool maintenance"""
     user_id = get_jwt_identity()
-    
+
     # Only allow admin users
     user = User.query.filter_by(id=user_id, is_deleted=False).first()
     if not user:
         return jsonify({"error": "User not found"}), 404
-    
+
     try:
         current_app.logger.info(f"Manual STS pool maintenance triggered by user {user_id}")
         OSSService.maintain_pool()
-        
+
         # Get updated pool status
         now = datetime.now(timezone.utc)
         valid_count = STSTokenPool.query.filter(
             STSTokenPool.expiration > now + timedelta(minutes=15)
         ).count()
         total_count = STSTokenPool.query.count()
-        
+
         return jsonify({
             "message": "STS pool maintenance completed",
             "total_tokens": total_count,
             "valid_tokens": valid_count
         }), 200
-        
+
     except Exception as e:
         current_app.logger.error(f"Error in STS maintenance endpoint: {e}")
         return jsonify({"error": "Failed to maintain STS pool"}), 500
+
+
+@bp.route('/proxy/<int:file_id>', methods=['GET'])
+@jwt_required()
+def proxy_file(file_id):
+    """Proxy file content from OSS to avoid CORS issues"""
+    from flask import Response, stream_with_context
+    import requests
+
+    user_id = get_jwt_identity()
+
+    # Check if user exists
+    user = User.query.filter_by(id=user_id, is_deleted=False).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    # Get file record
+    file_record = File.query.filter_by(id=file_id, is_deleted=False).first()
+    if not file_record:
+        return jsonify({"error": "File not found"}), 404
+
+    # Check if file is uploaded
+    if file_record.status != 'uploaded':
+        return jsonify({"error": "File not ready"}), 400
+
+    try:
+        # Get signed URL for the file
+        signed_url = file_record.url
+        if not signed_url:
+            return jsonify({"error": "File URL not available"}), 500
+
+        # Fetch file from OSS
+        response = requests.get(signed_url, stream=True, timeout=30)
+
+        if not response.ok:
+            current_app.logger.error(f"Failed to fetch file {file_id} from OSS: {response.status_code}")
+            return jsonify({"error": "Failed to fetch file from storage"}), 500
+
+        # Determine content type
+        content_type = file_record.mime_type or response.headers.get('Content-Type', 'application/octet-stream')
+
+        # Stream the response back to client
+        def generate():
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    yield chunk
+
+        headers = {
+            'Content-Type': content_type,
+            'Content-Disposition': f'inline; filename="{file_record.original_filename}"',
+            'Cache-Control': 'public, max-age=3600',
+        }
+
+        # Add Content-Length if available
+        content_length = response.headers.get('Content-Length')
+        if content_length:
+            headers['Content-Length'] = content_length
+
+        return Response(
+            stream_with_context(generate()),
+            headers=headers,
+            status=200
+        )
+
+    except requests.exceptions.Timeout:
+        current_app.logger.error(f"Timeout fetching file {file_id} from OSS")
+        return jsonify({"error": "Request timeout"}), 504
+    except Exception as e:
+        current_app.logger.error(f"Error proxying file {file_id}: {e}", exc_info=True)
+        return jsonify({"error": "Failed to proxy file"}), 500

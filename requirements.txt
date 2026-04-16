@@ -28,3 +28,6 @@ gunicorn
 # Redis for caching
 redis
 flask-caching
+
+# HTTP requests for file proxying
+requests

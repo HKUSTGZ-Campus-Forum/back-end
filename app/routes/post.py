@@ -1,13 +1,9 @@
 from flask import Blueprint, request, jsonify, abort, current_app
-from app.models.post import Post
+from app.models.post import Post, serialize_post_tag
 from app.models.tag import Tag, TagType
 from app.models.course import Course
 from app.models.reaction import Reaction
 from app.extensions import db
-from app.utils.semester import (
-    parse_semester_tag, normalize_semester_code, format_semester_tag,
-    find_matching_semester_tag
-)
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func, desc, asc, text
 from datetime import datetime, timedelta
@@ -17,13 +13,77 @@ from app.services.content_moderation_service import content_moderation
 
 bp = Blueprint('post', __name__, url_prefix='/posts')
 
+MAX_POST_TAG_COUNT = 5
+MAX_POST_TAG_LENGTH = 50
+SYSTEM_REVIEW_TAG = "course-review"
+
+def normalize_post_tags(raw_tag_names):
+    if raw_tag_names is None:
+        return []
+    if not isinstance(raw_tag_names, list):
+        raise ValueError("Tags must be provided as an array of strings.")
+
+    tag_names = []
+    seen_tag_names = set()
+
+    for raw_tag_name in raw_tag_names:
+        if not isinstance(raw_tag_name, str):
+            raise ValueError("Each tag must be a string.")
+
+        normalized_tag_name = " ".join(raw_tag_name.strip().split())
+        if not normalized_tag_name:
+            continue
+        if len(normalized_tag_name) > MAX_POST_TAG_LENGTH:
+            raise ValueError(f"Each tag must be {MAX_POST_TAG_LENGTH} characters or fewer.")
+
+        normalized_key = normalized_tag_name.casefold()
+        if normalized_key in seen_tag_names:
+            continue
+
+        seen_tag_names.add(normalized_key)
+        tag_names.append(normalized_tag_name)
+
+    if len(tag_names) > MAX_POST_TAG_COUNT:
+        raise ValueError(f"A post can have at most {MAX_POST_TAG_COUNT} tags.")
+
+    return tag_names
+
+
+def _get_or_create_tag_type(type_name):
+    tag_type = TagType.query.filter_by(name=type_name).first()
+    if not tag_type:
+        tag_type = TagType(name=type_name)
+        db.session.add(tag_type)
+        db.session.flush()
+    return tag_type
+
+
+def _get_or_create_system_tag(tag_name, description=None):
+    existing_tag = Tag.query.filter_by(name=tag_name).first()
+    if existing_tag:
+        return existing_tag
+
+    system_type = _get_or_create_tag_type(TagType.SYSTEM)
+    tag = Tag(
+        name=tag_name,
+        tag_type_id=system_type.id,
+        description=description or f"System tag: {tag_name}",
+    )
+    db.session.add(tag)
+    db.session.flush()
+    return tag
+
 def validate_and_get_tag(tag_name, allow_course_creation=False):
     """
-    Validate and get existing tag, with strict validation for course tags.
+    Validate and get an existing tag or create a new one.
+
+    We intentionally do not enforce course/offering semantics here anymore.
+    Tags remain free-form aside from basic normalization limits enforced earlier.
     
     Args:
         tag_name: The tag name to validate
-        allow_course_creation: Whether to allow creation of new course tags (admin only)
+        allow_course_creation: Retained for compatibility; no longer used to
+            enforce semantic tag validation.
     
     Returns:
         Tag object if valid, raises ValueError if invalid
@@ -32,52 +92,19 @@ def validate_and_get_tag(tag_name, allow_course_creation=False):
     existing_tag = Tag.query.filter_by(name=tag_name).first()
     if existing_tag:
         return existing_tag
+
+    if tag_name == SYSTEM_REVIEW_TAG:
+        return _get_or_create_system_tag(
+            tag_name,
+            description="System tag for course review posts"
+        )
     
-    # Parse if this looks like a course tag
-    parsed = parse_semester_tag(tag_name)
-    if parsed:
-        course_code, year, semester_code = parsed
-        
-        # Check if course exists
-        course = Course.query.filter_by(code=course_code, is_deleted=False).first()
-        if not course:
-            raise ValueError(f"Course {course_code} does not exist")
-        
-        # For course tags, look for matching tag in any supported format
-        if not allow_course_creation:
-            # Get all course tags for this course
-            all_course_tags = Course.get_course_tags(code=course_code)
-            
-            # Try to find a matching tag regardless of format differences
-            matching_tag = find_matching_semester_tag(course_code, year, semester_code, all_course_tags)
-            
-            if matching_tag:
-                # Found a matching tag, return it instead of creating new one
-                return matching_tag
-            else:
-                # No matching tag found - course was not offered that semester
-                available_semesters = []
-                for tag in all_course_tags:
-                    if '-' in tag.name:
-                        sem_part = tag.name.split('-', 1)[1]
-                        available_semesters.append(sem_part)
-                
-                error_msg = f"Course {course_code} was not offered in {year} {semester_code}"
-                if available_semesters:
-                    error_msg += f". Available semesters: {', '.join(available_semesters)}"
-                raise ValueError(error_msg)
-    
-    # For non-course tags, check if it looks like a course code
-    elif tag_name.replace(' ', '').replace('-', '').isalnum() and len(tag_name.split()) <= 3:
-        # This might be a course code - validate it exists
+    # For non-course tags, optionally map real course codes to course tags.
+    # If the course doesn't exist, treat it as a normal user tag instead.
+    if tag_name.replace(' ', '').replace('-', '').isalnum() and len(tag_name.split()) <= 3:
         course = Course.query.filter_by(code=tag_name, is_deleted=False).first()
         if course:
-            # This is a valid course code, allow it
-            tag_type = TagType.query.filter_by(name=TagType.COURSE).first()
-            if not tag_type:
-                tag_type = TagType(name=TagType.COURSE)
-                db.session.add(tag_type)
-                db.session.flush()
+            tag_type = _get_or_create_tag_type(TagType.COURSE)
             
             tag = Tag(
                 name=tag_name,
@@ -87,15 +114,9 @@ def validate_and_get_tag(tag_name, allow_course_creation=False):
             db.session.add(tag)
             db.session.flush()
             return tag
-        else:
-            raise ValueError(f"Course {tag_name} does not exist")
     
     # For user tags, allow creation
-    tag_type = TagType.query.filter_by(name=TagType.USER).first()
-    if not tag_type:
-        tag_type = TagType(name=TagType.USER)
-        db.session.add(tag_type)
-        db.session.flush()
+    tag_type = _get_or_create_tag_type(TagType.USER)
     
     tag = Tag(
         name=tag_name,
@@ -119,6 +140,8 @@ def get_posts():
     sort_order = request.args.get('sort_order', 'desc')
     date_param = request.args.get('date')
     tags_param = request.args.get('tags')  # Can be comma-separated list of tag names
+    tag_match = request.args.get('tag_match', 'any').lower()
+    exclude_tags_param = request.args.get('exclude_tags')
     
     # Start building the query
     query = Post.query.filter(Post.is_deleted == False)
@@ -131,8 +154,20 @@ def get_posts():
     if tags_param:
         tag_names = [tag.strip() for tag in tags_param.split(',') if tag.strip()]
         if tag_names:
-            # Filter posts that have ANY of the specified tags
-            query = query.join(Post.tags).filter(Tag.name.in_(tag_names)).distinct()
+            if tag_match not in {'any', 'all'}:
+                return jsonify({"error": "Invalid tag_match. Use 'any' or 'all'."}), 400
+
+            if tag_match == 'all':
+                for tag_name in tag_names:
+                    query = query.filter(Post.tags.any(Tag.name == tag_name))
+            else:
+                # Filter posts that have ANY of the specified tags
+                query = query.join(Post.tags).filter(Tag.name.in_(tag_names)).distinct()
+
+    if exclude_tags_param:
+        exclude_tag_names = [tag.strip() for tag in exclude_tags_param.split(',') if tag.strip()]
+        for tag_name in exclude_tag_names:
+            query = query.filter(~Post.tags.any(Tag.name == tag_name))
     
     # Date filtering
     if date_param:
@@ -247,6 +282,7 @@ def create_post():
     file_ids = data.get('file_ids', [])
     if file_ids:
         from app.models.file import File
+        allowed_post_file_types = frozenset({File.POST_IMAGE, File.POST_ATTACHMENT})
         for file_id in file_ids:
             file_record = File.query.filter_by(
                 id=file_id, 
@@ -254,33 +290,56 @@ def create_post():
                 status='uploaded',
                 is_deleted=False
             ).first()
-            if file_record:
-                file_record.entity_type = 'post'
-                file_record.entity_id = post.id
+            if not file_record:
+                continue
+            if file_record.file_type not in allowed_post_file_types:
+                db.session.rollback()
+                return jsonify({
+                    "error": "Invalid attachment",
+                    "message": "仅允许通过论坛上传接口添加的图片或附件。",
+                }), 400
+            if (
+                file_record.file_size is not None
+                and int(file_record.file_size) > File.MAX_UPLOAD_BYTES
+            ):
+                db.session.rollback()
+                return jsonify({
+                    "error": "Attachment too large",
+                    "message": f"附件「{file_record.original_filename}」超过 10MB 限制。",
+                }), 400
+            file_record.entity_type = 'post'
+            file_record.entity_id = post.id
     
     # Handle tags with validation
-    tag_names = data.get('tags', [])
+    try:
+        tag_names = normalize_post_tags(data.get('tags', []))
+    except ValueError as e:
+        return jsonify({
+            "error": "Tag validation failed",
+            "message": str(e)
+        }), 400
+
     tag_errors = []
     
     if tag_names:
         for tag_name in tag_names:
-            if tag_name and tag_name.strip():  # Skip empty tags
-                try:
-                    tag = validate_and_get_tag(tag_name.strip())
-                    # Add tag to post if not already linked
-                    if tag not in post.tags:
-                        post.tags.append(tag)
-                except ValueError as e:
-                    tag_errors.append(f"Tag '{tag_name}': {str(e)}")
-                except Exception as e:
-                    current_app.logger.error(f"Unexpected error with tag '{tag_name}': {str(e)}")
-                    tag_errors.append(f"Tag '{tag_name}': Internal error")
+            try:
+                tag = validate_and_get_tag(tag_name)
+                # Add tag to post if not already linked
+                if tag not in post.tags:
+                    post.tags.append(tag)
+            except ValueError as e:
+                tag_errors.append(f"Tag '{tag_name}': {str(e)}")
+            except Exception as e:
+                current_app.logger.error(f"Unexpected error with tag '{tag_name}': {str(e)}")
+                tag_errors.append(f"Tag '{tag_name}': Internal error")
     
     # If there are tag validation errors, rollback and return error
     if tag_errors:
         db.session.rollback()
         return jsonify({
             "error": "Tag validation failed",
+            "message": "One or more tags are invalid.",
             "tag_errors": tag_errors
         }), 400
     
@@ -298,7 +357,7 @@ def get_post(post_id):
     db.session.commit()
     
     # Get tags
-    tags = [{"tag_name": tag.name, "isImportant": tag.tag_type == "system", "tagcolor": "#3498db"} for tag in post.tags]
+    tags = [serialize_post_tag(tag) for tag in post.tags]
     
     # Get reactions with counts
     reactions_query = db.session.query(
@@ -482,7 +541,7 @@ def get_hot_posts():
                 user_choice = user_reaction.emoji
         
         # Get tags
-        tags = [{"tag_name": tag.name, "isImportant": tag.tag_type == "system", "tagcolor": "#3498db"} for tag in post.tags]
+        tags = [serialize_post_tag(tag) for tag in post.tags]
         
         # Get base post data including author information
         hot_post = post.to_dict(include_content=False, include_tags=False, include_files=False)

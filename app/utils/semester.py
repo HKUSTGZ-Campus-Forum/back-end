@@ -3,6 +3,7 @@ Semester utilities for handling semester codes and conversions.
 Supports internationalization by separating codes from display names.
 """
 
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 import re
 
@@ -37,12 +38,15 @@ CODE_TO_DISPLAY = {
     }
 }
 
-# Semester ordering for sorting (spring=1, summer=2, fall=3, winter=4)
+# Semester ordering within one academic year.
+# Academic year runs chronologically as: fall -> winter -> spring -> summer.
+# ``sort_semesters`` returns newest first, so summer should appear before spring
+# and fall when the anchor year is the same.
 SEMESTER_ORDER = {
-    SemesterCode.SPRING: 1,
-    SemesterCode.SUMMER: 2,
-    SemesterCode.FALL: 3,
-    SemesterCode.WINTER: 4
+    SemesterCode.FALL: 1,
+    SemesterCode.WINTER: 2,
+    SemesterCode.SPRING: 3,
+    SemesterCode.SUMMER: 4,
 }
 
 def parse_semester_tag(tag_name: str) -> Optional[Tuple[str, str, str]]:
@@ -137,6 +141,73 @@ def get_semester_display_name(semester_code: str, language: str = 'zh') -> str:
     """
     return CODE_TO_DISPLAY.get(language, {}).get(semester_code, semester_code)
 
+
+def format_academic_year_semester_display(year: str, semester_code: str, language: str = 'zh') -> str:
+    """
+    Academic-year style label (less ambiguous than '2025秋').
+
+    ``year`` is the anchor from tags (4-digit string), ``semester_code`` is a standard
+    code (spring/fall/...).
+
+    与秋、夏一致：用标签中的年份 Y 作为学年起始年，展示为 ``YY-(Y+1)末两位`` + 季节。
+    例如 ``2024spring`` → ``24-25春``，``2025fall`` → ``25-26秋``；与同一学年下的
+    ``2025spring``（25-26 春）共用同一套起算方式。
+    """
+    y = int(year)
+    season_label = get_semester_display_name(semester_code, language)
+
+    y0, y1 = y, y + 1
+
+    yy0 = y0 % 100
+    yy1 = y1 % 100
+
+    if language == 'zh':
+        return f"{yy0:02d}-{yy1:02d}{season_label}"
+    return f"{yy0:02d}-{yy1:02d} {season_label}"
+
+
+def format_offering_display_tag(year: str, semester_code: str) -> str:
+    """
+    Format an offering tag used in routes and standalone semester post tags.
+
+    Examples:
+        "2025", "fall" -> "25-26Fall"
+        "2024", "spring" -> "24-25Spring"
+    """
+    y = int(year)
+    yy0 = y % 100
+    yy1 = (y + 1) % 100
+    season_label = get_semester_display_name(semester_code, 'en')
+    return f"{yy0:02d}-{yy1:02d}{season_label}"
+
+
+def parse_offering_display_tag(tag_name: str) -> Optional[Tuple[str, str]]:
+    """
+    Parse a display-style offering tag like ``25-26Fall`` or ``24-25Spring``.
+
+    Returns:
+        Tuple of (anchor_year, semester_code), where anchor_year is 4-digit.
+    """
+    if not isinstance(tag_name, str):
+        return None
+
+    match = re.match(r'^\s*(\d{2})-(\d{2})(Spring|Summer|Fall|Winter|春|夏|秋|冬)\s*$', tag_name)
+    if not match:
+        return None
+
+    start_year_2d, end_year_2d, season_part = match.groups()
+    anchor_year = f"20{start_year_2d}"
+    expected_end_year = f"{(int(anchor_year) + 1) % 100:02d}"
+    if end_year_2d != expected_end_year:
+        return None
+
+    semester_code = normalize_semester_code(season_part)
+    if not semester_code:
+        return None
+
+    return anchor_year, semester_code
+
+
 def normalize_semester_code(input_semester: str) -> Optional[str]:
     """
     Normalize various semester inputs to standard codes.
@@ -182,6 +253,26 @@ def normalize_semester_code(input_semester: str) -> Optional[str]:
     
     return variations.get(lower_input)
 
+
+def normalize_offering_identifier(value: str) -> Optional[Tuple[str, str]]:
+    """
+    Normalize either an internal semester key (``2025fall``) or a display tag
+    (``25-26Fall``) into ``(anchor_year, semester_code)``.
+    """
+    if not value or not isinstance(value, str):
+        return None
+
+    parsed_display = parse_offering_display_tag(value)
+    if parsed_display:
+        return parsed_display
+
+    match = re.match(r'^\s*(\d{4})(spring|summer|fall|winter)\s*$', value, re.IGNORECASE)
+    if match:
+        year, season = match.groups()
+        return year, season.lower()
+
+    return None
+
 def sort_semesters(semesters: List[str], parse_year: bool = True) -> List[str]:
     """
     Sort semesters by year and season order.
@@ -199,6 +290,13 @@ def sort_semesters(semesters: List[str], parse_year: bool = True) -> List[str]:
             parsed = parse_semester_tag(semester)
             if parsed:
                 _, year_str, season_code = parsed
+                year = int(year_str)
+                season_order = SEMESTER_ORDER.get(season_code, 0)
+                return (-year, -season_order)
+
+            normalized_offering = normalize_offering_identifier(semester)
+            if normalized_offering:
+                year_str, season_code = normalized_offering
                 year = int(year_str)
                 season_order = SEMESTER_ORDER.get(season_code, 0)
                 return (-year, -season_order)
@@ -297,3 +395,25 @@ def normalize_semester_tag_format(tag_name: str) -> Optional[Tuple[str, str, str
     normalized_season = normalize_semester_code(semester_code) or semester_code.lower()
     
     return course_code, normalized_year, normalized_season
+
+
+def infer_offering_from_datetime(dt: datetime) -> Tuple[str, str]:
+    """
+    Infer an offering from a post timestamp for backfilling historical reviews.
+
+    Rules:
+    - Feb-Jun  -> Spring of the academic year that started the previous calendar year
+    - Jul-Aug  -> Summer of the academic year that started the previous calendar year
+    - Sep-Dec  -> Fall of the academic year that starts in the current calendar year
+    - Jan      -> Fall of the academic year that started in the previous calendar year
+    """
+    month = dt.month
+    year = dt.year
+
+    if 2 <= month <= 6:
+        return str(year - 1), SemesterCode.SPRING
+    if 7 <= month <= 8:
+        return str(year - 1), SemesterCode.SUMMER
+    if month == 1:
+        return str(year - 1), SemesterCode.FALL
+    return str(year), SemesterCode.FALL
