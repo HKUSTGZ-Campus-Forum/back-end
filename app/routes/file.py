@@ -457,29 +457,99 @@ def debug_sts_pool():
 def debug_maintain_sts_pool():
     """Debug endpoint to manually trigger STS pool maintenance"""
     user_id = get_jwt_identity()
-    
+
     # Only allow admin users
     user = User.query.filter_by(id=user_id, is_deleted=False).first()
     if not user:
         return jsonify({"error": "User not found"}), 404
-    
+
     try:
         current_app.logger.info(f"Manual STS pool maintenance triggered by user {user_id}")
         OSSService.maintain_pool()
-        
+
         # Get updated pool status
         now = datetime.now(timezone.utc)
         valid_count = STSTokenPool.query.filter(
             STSTokenPool.expiration > now + timedelta(minutes=15)
         ).count()
         total_count = STSTokenPool.query.count()
-        
+
         return jsonify({
             "message": "STS pool maintenance completed",
             "total_tokens": total_count,
             "valid_tokens": valid_count
         }), 200
-        
+
     except Exception as e:
         current_app.logger.error(f"Error in STS maintenance endpoint: {e}")
         return jsonify({"error": "Failed to maintain STS pool"}), 500
+
+
+@bp.route('/proxy/<int:file_id>', methods=['GET'])
+@jwt_required()
+def proxy_file(file_id):
+    """Proxy file content from OSS to avoid CORS issues"""
+    from flask import Response, stream_with_context
+    import requests
+
+    user_id = get_jwt_identity()
+
+    # Check if user exists
+    user = User.query.filter_by(id=user_id, is_deleted=False).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    # Get file record
+    file_record = File.query.filter_by(id=file_id, is_deleted=False).first()
+    if not file_record:
+        return jsonify({"error": "File not found"}), 404
+
+    # Check if file is uploaded
+    if file_record.status != 'uploaded':
+        return jsonify({"error": "File not ready"}), 400
+
+    try:
+        # Get signed URL for the file
+        signed_url = file_record.url
+        if not signed_url:
+            return jsonify({"error": "File URL not available"}), 500
+
+        # Fetch file from OSS
+        response = requests.get(signed_url, stream=True, timeout=30)
+
+        if not response.ok:
+            current_app.logger.error(f"Failed to fetch file {file_id} from OSS: {response.status_code}")
+            return jsonify({"error": "Failed to fetch file from storage"}), 500
+
+        # Determine content type
+        content_type = file_record.mime_type or response.headers.get('Content-Type', 'application/octet-stream')
+
+        # Stream the response back to client
+        def generate():
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    yield chunk
+
+        headers = {
+            'Content-Type': content_type,
+            'Content-Disposition': f'inline; filename="{file_record.original_filename}"',
+            'Cache-Control': 'public, max-age=3600',
+        }
+
+        # Add Content-Length if available
+        content_length = response.headers.get('Content-Length')
+        if content_length:
+            headers['Content-Length'] = content_length
+
+        return Response(
+            stream_with_context(generate()),
+            headers=headers,
+            status=200
+        )
+
+    except requests.exceptions.Timeout:
+        current_app.logger.error(f"Timeout fetching file {file_id} from OSS")
+        return jsonify({"error": "Request timeout"}), 504
+    except Exception as e:
+        current_app.logger.error(f"Error proxying file {file_id}: {e}", exc_info=True)
+        return jsonify({"error": "Failed to proxy file"}), 500
