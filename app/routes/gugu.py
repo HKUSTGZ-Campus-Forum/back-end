@@ -10,27 +10,30 @@ gugu_bp = Blueprint('gugu', __name__, url_prefix='/gugu')
 
 @gugu_bp.route('/messages', methods=['GET'])
 def get_messages():
-    """获取咕咕聊天消息"""
+    """
+    获取咕咕消息（时间降序：最新在前）。
+    查询参数：
+      limit — 每页条数，默认 20，最大 100
+      before_id — 可选，当前已加载的最老一条消息的 id；返回比其更旧的一页
+    响应含 has_more，表示是否可能还有更早的消息。
+    """
     try:
-        # 获取查询参数
-        limit = request.args.get('limit', 50, type=int)
-        limit = min(limit, 100)  # 限制最大获取数量
-        
-        # 获取消息
-        messages = GuguMessage.get_recent_messages(limit=limit)
-        
-        # 反转列表以获得正确的时间顺序（旧消息在前）
-        messages = list(reversed(messages))
-        
-        # 转换为字典格式
+        limit = request.args.get('limit', 20, type=int) or 20
+        limit = min(max(limit, 1), 100)
+        before_id = request.args.get('before_id', type=int)
+
+        messages, has_more = GuguMessage.get_messages_desc_paginated(
+            limit=limit, before_id=before_id
+        )
         messages_data = [message.to_dict() for message in messages]
-        
+
         return jsonify({
             'success': True,
             'messages': messages_data,
-            'count': len(messages_data)
+            'count': len(messages_data),
+            'has_more': has_more,
         }), 200
-        
+
     except Exception as e:
         print(f"❌ 获取咕咕消息失败: {e}")
         return jsonify({

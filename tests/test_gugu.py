@@ -50,6 +50,41 @@ class TestGuguAPI(unittest.TestCase):
             data = json.loads(response.data)
             self.assertTrue(data['success'])
             self.assertEqual(len(data['messages']), 0)
+            self.assertFalse(data.get('has_more'))
+
+    def test_get_messages_pagination_desc(self):
+        """测试消息列表按时间降序与 before_id 分页"""
+        with self.app.app_context():
+            m1 = GuguMessage.create_message(content='old', author_id=self.test_user.id)
+            m2 = GuguMessage.create_message(content='mid', author_id=self.test_user.id)
+            m3 = GuguMessage.create_message(content='new', author_id=self.test_user.id)
+
+            r1 = self.client.get('/api/gugu/messages?limit=2')
+            self.assertEqual(r1.status_code, 200)
+            d1 = json.loads(r1.data)
+            self.assertTrue(d1['success'])
+            self.assertEqual([m['content'] for m in d1['messages']], ['new', 'mid'])
+            self.assertTrue(d1['has_more'])
+
+            oldest_id = d1['messages'][-1]['id']
+            r2 = self.client.get(f'/api/gugu/messages?limit=2&before_id={oldest_id}')
+            self.assertEqual(r2.status_code, 200)
+            d2 = json.loads(r2.data)
+            self.assertEqual([m['content'] for m in d2['messages']], ['old'])
+            self.assertFalse(d2['has_more'])
+
+            self.assertEqual(m3.id, d1['messages'][0]['id'])
+            self.assertEqual(m1.id, d2['messages'][0]['id'])
+
+    def test_get_messages_invalid_before_id(self):
+        """无效 before_id 返回空列表"""
+        with self.app.app_context():
+            GuguMessage.create_message(content='x', author_id=self.test_user.id)
+            r = self.client.get('/api/gugu/messages?limit=10&before_id=99999')
+            self.assertEqual(r.status_code, 200)
+            d = json.loads(r.data)
+            self.assertEqual(d['messages'], [])
+            self.assertFalse(d['has_more'])
     
     def test_send_message_without_auth(self):
         """测试未认证用户发送消息"""

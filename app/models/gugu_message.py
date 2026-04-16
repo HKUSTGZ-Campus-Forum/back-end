@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from app.extensions import db
-from sqlalchemy import func
+from sqlalchemy import or_, and_
 
 class GuguMessage(db.Model):
     """咕咕聊天室消息模型"""
@@ -43,8 +43,33 @@ class GuguMessage(db.Model):
     
     @classmethod
     def get_recent_messages(cls, limit=50):
-        """获取最近的消息"""
+        """获取最近的消息（按时间降序，最新在前）"""
         return cls.query.order_by(cls.created_at.desc()).limit(limit).all()
+
+    @classmethod
+    def get_messages_desc_paginated(cls, limit=50, before_id=None):
+        """
+        主页时间线：按 created_at、id 降序；before_id 为当前已展示的最老一条的 id，
+        返回严格比其更老的消息。多取 1 条用于判断 has_more。
+        """
+        safe_limit = max(1, min(int(limit), 100))
+        fetch_n = safe_limit + 1
+        q = cls.query
+        if before_id is not None:
+            anchor = cls.query.get(before_id)
+            if anchor is None:
+                return [], False
+            q = q.filter(
+                or_(
+                    cls.created_at < anchor.created_at,
+                    and_(cls.created_at == anchor.created_at, cls.id < anchor.id),
+                )
+            )
+        rows = (
+            q.order_by(cls.created_at.desc(), cls.id.desc()).limit(fetch_n).all()
+        )
+        has_more = len(rows) > safe_limit
+        return rows[:safe_limit], has_more
     
     @classmethod
     def create_message(cls, content, author_id):
