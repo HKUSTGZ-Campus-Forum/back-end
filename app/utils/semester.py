@@ -142,21 +142,17 @@ def format_academic_year_semester_display(year: str, semester_code: str, languag
     """
     Academic-year style label (less ambiguous than '2025秋').
 
-    ``year`` is the calendar anchor from tags (4-digit string), ``semester_code`` is
-    a standard code (spring/fall/...).
+    ``year`` is the anchor from tags (4-digit string), ``semester_code`` is a standard
+    code (spring/fall/...).
 
-    - Fall / Summer / Winter: AY is Y–(Y+1) ending with that season → e.g. 2025 fall → ``25-26秋``.
-    - Spring: term in calendar year Y is the second semester of AY (Y-1)–Y → e.g. 2025 spring → ``24-25春``.
-
-    English examples: ``25-26 Fall``, ``24-25 Spring``.
+    与秋、夏一致：用标签中的年份 Y 作为学年起始年，展示为 ``YY-(Y+1)末两位`` + 季节。
+    例如 ``2024spring`` → ``24-25春``，``2025fall`` → ``25-26秋``；与同一学年下的
+    ``2025spring``（25-26 春）共用同一套起算方式。
     """
     y = int(year)
     season_label = get_semester_display_name(semester_code, language)
 
-    if semester_code == SemesterCode.SPRING:
-        y0, y1 = y - 1, y
-    else:
-        y0, y1 = y, y + 1
+    y0, y1 = y, y + 1
 
     yy0 = y0 % 100
     yy1 = y1 % 100
