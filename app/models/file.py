@@ -51,7 +51,6 @@ class File(db.Model):
         from app.extensions import cache
         from app.services.file_service import OSSService
         from datetime import datetime, timezone
-        import time
         
         # Create cache key
         cache_key = f"{current_app.config.get('FILE_URL_CACHE_KEY_PREFIX', 'file_url:')}{self.id}"
@@ -64,10 +63,12 @@ class File(db.Model):
         
         # Generate new signed URL if not cached
         current_app.logger.info(f"Generating new signed URL for file {self.id} (cache miss)")
-        
+
         # For private buckets, generate signed URLs for viewing
         try:
-            token = OSSService.get_available_token()
+            cache_timeout_config = current_app.config.get('FILE_URL_CACHE_TIMEOUT', 2700)
+            token_min_validity_seconds = max(900, int(cache_timeout_config) + 600)
+            token = OSSService.get_available_token(min_validity_seconds=token_min_validity_seconds)
             if not token:
                 current_app.logger.error(f"No valid STS token available for file {self.id}")
                 return None
@@ -80,14 +81,19 @@ class File(db.Model):
             from oss2 import StsAuth, Bucket
             auth = StsAuth(token.access_key_id, token.access_key_secret, token.security_token)
             bucket = Bucket(auth, current_app.config['OSS_ENDPOINT'], current_app.config['OSS_BUCKET_NAME'])
-            
-            # Calculate URL expiration: use longer duration for better caching
-            # Use 4 hours or remaining STS token time minus 5 minutes buffer, whichever is shorter
-            url_duration_seconds = min(
-                14400,  # 4 hours maximum (increased from 1 hour)
-                max(1800, int(time_until_token_expiry - 300))  # At least 30 minutes, but respect token expiry with 5min buffer
-            )
-            
+
+            # Never sign URLs beyond the remaining STS token validity.
+            # Keep a 5-minute safety buffer from token expiry.
+            max_duration_from_token = int(time_until_token_expiry - 300)
+            if max_duration_from_token <= 0:
+                current_app.logger.warning(
+                    f"STS token for file {self.id} is too close to expiry ({time_until_token_expiry}s), cannot sign URL safely"
+                )
+                return None
+
+            # Cap signed URL duration to 4 hours for CDN/browser friendliness.
+            url_duration_seconds = min(14400, max_duration_from_token)
+
             current_app.logger.info(f"Generating signed URL for file {self.id} with {url_duration_seconds}s duration (token expires in {time_until_token_expiry}s)")
             
             # Set headers to display inline instead of downloading
@@ -118,8 +124,9 @@ class File(db.Model):
                 expires_datetime = datetime.fromtimestamp(expires_timestamp, tz=timezone.utc)
                 current_app.logger.info(f"Generated signed URL for file {self.id} expires at {expires_datetime.isoformat()}")
             
-            # Cache the URL for 45 minutes (shorter than URL expiry to ensure freshness)
-            cache_timeout = current_app.config.get('FILE_URL_CACHE_TIMEOUT', 2700)  # 45 minutes
+            # Cache URL for less than actual signed URL lifetime to avoid stale cached URLs.
+            configured_cache_timeout = int(current_app.config.get('FILE_URL_CACHE_TIMEOUT', 2700))
+            cache_timeout = min(configured_cache_timeout, max(1, url_duration_seconds - 120))
             cache.set(cache_key, signed_url, timeout=cache_timeout)
             current_app.logger.info(f"Cached URL for file {self.id} for {cache_timeout} seconds")
             

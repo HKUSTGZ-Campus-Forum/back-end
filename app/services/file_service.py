@@ -9,7 +9,6 @@ import uuid # Moved import to top
 import os   # Moved import to top
 import base64 # Added missing import
 from flask import current_app # Added import
-from sqlalchemy.sql import func # Added import
 from app.models.file import File # Ensure File is imported
 
 class OSSService:
@@ -54,24 +53,27 @@ class OSSService:
         return Bucket(auth, endpoint, bucket_name)
 
     @staticmethod
-    def get_available_token():
+    def get_available_token(min_validity_seconds=900):
         if not OSSService._has_sts_config():
             current_app.logger.info('STS configuration incomplete, skipping STS token pool lookup.')
             return None
 
-        # Get a token with at least 15 minutes remaining (increased buffer for safety)
-        min_expiration = datetime.now(timezone.utc) + timedelta(minutes=15)
+        # Get a token with configurable minimum remaining validity
+        min_validity_seconds = max(60, int(min_validity_seconds or 0))
+        min_expiration = datetime.now(timezone.utc) + timedelta(seconds=min_validity_seconds)
         valid_token = STSTokenPool.query.filter(
             STSTokenPool.expiration > min_expiration
-        ).order_by(func.random()).first() # Use imported func
+        ).order_by(STSTokenPool.expiration.desc()).first()
         
         # Log current token pool status
         total_tokens = STSTokenPool.query.count()
         valid_tokens_count = STSTokenPool.query.filter(
             STSTokenPool.expiration > min_expiration
         ).count()
-        
-        current_app.logger.info(f"STS Token Pool Status: {valid_tokens_count}/{total_tokens} tokens valid for 15+ minutes")
+
+        current_app.logger.info(
+            f"STS Token Pool Status: {valid_tokens_count}/{total_tokens} tokens valid for {min_validity_seconds}+ seconds"
+        )
         
         # Check if pool needs initial population or regeneration
         if not valid_token:
