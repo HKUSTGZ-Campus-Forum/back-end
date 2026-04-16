@@ -36,6 +36,56 @@ def create_app(config_class=Config):
     return app
 
 
+def _auto_migrate_contest_submissions_track():
+    """为 contest_submissions 增加 track 列，并为每名已有用户补全娱乐赛道占位行。"""
+    from sqlalchemy import text, inspect
+    try:
+        inspector = inspect(db.engine)
+        if 'contest_submissions' not in inspector.get_table_names():
+            return
+        cols = {c['name'] for c in inspector.get_columns('contest_submissions')}
+        if 'track' not in cols:
+            with db.engine.connect() as conn:
+                conn.execute(text(
+                    "ALTER TABLE contest_submissions ADD COLUMN track VARCHAR(20) NOT NULL DEFAULT 'tech'"
+                ))
+                conn.commit()
+        from app.models.contest_submission import ContestSubmission, TRACK_TECH, TRACK_FUN
+        _pn = '待提交'
+        _desc = '已报名，等待提交作品'
+        tech_uids = (
+            db.session.query(ContestSubmission.user_id)
+            .filter(ContestSubmission.track == TRACK_TECH)
+            .distinct()
+            .all()
+        )
+        for (uid,) in tech_uids:
+            if ContestSubmission.query.filter_by(user_id=uid, track=TRACK_FUN).first():
+                continue
+            tech_row = ContestSubmission.query.filter_by(user_id=uid, track=TRACK_TECH).first()
+            desc = (tech_row.description or _desc).strip() if tech_row else _desc
+            db.session.add(ContestSubmission(
+                user_id=uid,
+                track=TRACK_FUN,
+                project_name=_pn,
+                description=desc,
+                project_url=None,
+                team_members=None,
+            ))
+        db.session.commit()
+        try:
+            with db.engine.connect() as conn:
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_contest_submissions_user_track "
+                    "ON contest_submissions (user_id, track)"
+                ))
+                conn.commit()
+        except Exception:
+            pass
+    except Exception:
+        db.session.rollback()
+
+
 def _auto_migrate_contest_columns():
     """启动时自动补齐 contest_info 表缺失的列（防止 flask db migrate 失败导致 500）"""
     from sqlalchemy import text, inspect
@@ -81,6 +131,7 @@ def _auto_init_contest():
     用 try/except 包裹，表不存在时静默跳过
     """
     _auto_migrate_contest_columns()
+    _auto_migrate_contest_submissions_track()
 
     try:
         from app.models.contest import ContestInfo

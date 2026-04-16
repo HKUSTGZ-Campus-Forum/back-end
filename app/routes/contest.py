@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 from flask import Blueprint, request, jsonify, Response
 from app.extensions import db
 from app.models.contest import ContestInfo
-from app.models.contest_submission import ContestSubmission
+from app.models.contest_submission import ContestSubmission, TRACK_FUN, TRACK_TECH
 from app.models.contest_organizer import ContestOrganizer
 from app.models.user import User
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -15,6 +15,19 @@ bp = Blueprint('contest', __name__, url_prefix='/contest')
 _PLACEHOLDER_TEAM_NAME = '待提交'
 # 正式提交不再收集作品介绍，数据库列保留，写入占位符
 _SUBMISSION_DESC_PLACEHOLDER = '-'
+ALLOWED_TRACKS = (TRACK_TECH, TRACK_FUN)
+
+
+def _submissions_dict_for_user(user_id) -> dict:
+    out = {TRACK_TECH: None, TRACK_FUN: None}
+    for r in ContestSubmission.query.filter_by(user_id=user_id).all():
+        out[r.track] = r.to_dict()
+    return out
+
+
+def _parse_track(data: dict) -> Optional[str]:
+    t = (data.get('track') or '').strip()
+    return t if t in ALLOWED_TRACKS else None
 
 
 def _is_placeholder_registration(data: dict) -> bool:
@@ -107,21 +120,40 @@ def get_my_role():
 @bp.route('/my-submission', methods=['GET'])
 @jwt_required()
 def get_my_submission():
-    """获取当前用户的提交"""
+    """获取当前用户两条赛道的提交（tech / fun）。"""
     try:
         user_id = get_jwt_identity()
-        submission = ContestSubmission.query.filter_by(user_id=user_id).first()
-        if not submission:
-            return jsonify({"submission": None}), 200
-        return jsonify({"submission": submission.to_dict()}), 200
+        if not ContestSubmission.query.filter_by(user_id=user_id).first():
+            return jsonify({"submissions": {TRACK_TECH: None, TRACK_FUN: None}}), 200
+        return jsonify({"submissions": _submissions_dict_for_user(user_id)}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def _upsert_placeholder_track(user_id, track: str, description_text: str) -> ContestSubmission:
+    row = ContestSubmission.query.filter_by(user_id=user_id, track=track).first()
+    if row:
+        row.project_name = _PLACEHOLDER_TEAM_NAME
+        row.description = description_text
+        row.project_url = None
+        row.team_members = None
+        return row
+    row = ContestSubmission(
+        user_id=user_id,
+        track=track,
+        project_name=_PLACEHOLDER_TEAM_NAME,
+        description=description_text,
+        project_url=None,
+        team_members=None,
+    )
+    db.session.add(row)
+    return row
 
 
 @bp.route('/submit', methods=['POST'])
 @jwt_required()
 def submit_project():
-    """提交或更新作品：正式提交仅需队名、项目链接、团队成员；报名为占位记录。"""
+    """双赛道：报名一次写两条占位；正式提交须带 track（tech 或 fun）。"""
     try:
         user_id = get_jwt_identity()
         data = request.get_json() or {}
@@ -130,52 +162,59 @@ def submit_project():
         if not contest or not contest.is_active:
             return jsonify({"error": "比赛暂未开放提交"}), 400
 
-        existing = ContestSubmission.query.filter_by(user_id=user_id).first()
-
-        if existing:
-            if _is_placeholder_registration(data):
-                err = _validate_placeholder_registration(data)
-                if err:
-                    return jsonify({"error": err}), 400
-                existing.project_name = _PLACEHOLDER_TEAM_NAME
-                existing.description = data['description'].strip()
-                pu = (data.get('project_url') or '').strip()
-                existing.project_url = pu if pu else None
-                tm = (data.get('team_members') or '').strip()
-                existing.team_members = tm if tm else None
-                db.session.commit()
-                return jsonify({"message": "提交已更新", "submission": existing.to_dict()}), 200
-
-            err = _validate_real_submission(data)
-            if err:
-                return jsonify({"error": err}), 400
-            existing.project_name = data['project_name'].strip()
-            existing.description = (data.get('description') or '').strip() or _SUBMISSION_DESC_PLACEHOLDER
-            existing.project_url = data['project_url'].strip()
-            existing.team_members = data['team_members'].strip()
-            db.session.commit()
-            return jsonify({"message": "提交已更新", "submission": existing.to_dict()}), 200
-
-        if _is_placeholder_registration(data):
+        # ── 报名：双赛道占位（请求体不含 track 或 track 非法且为占位队名）──
+        if _is_placeholder_registration(data) and _parse_track(data) is None:
             err = _validate_placeholder_registration(data)
             if err:
                 return jsonify({"error": err}), 400
-            submission = ContestSubmission(
-                user_id=user_id,
-                project_name=_PLACEHOLDER_TEAM_NAME,
-                description=data['description'].strip(),
-                project_url=None,
-                team_members=None,
-            )
-            db.session.add(submission)
+            desc = data['description'].strip()
+            for tr in ALLOWED_TRACKS:
+                _upsert_placeholder_track(user_id, tr, desc)
             db.session.commit()
-            return jsonify({"message": "提交成功", "submission": submission.to_dict()}), 201
+            return jsonify({
+                "message": "报名成功",
+                "submissions": _submissions_dict_for_user(user_id),
+            }), 200
 
+        # ── 单赛道占位更新（兼容带 track 的占位请求）──
+        if _is_placeholder_registration(data):
+            tr = _parse_track(data)
+            if tr is None:
+                return jsonify({"error": "无效请求"}), 400
+            err = _validate_placeholder_registration(data)
+            if err:
+                return jsonify({"error": err}), 400
+            _upsert_placeholder_track(user_id, tr, data['description'].strip())
+            db.session.commit()
+            return jsonify({
+                "message": "提交已更新",
+                "submissions": _submissions_dict_for_user(user_id),
+            }), 200
+
+        # ── 正式提交 ──
+        tr = _parse_track(data)
+        if tr is None:
+            return jsonify({"error": "请选择赛道（tech 或 fun）"}), 400
         err = _validate_real_submission(data)
         if err:
             return jsonify({"error": err}), 400
+
+        existing_one = ContestSubmission.query.filter_by(user_id=user_id, track=tr).first()
+        if existing_one:
+            existing_one.project_name = data['project_name'].strip()
+            existing_one.description = (data.get('description') or '').strip() or _SUBMISSION_DESC_PLACEHOLDER
+            existing_one.project_url = data['project_url'].strip()
+            existing_one.team_members = data['team_members'].strip()
+            db.session.commit()
+            return jsonify({
+                "message": "提交已更新",
+                "submission": existing_one.to_dict(),
+                "submissions": _submissions_dict_for_user(user_id),
+            }), 200
+
         submission = ContestSubmission(
             user_id=user_id,
+            track=tr,
             project_name=data['project_name'].strip(),
             description=(data.get('description') or '').strip() or _SUBMISSION_DESC_PLACEHOLDER,
             project_url=data['project_url'].strip(),
@@ -183,7 +222,11 @@ def submit_project():
         )
         db.session.add(submission)
         db.session.commit()
-        return jsonify({"message": "提交成功", "submission": submission.to_dict()}), 201
+        return jsonify({
+            "message": "提交成功",
+            "submission": submission.to_dict(),
+            "submissions": _submissions_dict_for_user(user_id),
+        }), 201
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
@@ -242,7 +285,9 @@ def get_all_submissions():
             return jsonify({"error": "需要管理者权限"}), 403
 
         submissions = ContestSubmission.query.order_by(
-            ContestSubmission.submitted_at.desc()
+            ContestSubmission.user_id,
+            ContestSubmission.track,
+            ContestSubmission.submitted_at.desc(),
         ).all()
         return jsonify({
             "submissions": [s.to_dict() for s in submissions],
@@ -350,19 +395,23 @@ def export_submissions_csv():
             return jsonify({"error": "需要管理者权限"}), 403
 
         submissions = ContestSubmission.query.order_by(
-            ContestSubmission.submitted_at.desc()
+            ContestSubmission.user_id,
+            ContestSubmission.track,
+            ContestSubmission.submitted_at.desc(),
         ).all()
 
         output = io.StringIO()
         output.write('\ufeff')  # BOM for Excel
         writer = csv.writer(output)
-        writer.writerow(['#', '用户名', 'UID', '队名', '项目链接', '团队成员', '提交时间', '最后更新'])
+        writer.writerow(['#', '用户名', 'UID', '赛道', '队名', '项目链接', '团队成员', '提交时间', '最后更新'])
 
         for idx, sub in enumerate(submissions, 1):
+            d = sub.to_dict()
             writer.writerow([
                 idx,
                 sub.user.username if sub.user else '',
                 sub.user_id,
+                d.get('track_label') or sub.track,
                 sub.project_name,
                 sub.project_url or '',
                 sub.team_members or '',
