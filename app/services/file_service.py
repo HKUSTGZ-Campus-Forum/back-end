@@ -303,7 +303,13 @@ class OSSService:
              file_record.status = status
              if file_size is not None: # Check for None explicitly
                  try:
-                     file_record.file_size = int(file_size)
+                     sz = int(file_size)
+                     file_record.file_size = sz
+                     if sz > File.MAX_UPLOAD_BYTES:
+                         current_app.logger.warning(
+                             f"Uploaded file {file_id} exceeds max size ({sz} > {File.MAX_UPLOAD_BYTES}), marking error."
+                         )
+                         file_record.status = 'error'
                  except (ValueError, TypeError):
                       current_app.logger.warning(f"Invalid file size '{file_size}' received for file_id {file_id}.")
                       file_record.file_size = None # Or 0, or keep existing if any

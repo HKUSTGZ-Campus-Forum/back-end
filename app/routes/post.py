@@ -282,6 +282,7 @@ def create_post():
     file_ids = data.get('file_ids', [])
     if file_ids:
         from app.models.file import File
+        allowed_post_file_types = frozenset({File.POST_IMAGE, File.POST_ATTACHMENT})
         for file_id in file_ids:
             file_record = File.query.filter_by(
                 id=file_id, 
@@ -289,9 +290,25 @@ def create_post():
                 status='uploaded',
                 is_deleted=False
             ).first()
-            if file_record:
-                file_record.entity_type = 'post'
-                file_record.entity_id = post.id
+            if not file_record:
+                continue
+            if file_record.file_type not in allowed_post_file_types:
+                db.session.rollback()
+                return jsonify({
+                    "error": "Invalid attachment",
+                    "message": "仅允许通过论坛上传接口添加的图片或附件。",
+                }), 400
+            if (
+                file_record.file_size is not None
+                and int(file_record.file_size) > File.MAX_UPLOAD_BYTES
+            ):
+                db.session.rollback()
+                return jsonify({
+                    "error": "Attachment too large",
+                    "message": f"附件「{file_record.original_filename}」超过 10MB 限制。",
+                }), 400
+            file_record.entity_type = 'post'
+            file_record.entity_id = post.id
     
     # Handle tags with validation
     try:

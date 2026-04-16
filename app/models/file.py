@@ -22,9 +22,13 @@ class File(db.Model):
     # Constants for file types (example)
     AVATAR = 'avatar'
     POST_IMAGE = 'post_image'
+    POST_ATTACHMENT = 'post_attachment'
     COMMENT_ATTACHMENT = 'comment_attachment'
     IDENTITY_DOCUMENT = 'identity_document'
     GENERAL = 'general'
+
+    # Max size for user uploads enforced at API / callback (bytes)
+    MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
     def to_dict(self):
         return {
@@ -101,9 +105,19 @@ class File(db.Model):
             if self.mime_type and self.mime_type.startswith('image/'):
                 headers['response-content-type'] = self.mime_type
                 headers['response-content-disposition'] = 'inline'
-            elif self.mime_type:
+            elif self.mime_type and self.mime_type == 'application/pdf':
+                headers['response-content-type'] = 'application/pdf'
+                headers['response-content-disposition'] = 'inline'
+            elif self.mime_type and self.mime_type in (
+                'application/msword',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            ):
                 headers['response-content-type'] = self.mime_type
                 headers['response-content-disposition'] = f'inline; filename="{self.original_filename}"'
+            elif self.mime_type:
+                headers['response-content-type'] = self.mime_type
+                safe_name = (self.original_filename or 'download').replace('"', "'")
+                headers['response-content-disposition'] = f'attachment; filename="{safe_name}"'
             else:
                 # Default to image content type if not set
                 headers['response-content-type'] = 'image/png'

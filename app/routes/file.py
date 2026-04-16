@@ -5,8 +5,61 @@ from app.models.user import User
 from app.models.file import File
 from app.models.token import STSTokenPool
 from datetime import datetime, timezone, timedelta
+import os
 
 bp = Blueprint('file', __name__, url_prefix='/files')
+
+# Extensions blocked for security (executables / script delivery / HTML smuggling)
+_UPLOAD_BLOCKED_EXTENSIONS = frozenset({
+    '.exe', '.bat', '.cmd', '.com', '.msi', '.scr', '.dll', '.pif', '.application',
+    '.gadget', '.msp', '.wsf', '.wsh', '.vbs', '.vbe', '.js', '.jse', '.jar',
+    '.hta', '.cpl', '.msc', '.sh', '.bash', '.ps1', '.ps1xml', '.ps2', '.ps2xml',
+    '.psc1', '.psc2', '.scf', '.lnk', '.inf', '.reg', '.desktop', '.html', '.htm',
+})
+
+_POST_IMAGE_EXTENSIONS = frozenset({
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.ico', '.svg', '.avif', '.heic',
+})
+
+_BLOCKED_CONTENT_TYPE_PREFIXES = (
+    'text/html',
+    'application/javascript',
+    'application/x-javascript',
+    'text/javascript',
+    'application/ecmascript',
+)
+
+_ALLOWED_CONTENT_TYPE_PREFIXES = (
+    'image/', 'video/', 'audio/', 'text/', 'application/', 'font/', 'message/', 'model/',
+)
+
+
+def _validate_upload_request(filename, file_type, content_type):
+    """Returns (True, None) or (False, error_message)."""
+    ext = os.path.splitext(filename or '')[1].lower()
+    if ext in _UPLOAD_BLOCKED_EXTENSIONS:
+        return False, '该文件类型不允许上传'
+
+    if file_type == File.POST_IMAGE:
+        if ext and ext not in _POST_IMAGE_EXTENSIONS:
+            return False, '图片附件仅支持常见图片格式'
+        if content_type and content_type.strip():
+            ct = content_type.strip().lower()
+            if not ct.startswith('image/'):
+                return False, '图片附件必须是图片类型'
+
+    if file_type == File.POST_ATTACHMENT:
+        # Arbitrary files except dangerous extensions (already filtered above).
+        pass
+
+    if content_type and content_type.strip():
+        ct = content_type.strip().lower()
+        if any(ct.startswith(b) for b in _BLOCKED_CONTENT_TYPE_PREFIXES):
+            return False, 'Invalid content type'
+        if not any(ct.startswith(p) for p in _ALLOWED_CONTENT_TYPE_PREFIXES):
+            return False, 'Invalid content type'
+
+    return True, None
 
 @bp.route('/upload', methods=['POST'])
 @jwt_required()
@@ -23,21 +76,32 @@ def generate_upload_url():
     entity_type = data.get('entity_type')
     entity_id = data.get('entity_id')
     content_type = data.get('content_type')  # Get MIME type from frontend
-    
-    # Validate content type for security
-    if content_type and not content_type.startswith(('image/', 'video/', 'audio/', 'text/', 'application/')):
-        return jsonify({"error": "Invalid content type"}), 400
 
     # Basic validation for file_type (optional but good practice)
     allowed_file_types = [
         File.AVATAR,
         File.POST_IMAGE,
+        File.POST_ATTACHMENT,
         File.COMMENT_ATTACHMENT,
         File.IDENTITY_DOCUMENT,
         File.GENERAL
     ]
     if file_type not in allowed_file_types:
         return jsonify({"error": f"Invalid file_type. Allowed types: {', '.join(allowed_file_types)}"}), 400
+
+    ok, err_msg = _validate_upload_request(filename, file_type, content_type)
+    if not ok:
+        return jsonify({"error": err_msg}), 400
+
+    # Optional declared size (client hint) — reject before signing URL
+    declared_size = data.get('file_size')
+    if declared_size is not None:
+        try:
+            declared_size = int(declared_size)
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid file_size"}), 400
+        if declared_size > File.MAX_UPLOAD_BYTES:
+            return jsonify({"error": f"File exceeds maximum size of {File.MAX_UPLOAD_BYTES} bytes"}), 400
 
     # Validate entity_id if entity_type is provided (optional)
     # Some flows upload files before the entity record exists.
