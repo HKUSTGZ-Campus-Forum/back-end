@@ -5,6 +5,7 @@ from app.utils.semester import (
     infer_offering_from_datetime,
     normalize_offering_identifier,
     parse_offering_display_tag,
+    sort_semesters,
 )
 
 
@@ -20,5 +21,11 @@ def test_normalize_offering_identifier_accepts_display_and_internal_codes():
 
 def test_infer_offering_from_datetime_uses_academic_year_windows():
     assert infer_offering_from_datetime(datetime(2025, 6, 15)) == ("2024", "spring")
+    assert infer_offering_from_datetime(datetime(2025, 7, 1)) == ("2024", "summer")
     assert infer_offering_from_datetime(datetime(2025, 10, 1)) == ("2025", "fall")
     assert infer_offering_from_datetime(datetime(2026, 1, 8)) == ("2025", "fall")
+
+
+def test_sort_semesters_uses_academic_year_chronology_with_newest_first():
+    semesters = ["2025fall", "2025summer", "2025spring", "2024fall"]
+    assert sort_semesters(semesters) == ["2025summer", "2025spring", "2025fall", "2024fall"]

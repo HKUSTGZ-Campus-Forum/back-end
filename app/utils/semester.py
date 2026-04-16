@@ -38,12 +38,15 @@ CODE_TO_DISPLAY = {
     }
 }
 
-# Semester ordering for sorting (spring=1, summer=2, fall=3, winter=4)
+# Semester ordering within one academic year.
+# Academic year runs chronologically as: fall -> winter -> spring -> summer.
+# ``sort_semesters`` returns newest first, so summer should appear before spring
+# and fall when the anchor year is the same.
 SEMESTER_ORDER = {
-    SemesterCode.SPRING: 1,
-    SemesterCode.SUMMER: 2,
-    SemesterCode.FALL: 3,
-    SemesterCode.WINTER: 4
+    SemesterCode.FALL: 1,
+    SemesterCode.WINTER: 2,
+    SemesterCode.SPRING: 3,
+    SemesterCode.SUMMER: 4,
 }
 
 def parse_semester_tag(tag_name: str) -> Optional[Tuple[str, str, str]]:
@@ -399,15 +402,18 @@ def infer_offering_from_datetime(dt: datetime) -> Tuple[str, str]:
     Infer an offering from a post timestamp for backfilling historical reviews.
 
     Rules:
-    - Feb-Jul  -> Spring of the academic year that started the previous calendar year
-    - Aug-Dec  -> Fall of the academic year that starts in the current calendar year
+    - Feb-Jun  -> Spring of the academic year that started the previous calendar year
+    - Jul-Aug  -> Summer of the academic year that started the previous calendar year
+    - Sep-Dec  -> Fall of the academic year that starts in the current calendar year
     - Jan      -> Fall of the academic year that started in the previous calendar year
     """
     month = dt.month
     year = dt.year
 
-    if 2 <= month <= 7:
+    if 2 <= month <= 6:
         return str(year - 1), SemesterCode.SPRING
+    if 7 <= month <= 8:
+        return str(year - 1), SemesterCode.SUMMER
     if month == 1:
         return str(year - 1), SemesterCode.FALL
     return str(year), SemesterCode.FALL
