@@ -4,10 +4,6 @@ from app.models.tag import Tag, TagType
 from app.models.course import Course
 from app.models.reaction import Reaction
 from app.extensions import db
-from app.utils.semester import (
-    parse_semester_tag, normalize_semester_code, format_semester_tag,
-    find_matching_semester_tag, parse_offering_display_tag
-)
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func, desc, asc, text
 from datetime import datetime, timedelta
@@ -79,11 +75,15 @@ def _get_or_create_system_tag(tag_name, description=None):
 
 def validate_and_get_tag(tag_name, allow_course_creation=False):
     """
-    Validate and get existing tag, with strict validation for course tags.
+    Validate and get an existing tag or create a new one.
+
+    We intentionally do not enforce course/offering semantics here anymore.
+    Tags remain free-form aside from basic normalization limits enforced earlier.
     
     Args:
         tag_name: The tag name to validate
-        allow_course_creation: Whether to allow creation of new course tags (admin only)
+        allow_course_creation: Retained for compatibility; no longer used to
+            enforce semantic tag validation.
     
     Returns:
         Tag object if valid, raises ValueError if invalid
@@ -97,48 +97,6 @@ def validate_and_get_tag(tag_name, allow_course_creation=False):
         return _get_or_create_system_tag(
             tag_name,
             description="System tag for course review posts"
-        )
-    
-    # Parse if this looks like a course tag
-    parsed = parse_semester_tag(tag_name)
-    if parsed:
-        course_code, year, semester_code = parsed
-        
-        # Check if course exists
-        course = Course.query.filter_by(code=course_code, is_deleted=False).first()
-        if not course:
-            raise ValueError(f"Course {course_code} does not exist")
-        
-        # For course tags, look for matching tag in any supported format
-        if not allow_course_creation:
-            # Get all course tags for this course
-            all_course_tags = Course.get_course_tags(code=course_code)
-            
-            # Try to find a matching tag regardless of format differences
-            matching_tag = find_matching_semester_tag(course_code, year, semester_code, all_course_tags)
-            
-            if matching_tag:
-                # Found a matching tag, return it instead of creating new one
-                return matching_tag
-            else:
-                # No matching tag found - course was not offered that semester
-                available_semesters = []
-                for tag in all_course_tags:
-                    if '-' in tag.name:
-                        sem_part = tag.name.split('-', 1)[1]
-                        available_semesters.append(sem_part)
-                
-                error_msg = f"Course {course_code} was not offered in {year} {semester_code}"
-                if available_semesters:
-                    error_msg += f". Available semesters: {', '.join(available_semesters)}"
-                raise ValueError(error_msg)
-
-    parsed_offering = parse_offering_display_tag(tag_name)
-    if parsed_offering:
-        year, semester_code = parsed_offering
-        return _get_or_create_system_tag(
-            tag_name,
-            description=f"Offering tag for {year} {semester_code}"
         )
     
     # For non-course tags, optionally map real course codes to course tags.

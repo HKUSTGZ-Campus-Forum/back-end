@@ -88,12 +88,20 @@ def _create_post_with_tags(title, tag_names):
     return post
 
 
-def test_validate_and_get_tag_creates_display_offering_tag(client):
+def test_validate_and_get_tag_treats_display_offering_tag_as_freeform_tag(client):
     with client.application.app_context():
         tag = validate_and_get_tag("25-26Fall")
 
         assert tag.name == "25-26Fall"
-        assert tag.tag_type.name == TagType.SYSTEM
+        assert tag.tag_type.name == TagType.USER
+
+
+def test_validate_and_get_tag_does_not_enforce_legacy_course_semester_tag(client):
+    with client.application.app_context():
+        tag = validate_and_get_tag("AIAA2205-25Fall")
+
+        assert tag.name == "AIAA2205-25Fall"
+        assert tag.tag_type.name == TagType.USER
 
 
 def test_get_posts_supports_all_tag_match_and_exclude_tags(client):
