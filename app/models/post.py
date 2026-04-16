@@ -2,6 +2,19 @@ from datetime import datetime, timezone
 from app.extensions import db
 from sqlalchemy.dialects.postgresql import JSONB
 
+def serialize_post_tag(tag):
+    tag_type_name = getattr(tag.tag_type, 'name', None)
+    return {
+        "id": tag.id,
+        "name": tag.name,
+        "tag_type": tag_type_name,
+        "isImportant": tag_type_name == "system",
+        "tagcolor": "#3498db",
+        # Backward-compatible aliases for older frontend code.
+        "tag_id": tag.id,
+        "tag_name": tag.name,
+    }
+
 class Post(db.Model):
     __tablename__ = 'posts'
     
@@ -78,9 +91,7 @@ class Post(db.Model):
             data["content"] = self.content
             
         if include_tags:
-            data["tags"] = [{"tag_name": tag.name, 
-                            "isImportant": tag.tag_type == "system", 
-                            "tagcolor": "#3498db"} for tag in self.tags]
+            data["tags"] = [serialize_post_tag(tag) for tag in self.tags]
         
         if include_files:
             data["files"] = [file.to_dict() for file in self.files]

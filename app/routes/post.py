@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, abort, current_app
-from app.models.post import Post
+from app.models.post import Post, serialize_post_tag
 from app.models.tag import Tag, TagType
 from app.models.course import Course
 from app.models.reaction import Reaction
@@ -16,6 +16,40 @@ import bleach
 from app.services.content_moderation_service import content_moderation
 
 bp = Blueprint('post', __name__, url_prefix='/posts')
+
+MAX_POST_TAG_COUNT = 5
+MAX_POST_TAG_LENGTH = 50
+
+def normalize_post_tags(raw_tag_names):
+    if raw_tag_names is None:
+        return []
+    if not isinstance(raw_tag_names, list):
+        raise ValueError("Tags must be provided as an array of strings.")
+
+    tag_names = []
+    seen_tag_names = set()
+
+    for raw_tag_name in raw_tag_names:
+        if not isinstance(raw_tag_name, str):
+            raise ValueError("Each tag must be a string.")
+
+        normalized_tag_name = " ".join(raw_tag_name.strip().split())
+        if not normalized_tag_name:
+            continue
+        if len(normalized_tag_name) > MAX_POST_TAG_LENGTH:
+            raise ValueError(f"Each tag must be {MAX_POST_TAG_LENGTH} characters or fewer.")
+
+        normalized_key = normalized_tag_name.casefold()
+        if normalized_key in seen_tag_names:
+            continue
+
+        seen_tag_names.add(normalized_key)
+        tag_names.append(normalized_tag_name)
+
+    if len(tag_names) > MAX_POST_TAG_COUNT:
+        raise ValueError(f"A post can have at most {MAX_POST_TAG_COUNT} tags.")
+
+    return tag_names
 
 def validate_and_get_tag(tag_name, allow_course_creation=False):
     """
@@ -67,12 +101,11 @@ def validate_and_get_tag(tag_name, allow_course_creation=False):
                     error_msg += f". Available semesters: {', '.join(available_semesters)}"
                 raise ValueError(error_msg)
     
-    # For non-course tags, check if it looks like a course code
+    # For non-course tags, optionally map real course codes to course tags.
+    # If the course doesn't exist, treat it as a normal user tag instead.
     elif tag_name.replace(' ', '').replace('-', '').isalnum() and len(tag_name.split()) <= 3:
-        # This might be a course code - validate it exists
         course = Course.query.filter_by(code=tag_name, is_deleted=False).first()
         if course:
-            # This is a valid course code, allow it
             tag_type = TagType.query.filter_by(name=TagType.COURSE).first()
             if not tag_type:
                 tag_type = TagType(name=TagType.COURSE)
@@ -87,8 +120,6 @@ def validate_and_get_tag(tag_name, allow_course_creation=False):
             db.session.add(tag)
             db.session.flush()
             return tag
-        else:
-            raise ValueError(f"Course {tag_name} does not exist")
     
     # For user tags, allow creation
     tag_type = TagType.query.filter_by(name=TagType.USER).first()
@@ -259,28 +290,35 @@ def create_post():
                 file_record.entity_id = post.id
     
     # Handle tags with validation
-    tag_names = data.get('tags', [])
+    try:
+        tag_names = normalize_post_tags(data.get('tags', []))
+    except ValueError as e:
+        return jsonify({
+            "error": "Tag validation failed",
+            "message": str(e)
+        }), 400
+
     tag_errors = []
     
     if tag_names:
         for tag_name in tag_names:
-            if tag_name and tag_name.strip():  # Skip empty tags
-                try:
-                    tag = validate_and_get_tag(tag_name.strip())
-                    # Add tag to post if not already linked
-                    if tag not in post.tags:
-                        post.tags.append(tag)
-                except ValueError as e:
-                    tag_errors.append(f"Tag '{tag_name}': {str(e)}")
-                except Exception as e:
-                    current_app.logger.error(f"Unexpected error with tag '{tag_name}': {str(e)}")
-                    tag_errors.append(f"Tag '{tag_name}': Internal error")
+            try:
+                tag = validate_and_get_tag(tag_name)
+                # Add tag to post if not already linked
+                if tag not in post.tags:
+                    post.tags.append(tag)
+            except ValueError as e:
+                tag_errors.append(f"Tag '{tag_name}': {str(e)}")
+            except Exception as e:
+                current_app.logger.error(f"Unexpected error with tag '{tag_name}': {str(e)}")
+                tag_errors.append(f"Tag '{tag_name}': Internal error")
     
     # If there are tag validation errors, rollback and return error
     if tag_errors:
         db.session.rollback()
         return jsonify({
             "error": "Tag validation failed",
+            "message": "One or more tags are invalid.",
             "tag_errors": tag_errors
         }), 400
     
@@ -298,7 +336,7 @@ def get_post(post_id):
     db.session.commit()
     
     # Get tags
-    tags = [{"tag_name": tag.name, "isImportant": tag.tag_type == "system", "tagcolor": "#3498db"} for tag in post.tags]
+    tags = [serialize_post_tag(tag) for tag in post.tags]
     
     # Get reactions with counts
     reactions_query = db.session.query(
@@ -482,7 +520,7 @@ def get_hot_posts():
                 user_choice = user_reaction.emoji
         
         # Get tags
-        tags = [{"tag_name": tag.name, "isImportant": tag.tag_type == "system", "tagcolor": "#3498db"} for tag in post.tags]
+        tags = [serialize_post_tag(tag) for tag in post.tags]
         
         # Get base post data including author information
         hot_post = post.to_dict(include_content=False, include_tags=False, include_files=False)
