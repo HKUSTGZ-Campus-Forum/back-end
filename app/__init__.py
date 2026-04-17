@@ -32,7 +32,7 @@ def create_app(config_class=Config):
     # 启动时自动初始化比赛数据（幂等操作，重复执行安全）
     with app.app_context():
         _auto_init_contest()
-        _ensure_spring_26_tags_from_fall_25()
+        _apply_ufug_25_26_spring_adjustments()
 
     return app
 
@@ -123,83 +123,15 @@ def _merge_legacy_prizes_into_rules():
         db.session.rollback()
 
 
-def _ensure_spring_26_tags_from_fall_25():
+def _apply_ufug_25_26_spring_adjustments():
     """
-    部署即可生效、无需在服务器上跑脚本：
-    凡在「25-26 秋」(标签解析为 2025 + fall) 下已有开课标签的课程，
-    自动补一条「25-26 春」对应标签（后缀 2025spring，与学年起算及 filters 展示一致）。
-    幂等：已存在 {code}-2025spring 则跳过。
+    启动时幂等执行「25-26 春」UFUG 课表调整（见 ``app/scripts/adjust_ufug_25_26_spring``）。
+    自部署无需在容器内跑 ``python -m``；失败时回滚并静默跳过，避免阻塞应用启动。
     """
     try:
-        from app.models.course import Course
-        from app.models.tag import Tag, TagType
-        from app.utils.semester import parse_semester_tag
+        from app.scripts.adjust_ufug_25_26_spring import apply_ufug_25_26_spring_adjustments
 
-        source_year, source_season = "2025", "fall"
-        target_suffix = "2025spring"
-
-        course_type = TagType.get_course_type()
-        if not course_type:
-            return
-
-        codes_from_fall: set[str] = set()
-        for tag in Tag.query.filter(Tag.tag_type_id == course_type.id).all():
-            parsed = parse_semester_tag(tag.name)
-            if not parsed:
-                continue
-            code, year, season = parsed
-            if year == source_year and season == source_season:
-                codes_from_fall.add(code)
-
-        existing_spring_names = {
-            t.name
-            for t in Tag.query.filter(
-                Tag.tag_type_id == course_type.id,
-                Tag.name.like(f"%-{target_suffix}"),
-            ).all()
-        }
-
-        new_tags = []
-        for code in codes_from_fall:
-            new_name = f"{code}-{target_suffix}"
-            if new_name in existing_spring_names:
-                continue
-            course = Course.query.filter_by(code=code, is_deleted=False).first()
-            if not course:
-                continue
-            new_tags.append(
-                Tag(
-                    name=new_name,
-                    tag_type_id=course_type.id,
-                    description=(
-                        f"Tag for {course.name} ({target_suffix}) "
-                        f"(auto from {source_year}{source_season})"
-                    ),
-                )
-            )
-            existing_spring_names.add(new_name)
-
-        dirty = False
-        if new_tags:
-            db.session.add_all(new_tags)
-            db.session.flush()
-            dirty = True
-
-        # 旧版曾写入 *-2026spring；在新展示规则下会误显为「26-27春」。若已有 *-2025spring 则删除旧标签。
-        legacy_suffix = "2026spring"
-        for legacy in Tag.query.filter(
-            Tag.tag_type_id == course_type.id,
-            Tag.name.like(f"%-{legacy_suffix}"),
-        ).all():
-            code_part, suff = legacy.name.rsplit("-", 1)
-            if suff != legacy_suffix:
-                continue
-            if Tag.query.filter_by(name=f"{code_part}-2025spring").first():
-                db.session.delete(legacy)
-                dirty = True
-
-        if dirty:
-            db.session.commit()
+        apply_ufug_25_26_spring_adjustments(dry_run=False, verbose=False)
     except Exception:
         db.session.rollback()
 
