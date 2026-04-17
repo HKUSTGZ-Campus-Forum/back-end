@@ -444,7 +444,10 @@ def get_post(post_id):
         "files": files  # Include files in response
     })
     
-    return jsonify(post_detail), 200
+    response = jsonify(post_detail)
+    # Post detail payloads contain attachment view URLs and should always be fresh.
+    response.headers["Cache-Control"] = "no-store"
+    return response, 200
 
 @bp.route('/<int:post_id>', methods=['PUT'])
 @jwt_required()
