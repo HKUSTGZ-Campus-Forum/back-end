@@ -94,6 +94,7 @@ def send_message():
             }), 400
         
         content = data.get('content', '').strip()
+        reply_to_message_id = data.get('reply_to_message_id')
         if not content:
             return jsonify({
                 'success': False,
@@ -109,7 +110,17 @@ def send_message():
         
         # Sanitize content
         content = bleach.clean(content)
-        
+
+        if reply_to_message_id is not None:
+            reply_to_message = GuguMessage.query.get(reply_to_message_id)
+            if not reply_to_message:
+                return jsonify({
+                    'success': False,
+                    'message': '被回复的消息不存在'
+                }), 404
+        else:
+            reply_to_message = None
+
         # Content moderation check
         moderation_result = content_moderation.moderate_comment(
             content=content,
@@ -129,7 +140,8 @@ def send_message():
         # 创建新消息
         message = GuguMessage.create_message(
             content=content,
-            author_id=current_user_id
+            author_id=current_user_id,
+            reply_to_message_id=reply_to_message.id if reply_to_message else None
         )
         
         return jsonify({

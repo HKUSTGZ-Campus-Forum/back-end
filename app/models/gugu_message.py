@@ -9,12 +9,19 @@ class GuguMessage(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     content = db.Column(db.Text, nullable=False)
     author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    reply_to_message_id = db.Column(db.Integer, db.ForeignKey('gugu_messages.id'), nullable=True)
     display_identity_id = db.Column(db.Integer, db.ForeignKey('user_identities.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # 关系
     author = db.relationship('User', backref=db.backref('gugu_messages', lazy=True))
+    reply_to_message = db.relationship(
+        'GuguMessage',
+        remote_side=[id],
+        foreign_keys=[reply_to_message_id],
+        backref=db.backref('replies', lazy=True)
+    )
     display_identity = db.relationship('UserIdentity', foreign_keys=[display_identity_id])
     
     def __repr__(self):
@@ -28,10 +35,21 @@ class GuguMessage(db.Model):
             'author_id': self.author_id,
             'author': self.author.username if self.author else None,
             'author_avatar': self.author.avatar_url if self.author else None,
+            'reply_to_message_id': self.reply_to_message_id,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
-        
+
+        if self.reply_to_message:
+            data['reply_to'] = {
+                'id': self.reply_to_message.id,
+                'content': self.reply_to_message.content,
+                'author_id': self.reply_to_message.author_id,
+                'author': self.reply_to_message.author.username if self.reply_to_message.author else None,
+                'author_avatar': self.reply_to_message.author.avatar_url if self.reply_to_message.author else None,
+                'created_at': self.reply_to_message.created_at.isoformat() if self.reply_to_message.created_at else None,
+            }
+
         # Include display identity if present
         if self.display_identity and self.display_identity.is_active():
             data["display_identity"] = {
@@ -72,11 +90,12 @@ class GuguMessage(db.Model):
         return rows[:safe_limit], has_more
     
     @classmethod
-    def create_message(cls, content, author_id):
+    def create_message(cls, content, author_id, reply_to_message_id=None):
         """创建新消息"""
         message = cls(
             content=content,
-            author_id=author_id
+            author_id=author_id,
+            reply_to_message_id=reply_to_message_id
         )
         db.session.add(message)
         db.session.commit()

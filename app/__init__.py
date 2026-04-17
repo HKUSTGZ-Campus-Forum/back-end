@@ -35,6 +35,7 @@ def create_app(config_class=Config):
 
     # 启动时自动初始化比赛数据（幂等操作，重复执行安全）
     with app.app_context():
+        _auto_migrate_gugu_reply_columns()
         _auto_init_contest()
 
     # 25-26 春课表补丁：推迟到「首次 HTTP 请求」再跑，避免进程启动时数据库尚未就绪导致
@@ -42,6 +43,25 @@ def create_app(config_class=Config):
     _register_deferred_course_offerings_adjustments(app)
 
     return app
+
+
+def _auto_migrate_gugu_reply_columns():
+    """启动时自动补齐 gugu_messages.reply_to_message_id，兼容本地旧库。"""
+    from sqlalchemy import inspect, text
+    try:
+        inspector = inspect(db.engine)
+        if 'gugu_messages' not in inspector.get_table_names():
+            return
+
+        existing = {c['name'] for c in inspector.get_columns('gugu_messages')}
+        if 'reply_to_message_id' not in existing:
+            with db.engine.connect() as conn:
+                conn.execute(text(
+                    "ALTER TABLE gugu_messages ADD COLUMN reply_to_message_id INTEGER"
+                ))
+                conn.commit()
+    except Exception:
+        db.session.rollback()
 
 
 def _auto_migrate_contest_submissions_track():
