@@ -33,6 +33,7 @@ def create_app(config_class=Config):
     with app.app_context():
         _auto_init_contest()
         _apply_ufug_25_26_spring_adjustments()
+        _apply_ucug_25_26_spring_adjustments()
 
     return app
 
@@ -132,6 +133,18 @@ def _apply_ufug_25_26_spring_adjustments():
         from app.scripts.adjust_ufug_25_26_spring import apply_ufug_25_26_spring_adjustments
 
         apply_ufug_25_26_spring_adjustments(dry_run=False, verbose=False)
+    except Exception:
+        db.session.rollback()
+
+
+def _apply_ucug_25_26_spring_adjustments():
+    """
+    启动时幂等执行「25-26 春」UCUG 课表调整（见 ``app/scripts/adjust_ucug_25_26_spring``）。
+    """
+    try:
+        from app.scripts.adjust_ucug_25_26_spring import apply_ucug_25_26_spring_adjustments
+
+        apply_ucug_25_26_spring_adjustments(dry_run=False, verbose=False)
     except Exception:
         db.session.rollback()
 
