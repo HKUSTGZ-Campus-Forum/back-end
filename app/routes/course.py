@@ -323,7 +323,7 @@ def get_course_posts(course_id):
             Post.tags
         ).filter(
             Tag.name == tag_filter,
-            Tag.tag_type.has(name=TagType.COURSE),
+            Tag.tag_type.has(TagType.sql_course_type_name_match()),
             Post.is_deleted == False
         ).paginate(page=page, per_page=limit, error_out=False)
     else:
@@ -336,7 +336,7 @@ def get_course_posts(course_id):
                 Tag.name == course.code,  # Posts without semester
                 Tag.name.like(f"{course.code}-%")  # Posts with any semester
             ),
-            Tag.tag_type.has(name=TagType.COURSE),
+            Tag.tag_type.has(TagType.sql_course_type_name_match()),
             Post.is_deleted == False
         ).paginate(page=page, per_page=limit, error_out=False)
     

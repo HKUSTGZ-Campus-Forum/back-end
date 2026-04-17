@@ -1,8 +1,12 @@
+import logging
+import threading
 from flask import Flask
 from .config import Config
 from .extensions import db, jwt, migrate, cache#, limiter
 from .routes import register_blueprints
 from app.tasks.sts_pool import init_pool_maintenance
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(config_class=Config):
@@ -32,9 +36,10 @@ def create_app(config_class=Config):
     # 启动时自动初始化比赛数据（幂等操作，重复执行安全）
     with app.app_context():
         _auto_init_contest()
-        _apply_ufug_25_26_spring_adjustments()
-        _apply_ucug_25_26_spring_adjustments()
-        _apply_aiaa_25_26_spring_adjustments()
+
+    # 25-26 春课表补丁：推迟到「首次 HTTP 请求」再跑，避免进程启动时数据库尚未就绪导致
+    # 静默失败；幂等，多 worker 各执行一次可接受。
+    _register_deferred_course_offerings_adjustments(app)
 
     return app
 
@@ -126,40 +131,59 @@ def _merge_legacy_prizes_into_rules():
 
 
 def _apply_ufug_25_26_spring_adjustments():
-    """
-    启动时幂等执行「25-26 春」UFUG 课表调整（见 ``app/scripts/adjust_ufug_25_26_spring``）。
-    自部署无需在容器内跑 ``python -m``；失败时回滚并静默跳过，避免阻塞应用启动。
-    """
-    try:
-        from app.scripts.adjust_ufug_25_26_spring import apply_ufug_25_26_spring_adjustments
+    """幂等：UFUG 25-26 春（见 ``app/scripts/adjust_ufug_25_26_spring``）。失败时向外抛出。"""
+    from app.scripts.adjust_ufug_25_26_spring import apply_ufug_25_26_spring_adjustments
 
-        apply_ufug_25_26_spring_adjustments(dry_run=False, verbose=False)
-    except Exception:
-        db.session.rollback()
+    apply_ufug_25_26_spring_adjustments(dry_run=False, verbose=False)
 
 
 def _apply_ucug_25_26_spring_adjustments():
-    """
-    启动时幂等执行「25-26 春」UCUG 课表调整（见 ``app/scripts/adjust_ucug_25_26_spring``）。
-    """
-    try:
-        from app.scripts.adjust_ucug_25_26_spring import apply_ucug_25_26_spring_adjustments
+    """幂等：UCUG 25-26 春。"""
+    from app.scripts.adjust_ucug_25_26_spring import apply_ucug_25_26_spring_adjustments
 
-        apply_ucug_25_26_spring_adjustments(dry_run=False, verbose=False)
-    except Exception:
-        db.session.rollback()
+    apply_ucug_25_26_spring_adjustments(dry_run=False, verbose=False)
 
 
 def _apply_aiaa_25_26_spring_adjustments():
-    """
-    启动时幂等执行「25-26 春」AIAA 课表调整（见 ``app/scripts/adjust_aiaa_25_26_spring``）。
-    """
-    try:
-        from app.scripts.adjust_aiaa_25_26_spring import apply_aiaa_25_26_spring_adjustments
+    """幂等：AIAA 25-26 春。"""
+    from app.scripts.adjust_aiaa_25_26_spring import apply_aiaa_25_26_spring_adjustments
 
-        apply_aiaa_25_26_spring_adjustments(dry_run=False, verbose=False)
-    except Exception:
-        db.session.rollback()
+    apply_aiaa_25_26_spring_adjustments(dry_run=False, verbose=False)
+
+
+def _register_deferred_course_offerings_adjustments(app: Flask):
+    lock = threading.Lock()
+    state = {"done": False, "failures": 0}
+    max_failures = 30
+
+    @app.before_request
+    def _run_course_offerings_adjustments_once():
+        if state["done"]:
+            return
+        with lock:
+            if state["done"]:
+                return
+            try:
+                _apply_ufug_25_26_spring_adjustments()
+                _apply_ucug_25_26_spring_adjustments()
+                _apply_aiaa_25_26_spring_adjustments()
+                state["done"] = True
+                state["failures"] = 0
+            except Exception:
+                db.session.rollback()
+                state["failures"] += 1
+                logger.exception(
+                    "25-26 spring course DB adjustments failed (attempt %s/%s)",
+                    state["failures"],
+                    max_failures,
+                )
+                if state["failures"] >= max_failures:
+                    state["done"] = True
+                    logger.error(
+                        "Giving up 25-26 spring course DB adjustments after %s failures; "
+                        "check DB connectivity and logs.",
+                        max_failures,
+                    )
 
 
 def _auto_init_contest():

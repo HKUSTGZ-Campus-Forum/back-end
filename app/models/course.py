@@ -84,7 +84,7 @@ class Course(db.Model):
     @classmethod
     def get_course_tags(cls, code=None, semester=None):
         """Get all course tags, optionally filtered by code and/or semester"""
-        query = Tag.query.join(TagType).filter(TagType.name == TagType.COURSE)
+        query = Tag.query.join(TagType).filter(TagType.sql_course_type_name_match())
         
         if code:
             query = query.filter(Tag.name.like(f"{code}-%"))
