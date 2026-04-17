@@ -1,8 +1,12 @@
+import logging
+import threading
 from flask import Flask
 from .config import Config
 from .extensions import db, jwt, migrate, cache#, limiter
 from .routes import register_blueprints
 from app.tasks.sts_pool import init_pool_maintenance
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(config_class=Config):
@@ -32,7 +36,10 @@ def create_app(config_class=Config):
     # 启动时自动初始化比赛数据（幂等操作，重复执行安全）
     with app.app_context():
         _auto_init_contest()
-        _ensure_spring_26_tags_from_fall_25()
+
+    # 25-26 春课表补丁：推迟到「首次 HTTP 请求」再跑，避免进程启动时数据库尚未就绪导致
+    # 静默失败；幂等，多 worker 各执行一次可接受。
+    _register_deferred_course_offerings_adjustments(app)
 
     return app
 
@@ -123,85 +130,60 @@ def _merge_legacy_prizes_into_rules():
         db.session.rollback()
 
 
-def _ensure_spring_26_tags_from_fall_25():
-    """
-    部署即可生效、无需在服务器上跑脚本：
-    凡在「25-26 秋」(标签解析为 2025 + fall) 下已有开课标签的课程，
-    自动补一条「25-26 春」对应标签（后缀 2025spring，与学年起算及 filters 展示一致）。
-    幂等：已存在 {code}-2025spring 则跳过。
-    """
-    try:
-        from app.models.course import Course
-        from app.models.tag import Tag, TagType
-        from app.utils.semester import parse_semester_tag
+def _apply_ufug_25_26_spring_adjustments():
+    """幂等：UFUG 25-26 春（见 ``app/scripts/adjust_ufug_25_26_spring``）。失败时向外抛出。"""
+    from app.scripts.adjust_ufug_25_26_spring import apply_ufug_25_26_spring_adjustments
 
-        source_year, source_season = "2025", "fall"
-        target_suffix = "2025spring"
+    apply_ufug_25_26_spring_adjustments(dry_run=False, verbose=False)
 
-        course_type = TagType.get_course_type()
-        if not course_type:
+
+def _apply_ucug_25_26_spring_adjustments():
+    """幂等：UCUG 25-26 春。"""
+    from app.scripts.adjust_ucug_25_26_spring import apply_ucug_25_26_spring_adjustments
+
+    apply_ucug_25_26_spring_adjustments(dry_run=False, verbose=False)
+
+
+def _apply_aiaa_25_26_spring_adjustments():
+    """幂等：AIAA 25-26 春。"""
+    from app.scripts.adjust_aiaa_25_26_spring import apply_aiaa_25_26_spring_adjustments
+
+    apply_aiaa_25_26_spring_adjustments(dry_run=False, verbose=False)
+
+
+def _register_deferred_course_offerings_adjustments(app: Flask):
+    lock = threading.Lock()
+    state = {"done": False, "failures": 0}
+    max_failures = 30
+
+    @app.before_request
+    def _run_course_offerings_adjustments_once():
+        if state["done"]:
             return
-
-        codes_from_fall: set[str] = set()
-        for tag in Tag.query.filter(Tag.tag_type_id == course_type.id).all():
-            parsed = parse_semester_tag(tag.name)
-            if not parsed:
-                continue
-            code, year, season = parsed
-            if year == source_year and season == source_season:
-                codes_from_fall.add(code)
-
-        existing_spring_names = {
-            t.name
-            for t in Tag.query.filter(
-                Tag.tag_type_id == course_type.id,
-                Tag.name.like(f"%-{target_suffix}"),
-            ).all()
-        }
-
-        new_tags = []
-        for code in codes_from_fall:
-            new_name = f"{code}-{target_suffix}"
-            if new_name in existing_spring_names:
-                continue
-            course = Course.query.filter_by(code=code, is_deleted=False).first()
-            if not course:
-                continue
-            new_tags.append(
-                Tag(
-                    name=new_name,
-                    tag_type_id=course_type.id,
-                    description=(
-                        f"Tag for {course.name} ({target_suffix}) "
-                        f"(auto from {source_year}{source_season})"
-                    ),
+        with lock:
+            if state["done"]:
+                return
+            try:
+                _apply_ufug_25_26_spring_adjustments()
+                _apply_ucug_25_26_spring_adjustments()
+                _apply_aiaa_25_26_spring_adjustments()
+                state["done"] = True
+                state["failures"] = 0
+            except Exception:
+                db.session.rollback()
+                state["failures"] += 1
+                logger.exception(
+                    "25-26 spring course DB adjustments failed (attempt %s/%s)",
+                    state["failures"],
+                    max_failures,
                 )
-            )
-            existing_spring_names.add(new_name)
-
-        dirty = False
-        if new_tags:
-            db.session.add_all(new_tags)
-            db.session.flush()
-            dirty = True
-
-        # 旧版曾写入 *-2026spring；在新展示规则下会误显为「26-27春」。若已有 *-2025spring 则删除旧标签。
-        legacy_suffix = "2026spring"
-        for legacy in Tag.query.filter(
-            Tag.tag_type_id == course_type.id,
-            Tag.name.like(f"%-{legacy_suffix}"),
-        ).all():
-            code_part, suff = legacy.name.rsplit("-", 1)
-            if suff != legacy_suffix:
-                continue
-            if Tag.query.filter_by(name=f"{code_part}-2025spring").first():
-                db.session.delete(legacy)
-                dirty = True
-
-        if dirty:
-            db.session.commit()
-    except Exception:
-        db.session.rollback()
+                if state["failures"] >= max_failures:
+                    state["done"] = True
+                    logger.error(
+                        "Giving up 25-26 spring course DB adjustments after %s failures; "
+                        "check DB connectivity and logs.",
+                        max_failures,
+                    )
 
 
 def _auto_init_contest():

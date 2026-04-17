@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from sqlalchemy import func
 from app.extensions import db
 
 class TagType(db.Model):
@@ -22,7 +23,16 @@ class TagType(db.Model):
     
     @classmethod
     def get_course_type(cls):
-        return cls.query.filter_by(name=cls.COURSE).first()
+        """优先精确匹配 ``course``；兼容历史数据里 ``COURSE`` 等大小写。"""
+        t = cls.query.filter_by(name=cls.COURSE).first()
+        if t is not None:
+            return t
+        return cls.query.filter(func.lower(cls.name) == cls.COURSE.lower()).first()
+
+    @classmethod
+    def sql_course_type_name_match(cls):
+        """用于 join/filter：课程标签类型名与 ``COURSE`` 常量等价（不区分大小写）。"""
+        return func.lower(cls.name) == cls.COURSE.lower()
         
 
 class Tag(db.Model):

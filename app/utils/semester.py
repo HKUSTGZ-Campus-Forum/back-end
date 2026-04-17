@@ -273,6 +273,24 @@ def normalize_offering_identifier(value: str) -> Optional[Tuple[str, str]]:
 
     return None
 
+
+def get_offering_order_key(year: str, semester_code: str) -> Tuple[int, int]:
+    """
+    Convert an offering identifier into a comparable chronological key.
+
+    The returned tuple sorts in academic-year order where fall comes before
+    spring/summer within the same anchor year.
+    """
+    return int(year), SEMESTER_ORDER.get(semester_code, 0)
+
+
+def is_offering_not_newer(candidate: Tuple[str, str], reference: Tuple[str, str]) -> bool:
+    """
+    Return True when ``candidate`` is the same offering as ``reference`` or an
+    earlier offering in academic-year chronology.
+    """
+    return get_offering_order_key(*candidate) <= get_offering_order_key(*reference)
+
 def sort_semesters(semesters: List[str], parse_year: bool = True) -> List[str]:
     """
     Sort semesters by year and season order.

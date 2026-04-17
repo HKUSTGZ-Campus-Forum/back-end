@@ -3,6 +3,7 @@ from datetime import datetime
 from app.utils.semester import (
     format_offering_display_tag,
     infer_offering_from_datetime,
+    is_offering_not_newer,
     normalize_offering_identifier,
     parse_offering_display_tag,
     sort_semesters,
@@ -29,3 +30,9 @@ def test_infer_offering_from_datetime_uses_academic_year_windows():
 def test_sort_semesters_uses_academic_year_chronology_with_newest_first():
     semesters = ["2025fall", "2025summer", "2025spring", "2024fall"]
     assert sort_semesters(semesters) == ["2025summer", "2025spring", "2025fall", "2024fall"]
+
+
+def test_is_offering_not_newer_respects_academic_year_order():
+    assert is_offering_not_newer(("2025", "fall"), ("2025", "spring")) is True
+    assert is_offering_not_newer(("2024", "summer"), ("2025", "spring")) is True
+    assert is_offering_not_newer(("2025", "summer"), ("2025", "spring")) is False
