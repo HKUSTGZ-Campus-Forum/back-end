@@ -10,7 +10,7 @@ from app.utils.semester import (
     format_academic_year_semester_display,
     normalize_semester_code, sort_semesters, is_valid_semester_format,
     find_matching_semester_tag, format_offering_display_tag,
-    normalize_offering_identifier
+    normalize_offering_identifier, is_offering_not_newer
 )
 from flask_jwt_extended import jwt_required, get_jwt_identity, current_user
 from sqlalchemy import func, desc, asc
@@ -18,6 +18,7 @@ from functools import wraps
 import bleach
 
 bp = Blueprint('course', __name__, url_prefix='/courses')
+COURSE_REVIEW_TAG = "course-review"
 
 def admin_required(fn):
     """Decorator to ensure the user has admin privileges"""
@@ -59,6 +60,27 @@ def _get_course_semester_entries(course, language='zh'):
 
     sorted_codes = sort_semesters(list(semester_entries.keys()))
     return [semester_entries[code] for code in sorted_codes if code in semester_entries]
+
+
+def _get_visible_offering_tags(course, current_offering_tag):
+    normalized_current = normalize_offering_identifier(current_offering_tag)
+    if not normalized_current:
+        return []
+
+    semester_entries = _get_course_semester_entries(course, language='zh')
+    if not any(
+        entry["year"] == normalized_current[0] and entry["season"] == normalized_current[1]
+        for entry in semester_entries
+    ):
+        return []
+
+    visible_offering_tags = []
+    for entry in semester_entries:
+        candidate = (entry["year"], entry["season"])
+        if is_offering_not_newer(candidate, normalized_current):
+            visible_offering_tags.append(entry["offering_tag"])
+
+    return visible_offering_tags
 
 @bp.route('/filters', methods=['GET'])
 def get_course_filters():
@@ -350,6 +372,41 @@ def get_course_posts(course_id):
     }
     
     return jsonify(response), 200
+
+
+@bp.route('/<int:course_id>/discussions', methods=['GET'])
+def get_course_discussions(course_id):
+    """Get discussion posts for a course up to and including a given offering."""
+    page = request.args.get('page', 1, type=int)
+    limit = request.args.get('limit', 20, type=int)
+    offering = (request.args.get('offering') or '').strip()
+
+    if not offering:
+        return jsonify({"error": "offering is required"}), 400
+
+    course = Course.query.filter_by(id=course_id, is_deleted=False).first_or_404()
+    visible_offering_tags = _get_visible_offering_tags(course, offering)
+    if not visible_offering_tags:
+        return jsonify({
+            "error": f"Course {course.code} was not offered in {offering}"
+        }), 400
+
+    query = Post.query.filter(Post.is_deleted == False)
+    query = query.filter(Post.tags.any(Tag.name == course.code))
+    query = query.filter(Post.tags.any(Tag.name.in_(visible_offering_tags)))
+    query = query.filter(~Post.tags.any(Tag.name == COURSE_REVIEW_TAG))
+    query = query.order_by(desc(Post.created_at))
+
+    paginated_posts = query.paginate(page=page, per_page=limit, error_out=False)
+
+    return jsonify({
+        "posts": [post.to_dict(include_tags=True, include_author=True) for post in paginated_posts.items],
+        "total_count": paginated_posts.total,
+        "total_pages": paginated_posts.pages,
+        "current_page": page,
+        "visible_offering_tags": visible_offering_tags,
+        "course": course.to_dict(),
+    }), 200
 
 @bp.route('/<int:course_id>/semesters', methods=['GET'])
 def get_course_semesters(course_id):
