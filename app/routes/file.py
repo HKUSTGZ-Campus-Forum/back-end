@@ -34,6 +34,43 @@ _ALLOWED_CONTENT_TYPE_PREFIXES = (
 )
 
 
+def _stream_file_from_oss(file_record, cache_control='public, max-age=3600'):
+    from flask import Response, stream_with_context
+    import requests
+
+    signed_url = file_record.url
+    if not signed_url:
+        return jsonify({"error": "File URL not available"}), 500
+
+    response = requests.get(signed_url, stream=True, timeout=30)
+    if not response.ok:
+        current_app.logger.error(
+            f"Failed to fetch file {file_record.id} from OSS: {response.status_code}"
+        )
+        return jsonify({"error": "Failed to fetch file from storage"}), 502
+
+    def generate():
+        for chunk in response.iter_content(chunk_size=8192):
+            if chunk:
+                yield chunk
+
+    headers = {
+        'Content-Type': file_record.mime_type or response.headers.get('Content-Type', 'application/octet-stream'),
+        'Content-Disposition': f'inline; filename="{file_record.original_filename}"',
+        'Cache-Control': cache_control,
+    }
+
+    content_length = response.headers.get('Content-Length')
+    if content_length:
+        headers['Content-Length'] = content_length
+
+    return Response(
+        stream_with_context(generate()),
+        headers=headers,
+        status=200
+    )
+
+
 def _validate_upload_request(filename, file_type, content_type):
     """Returns (True, None) or (False, error_message)."""
     ext = os.path.splitext(filename or '')[1].lower()
@@ -485,11 +522,40 @@ def debug_maintain_sts_pool():
         return jsonify({"error": "Failed to maintain STS pool"}), 500
 
 
+@bp.route('/view/<int:file_id>', methods=['GET'])
+def public_view_file(file_id):
+    """Public stable file endpoint for forum post attachments."""
+    from app.models.post import Post
+    import requests
+
+    file_record = File.query.filter_by(id=file_id, is_deleted=False).first()
+    if not file_record:
+        return jsonify({"error": "File not found"}), 404
+
+    if file_record.status != 'uploaded':
+        return jsonify({"error": "File not ready"}), 400
+
+    if file_record.entity_type != 'post' or not file_record.entity_id:
+        return jsonify({"error": "Forbidden"}), 403
+
+    post = Post.query.filter_by(id=file_record.entity_id, is_deleted=False).first()
+    if not post:
+        return jsonify({"error": "Post not found"}), 404
+
+    try:
+        return _stream_file_from_oss(file_record, cache_control='no-store')
+    except requests.exceptions.Timeout:
+        current_app.logger.error(f"Timeout fetching public file {file_id} from OSS")
+        return jsonify({"error": "Request timeout"}), 504
+    except Exception as e:
+        current_app.logger.error(f"Error serving public file {file_id}: {e}", exc_info=True)
+        return jsonify({"error": "Failed to serve file"}), 500
+
+
 @bp.route('/proxy/<int:file_id>', methods=['GET'])
 @jwt_required()
 def proxy_file(file_id):
     """Proxy file content from OSS to avoid CORS issues"""
-    from flask import Response, stream_with_context
     import requests
 
     user_id = get_jwt_identity()
@@ -509,43 +575,7 @@ def proxy_file(file_id):
         return jsonify({"error": "File not ready"}), 400
 
     try:
-        # Get signed URL for the file
-        signed_url = file_record.url
-        if not signed_url:
-            return jsonify({"error": "File URL not available"}), 500
-
-        # Fetch file from OSS
-        response = requests.get(signed_url, stream=True, timeout=30)
-
-        if not response.ok:
-            current_app.logger.error(f"Failed to fetch file {file_id} from OSS: {response.status_code}")
-            return jsonify({"error": "Failed to fetch file from storage"}), 500
-
-        # Determine content type
-        content_type = file_record.mime_type or response.headers.get('Content-Type', 'application/octet-stream')
-
-        # Stream the response back to client
-        def generate():
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    yield chunk
-
-        headers = {
-            'Content-Type': content_type,
-            'Content-Disposition': f'inline; filename="{file_record.original_filename}"',
-            'Cache-Control': 'public, max-age=3600',
-        }
-
-        # Add Content-Length if available
-        content_length = response.headers.get('Content-Length')
-        if content_length:
-            headers['Content-Length'] = content_length
-
-        return Response(
-            stream_with_context(generate()),
-            headers=headers,
-            status=200
-        )
+        return _stream_file_from_oss(file_record, cache_control='public, max-age=3600')
 
     except requests.exceptions.Timeout:
         current_app.logger.error(f"Timeout fetching file {file_id} from OSS")

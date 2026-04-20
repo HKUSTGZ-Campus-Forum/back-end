@@ -104,6 +104,41 @@ class TestGuguAPI(unittest.TestCase):
             data = json.loads(response.data)
             self.assertTrue(data['success'])
             self.assertEqual(data['data']['content'], 'Hello World')
+
+    def test_send_reply_message_with_auth(self):
+        """测试带回复目标的咕咕消息"""
+        with self.app.app_context():
+            parent = GuguMessage.create_message(
+                content='Parent message',
+                author_id=self.test_user.id
+            )
+
+            headers = {'Authorization': f'Bearer {self.access_token}'}
+            response = self.client.post('/api/gugu/messages',
+                                       json={
+                                           'content': 'Reply message',
+                                           'reply_to_message_id': parent.id
+                                       },
+                                       headers=headers)
+            self.assertEqual(response.status_code, 201)
+
+            data = json.loads(response.data)
+            self.assertTrue(data['success'])
+            self.assertEqual(data['data']['reply_to_message_id'], parent.id)
+            self.assertEqual(data['data']['reply_to']['id'], parent.id)
+            self.assertEqual(data['data']['reply_to']['content'], 'Parent message')
+
+    def test_send_reply_message_with_invalid_target(self):
+        """测试回复不存在的消息"""
+        with self.app.app_context():
+            headers = {'Authorization': f'Bearer {self.access_token}'}
+            response = self.client.post('/api/gugu/messages',
+                                       json={
+                                           'content': 'Reply message',
+                                           'reply_to_message_id': 99999
+                                       },
+                                       headers=headers)
+            self.assertEqual(response.status_code, 404)
     
     def test_send_empty_message(self):
         """测试发送空消息"""
