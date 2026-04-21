@@ -86,6 +86,7 @@ def _get_visible_offering_tags(course, current_offering_tag):
 def get_course_filters():
     """Get available filter options for courses"""
     try:
+        language = request.args.get('lang', 'zh')
         # Get distinct semesters from course data (based on term field)
         # Assuming terms like "2430", "2440", "2410" represent different semesters
         courses = Course.query.filter_by(is_deleted=False).all()
@@ -110,7 +111,7 @@ def get_course_filters():
                 _, year, semester_code = parsed
                 semester_key = f"{year}{semester_code}"
                 if semester_key not in semester_data:
-                    semester_data[semester_key] = _build_semester_info(year, semester_code, 'zh')
+                    semester_data[semester_key] = _build_semester_info(year, semester_code, language)
         
         # Sort semesters (latest first)
         sorted_semester_codes = sort_semesters(list(semester_data.keys()))
@@ -127,7 +128,8 @@ def get_course_filters():
         
         return jsonify({
             "semesters": sorted_semesters,
-            "course_types": formatted_course_types
+            "course_types": formatted_course_types,
+            "language": language
         }), 200
         
     except Exception as e:
@@ -428,6 +430,7 @@ def get_course_semesters(course_id):
 def validate_course_semester(course_id):
     """Validate if a course-semester combination exists and can be commented on"""
     data = request.get_json() or {}
+    language = request.args.get('lang', 'zh')
     semester_input = data.get('semester', '').strip()
     
     if not semester_input:
@@ -473,7 +476,7 @@ def validate_course_semester(course_id):
             "valid": False,
             "error": (
                 f"Course {course.code} was not offered in "
-                f"{format_academic_year_semester_display(year, semester_code, 'zh')}"
+                f"{format_academic_year_semester_display(year, semester_code, language)}"
             ),
             "suggested_semesters": available_semesters,
             "suggested_offerings": list(dict.fromkeys(suggested_offerings)),
@@ -482,7 +485,7 @@ def validate_course_semester(course_id):
     return jsonify({
         "valid": True,
         "normalized_semester": f"{year}{semester_code}",
-        "display_name": format_academic_year_semester_display(year, semester_code, 'zh'),
+        "display_name": format_academic_year_semester_display(year, semester_code, language),
         "offering_tag": format_offering_display_tag(year, semester_code),
         "tag_name": matching_tag.name,
         "matched_tag_id": matching_tag.id
