@@ -148,6 +148,8 @@ class PushService:
     @staticmethod
     def _get_notification_url(notification: Notification) -> str:
         """Get the URL to navigate to when notification is clicked"""
+        if getattr(notification, "link_url", None):
+            return notification.link_url
         if notification.post_id:
             return f"/forum/posts/{notification.post_id}"
         elif notification.comment_id and notification.post:

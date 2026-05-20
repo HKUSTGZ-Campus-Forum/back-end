@@ -17,6 +17,7 @@ class Notification(db.Model):
     post_id = db.Column(db.Integer, db.ForeignKey('posts.id'), nullable=True)
     comment_id = db.Column(db.Integer, db.ForeignKey('comments.id'), nullable=True)
     reaction_id = db.Column(db.Integer, db.ForeignKey('reactions.id'), nullable=True)
+    link_url = db.Column(db.String(255), nullable=True)
     
     created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
@@ -48,6 +49,7 @@ class Notification(db.Model):
             "post_id": self.post_id,
             "comment_id": self.comment_id,
             "reaction_id": self.reaction_id,
+            "link_url": self.link_url,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat()
         }
@@ -77,7 +79,7 @@ class Notification(db.Model):
 
     @classmethod
     def create_notification(cls, recipient_id, sender_id, notification_type, title, message, 
-                          post_id=None, comment_id=None, reaction_id=None):
+                          post_id=None, comment_id=None, reaction_id=None, link_url=None):
         """Create a new notification"""
         # Don't create notification if sender and recipient are the same
         if sender_id == recipient_id:
@@ -91,7 +93,8 @@ class Notification(db.Model):
             message=message,
             post_id=post_id,
             comment_id=comment_id,
-            reaction_id=reaction_id
+            reaction_id=reaction_id,
+            link_url=link_url
         )
         
         db.session.add(notification)

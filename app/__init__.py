@@ -1,6 +1,8 @@
 import logging
 import threading
+from datetime import datetime, timezone
 from flask import Flask
+from flask import current_app
 from .config import Config
 from .extensions import db, jwt, migrate, cache#, limiter
 from .routes import register_blueprints
@@ -35,14 +37,135 @@ def create_app(config_class=Config):
 
     # 启动时自动初始化比赛数据（幂等操作，重复执行安全）
     with app.app_context():
+        _auto_init_feedback_support()
         _auto_migrate_gugu_reply_columns()
         _auto_init_contest()
+        _ensure_mount_admin_role()
+        _seed_dev_feedback()
 
     # 25-26 春课表补丁：推迟到「首次 HTTP 请求」再跑，避免进程启动时数据库尚未就绪导致
     # 静默失败；幂等，多 worker 各执行一次可接受。
     _register_deferred_course_offerings_adjustments(app)
 
     return app
+
+
+def _auto_init_feedback_support():
+    """Ensure feedback tables exist and notifications can carry direct navigation URLs."""
+    from sqlalchemy import inspect, text
+    from app.models.feedback import Feedback
+    from app.models.feedback_version import FeedbackVersion
+    from app.models.feedback_merge_request import FeedbackMergeRequest
+    from app.models.feedback_comment import FeedbackComment
+    from app.models.feedback_merge_comment import FeedbackMergeComment
+    from app.models.feedback_audit_event import FeedbackAuditEvent
+
+    db.metadata.create_all(
+        bind=db.engine,
+        tables=[
+            Feedback.__table__,
+            FeedbackVersion.__table__,
+            FeedbackMergeRequest.__table__,
+            FeedbackComment.__table__,
+            FeedbackMergeComment.__table__,
+            FeedbackAuditEvent.__table__,
+        ],
+        checkfirst=True,
+    )
+
+    try:
+        inspector = inspect(db.engine)
+        if 'notifications' not in inspector.get_table_names():
+            return
+
+        existing = {c['name'] for c in inspector.get_columns('notifications')}
+        if 'link_url' not in existing:
+            with db.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE notifications ADD COLUMN link_url VARCHAR(255)"))
+                conn.commit()
+    except Exception:
+        db.session.rollback()
+
+
+def _ensure_mount_admin_role():
+    """Guarantee Mount (uid=6) keeps admin access on synced environments."""
+    from sqlalchemy import inspect
+    from app.models.user import User
+    from app.models.user_role import UserRole
+
+    inspector = inspect(db.engine)
+    table_names = set(inspector.get_table_names())
+    if 'users' not in table_names or 'user_roles' not in table_names:
+        return
+
+    mount_user = db.session.get(User, 6)
+    if mount_user is None or mount_user.is_deleted:
+        return
+
+    admin_role = UserRole.query.filter_by(name=UserRole.ADMIN).first()
+    if admin_role is None:
+        admin_role = UserRole(name=UserRole.ADMIN, description='Administrator')
+        db.session.add(admin_role)
+        db.session.flush()
+
+    if mount_user.role_id != admin_role.id:
+        mount_user.role_id = admin_role.id
+        db.session.commit()
+
+
+def _seed_dev_feedback():
+    """Create one published feedback record on dev for end-to-end smoke testing."""
+    from sqlalchemy import inspect
+
+    frontend_base_url = str(current_app.config.get('FRONTEND_BASE_URL', '')).lower()
+    if 'dev.unikorn.axfff.com' not in frontend_base_url:
+        return
+
+    from app.models.user import User
+    from app.models.feedback import Feedback
+    from app.models.feedback_version import FeedbackVersion
+
+    inspector = inspect(db.engine)
+    table_names = set(inspector.get_table_names())
+    required_tables = {'users', 'feedbacks', 'feedback_versions'}
+    if not required_tables.issubset(table_names):
+        return
+
+    owner = db.session.get(User, 6)
+    if owner is None or owner.is_deleted:
+        return
+
+    seed_title = '[DEV] Feedback flow smoke test'
+    existing = Feedback.query.filter_by(author_id=owner.id, title=seed_title).first()
+    if existing is not None:
+        return
+
+    feedback = Feedback(
+        author_id=owner.id,
+        title=seed_title,
+        status=Feedback.STATUS_PUBLISHED,
+        published_at=datetime.now(timezone.utc),
+    )
+    db.session.add(feedback)
+    db.session.flush()
+
+    version = FeedbackVersion(
+        feedback_id=feedback.id,
+        version_number=1,
+        markdown_content=(
+            '## DEV 测试反馈\n\n'
+            '这是一条仅用于 dev 环境联调的反馈。\n\n'
+            '- 用它测试公开列表、详情页和评论区\n'
+            '- 用它发起 merge 申请，验证作者审批与管理员终审\n'
+            '- 这条数据不会自动出现在生产环境'
+        ),
+        created_by_user_id=owner.id,
+    )
+    db.session.add(version)
+    db.session.flush()
+
+    feedback.current_version_id = version.id
+    db.session.commit()
 
 
 def _auto_migrate_gugu_reply_columns():
