@@ -88,3 +88,39 @@ def test_course_record_hides_grade_by_default(app):
     assert "grade" not in public_data
     assert private_data["grade"] == "A+"
     assert private_data["keep_grade"] is True
+
+
+def test_academic_summary_counts_minimum_credit_progress(app):
+    from app.models.academic_map import CurriculumProgram, UserAcademicProfile, UserCourseRecord
+    from app.services.academic_map_service import build_academic_map_summary
+
+    user = create_user("summary_user")
+    program = CurriculumProgram(
+        code="AI",
+        name_en="BEng in Artificial Intelligence",
+        name_zh="人工智能",
+        cohort="2025",
+        total_min_credits=120,
+        common_core_min_credits=30,
+        major_min_credits=85,
+        home_areas=["Science", "Technology"],
+    )
+    db.session.add(program)
+    profile = UserAcademicProfile.get_or_create_for_user(user.id)
+    profile.cohort = "2025"
+    profile.target_majors = ["AI"]
+    db.session.add_all([
+        UserCourseRecord(user_id=user.id, course_code="AIAA 2205", units=3, status=UserCourseRecord.STATUS_COMPLETED),
+        UserCourseRecord(user_id=user.id, course_code="UCUG 1001", units=3, status=UserCourseRecord.STATUS_COMPLETED),
+        UserCourseRecord(user_id=user.id, course_code="UFUG 2601", units=4, status=UserCourseRecord.STATUS_IN_PROGRESS),
+    ])
+    db.session.commit()
+
+    summary = build_academic_map_summary(user.id)
+
+    assert summary["profile"]["target_majors"] == ["AI"]
+    assert summary["credits"]["total_completed"] == 6.0
+    assert summary["credits"]["total_active"] == 10.0
+    assert summary["credits"]["total_minimum"] == 120
+    assert summary["credits"]["over_minimum"] is False
+    assert summary["course_counts"]["imported"] == 3
