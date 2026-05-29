@@ -246,3 +246,91 @@ def test_admin_can_hide_feedback_comment(app, client):
     assert response.status_code == 200
     assert payload["visibility"] == FeedbackComment.VISIBILITY_HIDDEN
     assert payload["hidden_reason"] == "personal attack"
+
+
+def test_admin_can_list_feedbacks_by_status(app, client):
+    with app.app_context():
+        admin = create_user("feedback_list_admin", role_name=UserRole.ADMIN)
+        pending, _ = create_feedback(
+            author_id=create_user("feedback_list_pending_owner").id,
+            title="Pending feedback",
+            markdown_content="Pending body",
+            status=Feedback.STATUS_PENDING_REVIEW,
+        )
+        published, _ = create_feedback(
+            author_id=create_user("feedback_list_published_owner").id,
+            title="Published feedback",
+            markdown_content="Published body",
+            status=Feedback.STATUS_PUBLISHED,
+        )
+        create_feedback(
+            author_id=create_user("feedback_list_closed_owner").id,
+            title="Closed feedback",
+            markdown_content="Closed body",
+            status=Feedback.STATUS_CLOSED,
+        )
+
+        response = client.get(
+            "/admin/feedbacks?status=published",
+            headers=auth_headers(admin.id),
+        )
+        payload = response.get_json()
+
+    assert response.status_code == 200
+    assert [item["id"] for item in payload["feedbacks"]] == [published.id]
+    assert payload["total"] == 1
+    assert payload["counts"]["pending_review"] == 1
+    assert payload["counts"]["published"] == 1
+    assert payload["counts"]["closed"] == 1
+    assert payload["counts"]["total"] == 3
+
+
+def test_admin_can_list_merge_requests_by_status(app, client):
+    with app.app_context():
+        admin = create_user("merge_list_admin", role_name=UserRole.ADMIN)
+        feedback_owner = create_user("merge_list_feedback_owner")
+        proposer = create_user("merge_list_proposer")
+        feedback, version = create_feedback(
+            author_id=feedback_owner.id,
+            title="Feedback with merge requests",
+            markdown_content="base",
+            status=Feedback.STATUS_PUBLISHED,
+        )
+        pending = create_merge_request(
+            feedback_id=feedback.id,
+            proposer_id=proposer.id,
+            base_version_id=version.id,
+            proposed_markdown_content="pending body",
+            status=FeedbackMergeRequest.STATUS_AUTHOR_ACCEPTED_PENDING_ADMIN,
+        )
+        create_merge_request(
+            feedback_id=feedback.id,
+            proposer_id=proposer.id,
+            base_version_id=version.id,
+            proposed_markdown_content="merged body",
+            status=FeedbackMergeRequest.STATUS_MERGED,
+        )
+
+        response = client.get(
+            "/admin/merge-requests?status=author_accepted_pending_admin",
+            headers=auth_headers(admin.id),
+        )
+        payload = response.get_json()
+
+    assert response.status_code == 200
+    assert [item["id"] for item in payload["merge_requests"]] == [pending.id]
+    assert payload["total"] == 1
+    assert payload["counts"]["author_accepted_pending_admin"] == 1
+    assert payload["counts"]["merged"] == 1
+    assert payload["counts"]["total"] == 2
+
+
+def test_non_admin_cannot_list_feedback_admin_history(app, client):
+    with app.app_context():
+        user = create_user("feedback_list_regular_user")
+
+        feedback_response = client.get("/admin/feedbacks", headers=auth_headers(user.id))
+        merge_response = client.get("/admin/merge-requests", headers=auth_headers(user.id))
+
+    assert feedback_response.status_code == 403
+    assert merge_response.status_code == 403

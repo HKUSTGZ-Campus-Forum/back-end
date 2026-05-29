@@ -45,6 +45,71 @@ def _feedback_action(handler, feedback_id: int):
     return jsonify(feedback.to_dict(include_private=True)), 200
 
 
+def _counts_for(model, statuses):
+    counts = {
+        status: model.query.filter_by(status=status).count()
+        for status in statuses
+    }
+    counts["total"] = sum(counts.values())
+    return counts
+
+
+def _pagination_args():
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+    except (TypeError, ValueError):
+        return None, None, (jsonify({"error": "Invalid page"}), 400)
+
+    try:
+        per_page = min(100, max(1, int(request.args.get("per_page", 20))))
+    except (TypeError, ValueError):
+        return None, None, (jsonify({"error": "Invalid per_page"}), 400)
+
+    return page, per_page, None
+
+
+@feedback_admin_bp.route("/feedbacks", methods=["GET"])
+@jwt_required()
+def list_feedbacks():
+    admin_user, error = _admin_guard()
+    if error:
+        return error
+
+    statuses = [
+        Feedback.STATUS_PENDING_REVIEW,
+        Feedback.STATUS_REJECTED,
+        Feedback.STATUS_PUBLISHED,
+        Feedback.STATUS_CLOSED,
+    ]
+    status = request.args.get("status")
+    if status and status not in statuses:
+        return jsonify({"error": "Invalid status"}), 400
+
+    page, per_page, pagination_error = _pagination_args()
+    if pagination_error:
+        return pagination_error
+
+    query = Feedback.query
+    if status:
+        query = query.filter_by(status=status)
+
+    sort = request.args.get("sort", "newest")
+    if sort == "oldest":
+        query = query.order_by(Feedback.updated_at.asc())
+    else:
+        query = query.order_by(Feedback.updated_at.desc())
+
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    return jsonify({
+        "feedbacks": [item.to_dict(include_private=True) for item in pagination.items],
+        "total": pagination.total,
+        "page": page,
+        "pages": pagination.pages,
+        "per_page": per_page,
+        "counts": _counts_for(Feedback, statuses),
+    }), 200
+
+
 @feedback_admin_bp.route("/feedbacks/pending", methods=["GET"])
 @jwt_required()
 def list_pending_feedback():
@@ -58,6 +123,51 @@ def list_pending_feedback():
         .all()
     )
     return jsonify({"feedbacks": [feedback.to_dict(include_private=True) for feedback in feedbacks]}), 200
+
+
+@feedback_admin_bp.route("/merge-requests", methods=["GET"])
+@jwt_required()
+def list_merge_requests():
+    admin_user, error = _admin_guard()
+    if error:
+        return error
+
+    statuses = [
+        FeedbackMergeRequest.STATUS_OPEN,
+        FeedbackMergeRequest.STATUS_AUTHOR_CHANGES_REQUESTED,
+        FeedbackMergeRequest.STATUS_AUTHOR_REJECTED,
+        FeedbackMergeRequest.STATUS_AUTHOR_ACCEPTED_PENDING_ADMIN,
+        FeedbackMergeRequest.STATUS_ADMIN_REJECTED,
+        FeedbackMergeRequest.STATUS_MERGED,
+        FeedbackMergeRequest.STATUS_WITHDRAWN,
+    ]
+    status = request.args.get("status")
+    if status and status not in statuses:
+        return jsonify({"error": "Invalid status"}), 400
+
+    page, per_page, pagination_error = _pagination_args()
+    if pagination_error:
+        return pagination_error
+
+    query = FeedbackMergeRequest.query
+    if status:
+        query = query.filter_by(status=status)
+
+    sort = request.args.get("sort", "newest")
+    if sort == "oldest":
+        query = query.order_by(FeedbackMergeRequest.updated_at.asc())
+    else:
+        query = query.order_by(FeedbackMergeRequest.updated_at.desc())
+
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    return jsonify({
+        "merge_requests": [item.to_dict() for item in pagination.items],
+        "total": pagination.total,
+        "page": page,
+        "pages": pagination.pages,
+        "per_page": per_page,
+        "counts": _counts_for(FeedbackMergeRequest, statuses),
+    }), 200
 
 
 @feedback_admin_bp.route("/feedbacks/<int:feedback_id>/approve", methods=["POST"])
