@@ -29,3 +29,4 @@ from .feedback_merge_request import FeedbackMergeRequest
 from .feedback_comment import FeedbackComment
 from .feedback_merge_comment import FeedbackMergeComment
 from .feedback_audit_event import FeedbackAuditEvent
+from .academic_map import CurriculumProgram, CurriculumRequirementGroup, UserAcademicProfile, UserCourseRecord
