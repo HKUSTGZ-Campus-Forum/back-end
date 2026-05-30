@@ -88,3 +88,26 @@ def test_sync_course_catalog_updates_existing_spaced_course_code(app):
     assert spaced_course.credits == 1
     assert spaced_course.description == "Official description."
     assert catalog_course.description == "Official description."
+
+
+def test_sync_course_catalog_parses_credit_ranges_for_new_courses(app):
+    from app.services.course_catalog_sync import sync_course_catalog_from_payload
+
+    payload = {
+        "courses": [
+            {
+                "course_code": "TEST4019",
+                "course_title": "Special Topics",
+                "credit": "3-4",
+                "course_desc": "Range credit description.",
+            }
+        ]
+    }
+
+    with app.app_context():
+        result = sync_course_catalog_from_payload(payload)
+        course = Course.query.filter_by(code="TEST4019").one()
+
+    assert result["upserted"] == 1
+    assert course.credits == 3
+    assert course.description == "Range credit description."
