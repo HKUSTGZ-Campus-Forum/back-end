@@ -40,6 +40,7 @@ def create_app(config_class=Config):
         _auto_init_feedback_support()
         _auto_init_academic_map_support()
         _auto_sync_course_catalog()
+        _auto_sync_academic_curriculum()
         _auto_migrate_gugu_reply_columns()
         _auto_init_contest()
         _ensure_mount_admin_role()
@@ -121,6 +122,19 @@ def _auto_sync_course_catalog():
     except Exception:
         db.session.rollback()
         logger.exception("Failed to sync course catalog")
+
+
+def _auto_sync_academic_curriculum():
+    """Keep Academic Map curriculum requirements aligned with bundled official data."""
+    if current_app.config.get("TESTING"):
+        return
+    try:
+        from app.services.academic_curriculum_sync import sync_curriculum_requirements_from_file
+
+        sync_curriculum_requirements_from_file()
+    except Exception:
+        db.session.rollback()
+        logger.exception("Failed to sync academic curriculum requirements")
 
 
 def _ensure_mount_admin_role():
