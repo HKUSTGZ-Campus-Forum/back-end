@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.extensions import db
+from app.utils.academic_map_import_text import clean_copied_status_text
 
 
 class CurriculumProgram(db.Model):
@@ -185,7 +186,7 @@ class UserCourseRecord(db.Model):
             "user_id": self.user_id,
             "course_id": self.course_id,
             "course_code": self.course_code,
-            "course_title": self.course_title,
+            "course_title": clean_copied_status_text(self.course_title),
             "term_label": self.term_label,
             "term_code": self.term_code,
             "units": float(self.units) if self.units is not None else None,

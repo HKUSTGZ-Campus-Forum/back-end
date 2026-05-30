@@ -3,35 +3,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.utils.academic_map_import_text import clean_copied_status_text, status_from_text_fragment
+
 COURSE_CODE_RE = re.compile(r"\b([A-Z]{4})\s*([0-9]{4}[A-Z]?)\b")
 TERM_RE = re.compile(r"\b(20[0-9]{2}-[0-9]{2})\s+(Spring|Summer|Fall|Winter)\b", re.IGNORECASE)
 GRADE_RE = re.compile(r"^(A\+|A-|A|B\+|B-|B|C\+|C-|C|D|F|P|PA|PP|DI|W|AU|I)$", re.IGNORECASE)
-STATUS_WORDS = r"not\s*taken|in\s*progress|taken|completed|complete|registered|enrolled|planned|pending"
-STATUS_TITLE_RE = re.compile(rf"\b({STATUS_WORDS})\b", re.IGNORECASE)
-
-
-def _status_from_text(value: str | None) -> str | None:
-    if not value:
-        return None
-    normalized = " ".join(value.strip().lower().split())
-    if normalized in {"taken", "completed", "complete"}:
-        return "completed"
-    if normalized in {"registered", "enrolled", "in progress"}:
-        return "in_progress"
-    if normalized in {"planned", "pending"}:
-        return "planned"
-    if normalized == "not taken":
-        return "not_interested"
-    return None
-
-
-def _status_from_text_fragment(value: str | None) -> str | None:
-    if not value:
-        return None
-    match = STATUS_TITLE_RE.search(value)
-    if not match:
-        return None
-    return _status_from_text(match.group(1))
 
 
 def _normalize_course_code(prefix: str, number: str) -> str:
@@ -72,7 +48,7 @@ def _parse_tab_row(parts: list[str]) -> dict[str, Any] | None:
         elif re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", clean):
             units = _parse_units(clean)
         else:
-            status_from_text = status_from_text or _status_from_text_fragment(clean)
+            status_from_text = status_from_text or status_from_text_fragment(clean)
 
     status, needs_review, review_reason = _status_from_grade(grade)
     if status_from_text is not None:
@@ -101,9 +77,7 @@ def _extract_title(line: str, course_code: str, term_label: str) -> str | None:
     line = line.replace(term_label, " ", 1)
     line = re.sub(r"\b(A\+|A-|A|B\+|B-|B|C\+|C-|C|D|F|P|PA|PP|DI|W|AU|I)\b", " ", line)
     line = re.sub(r"\b[0-9]+(?:\.[0-9]+)?\b", " ", line)
-    line = STATUS_TITLE_RE.sub(" ", line)
-    title = " ".join(line.split())
-    return title or None
+    return clean_copied_status_text(line)
 
 
 def _parse_loose_line(line: str) -> dict[str, Any] | None:
@@ -123,7 +97,7 @@ def _parse_loose_line(line: str) -> dict[str, Any] | None:
             grade = token.upper()
         elif re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", token):
             units = _parse_units(token)
-    status_from_text = _status_from_text_fragment(" ".join(after_term))
+    status_from_text = status_from_text_fragment(" ".join(after_term))
 
     status, needs_review, review_reason = _status_from_grade(grade)
     if status_from_text is not None:

@@ -6,6 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from app.models.academic_map import CurriculumProgram, CurriculumRequirementGroup, UserAcademicProfile, UserCourseRecord
+from app.utils.academic_map_import_text import clean_copied_status_text
 
 
 ACTIVE_STATUSES = {
@@ -141,7 +142,7 @@ def _cell_for_code(code: str, records_by_code: dict[str, UserCourseRecord], shar
         return {
             "kind": "course",
             "course_code": normalized,
-            "title": record.course_title,
+            "title": clean_copied_status_text(record.course_title),
             "status": status,
             "raw_status": record.status,
             "shared_majors": shared_map.get(normalized, []),

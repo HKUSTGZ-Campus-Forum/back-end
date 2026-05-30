@@ -9,6 +9,7 @@ from app.models.course import Course
 from app.services.academic_map_service import build_academic_map_summary
 from app.services.academic_major_metadata import normalize_target_majors
 from app.services.course_history_importer import parse_course_history_text
+from app.utils.academic_map_import_text import clean_copied_status_text
 
 bp = Blueprint("academic_map", __name__, url_prefix="/academic-map")
 
@@ -85,7 +86,7 @@ def save_records_bulk():
             user_id=user_id,
             course_id=matched_course.id if matched_course else None,
             course_code=course_code,
-            course_title=row.get("course_title"),
+            course_title=clean_copied_status_text(row.get("course_title")),
             term_label=row.get("term_label"),
             term_code=row.get("term_code"),
             units=Decimal(str(units)) if units is not None else None,
