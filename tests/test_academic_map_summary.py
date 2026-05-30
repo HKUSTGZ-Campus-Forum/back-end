@@ -134,6 +134,31 @@ def test_requirement_matrix_orders_in_progress_before_completed(app):
     assert row["progress_label"] == "3 / 4"
 
 
+def test_requirement_matrix_uses_catalog_title_for_unimported_courses(app):
+    with app.app_context():
+        create_user(110, "matrix_catalog_title")
+        program = CurriculumProgram(code="AI", name_en="Artificial Intelligence", cohort="2025", total_min_credits=120)
+        db.session.add(program)
+        db.session.flush()
+        db.session.add(CurriculumRequirementGroup(
+            program_id=program.id,
+            key="fundamental_choice",
+            name_en="Fundamental Choice",
+            category="fundamental",
+            min_courses=1,
+            rule={"choices": ["UFUG1102"]},
+            sort_order=1,
+        ))
+        db.session.add(UserAcademicProfile(user_id=110, cohort="2025", target_majors=["AI"]))
+        db.session.commit()
+
+        summary = build_academic_map_summary(110)
+
+    cell = summary["requirement_matrix"][0]["rows"][0]["all_cells"][0]
+    assert cell["course_code"] == "UFUG1102"
+    assert cell["title"] == "Calculus I"
+
+
 def test_requirement_matrix_uses_choice_minimum_for_progress(app):
     with app.app_context():
         create_user(108, "matrix_choice")

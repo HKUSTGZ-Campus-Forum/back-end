@@ -6,6 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from app.models.academic_map import CurriculumProgram, CurriculumRequirementGroup, UserAcademicProfile, UserCourseRecord
+from app.models.course import Course
 from app.utils.academic_map_import_text import clean_copied_status_text
 
 
@@ -123,6 +124,13 @@ def _record_by_code(records: list[UserCourseRecord]) -> dict[str, UserCourseReco
     return {_normalized_code(record.course_code): record for record in records}
 
 
+def _catalog_title_by_code() -> dict[str, str]:
+    return {
+        _normalized_code(course.code): course.name
+        for course in Course.query.filter(Course.is_deleted == False).all()
+    }
+
+
 def _shared_major_map(programs: list[CurriculumProgram]) -> dict[str, list[str]]:
     usage: dict[str, list[str]] = {}
     for program in programs:
@@ -137,6 +145,7 @@ def _shared_major_map(programs: list[CurriculumProgram]) -> dict[str, list[str]]
 def _cell_for_code(
     code: str,
     records_by_code: dict[str, UserCourseRecord],
+    catalog_title_by_code: dict[str, str],
     shared_map: dict[str, list[str]],
     default_status: str = "need",
 ) -> dict:
@@ -147,7 +156,7 @@ def _cell_for_code(
         return {
             "kind": "course",
             "course_code": normalized,
-            "title": clean_copied_status_text(record.course_title),
+            "title": clean_copied_status_text(record.course_title) or catalog_title_by_code.get(normalized),
             "status": status,
             "raw_status": record.status,
             "shared_majors": shared_map.get(normalized, []),
@@ -155,7 +164,7 @@ def _cell_for_code(
     return {
         "kind": "course",
         "course_code": normalized,
-        "title": None,
+        "title": catalog_title_by_code.get(normalized),
         "status": default_status,
         "raw_status": None,
         "shared_majors": shared_map.get(normalized, []),
@@ -200,13 +209,14 @@ def _requirement_section(
     kind: str,
     codes: list[str],
     records_by_code: dict[str, UserCourseRecord],
+    catalog_title_by_code: dict[str, str],
     shared_map: dict[str, list[str]],
     required_count: int | None = None,
     min_credits: int | None = None,
 ) -> dict:
     default_status = "need" if kind == "required" else "choice"
     cells = _sort_cells([
-        _cell_for_code(code, records_by_code, shared_map, default_status=default_status)
+        _cell_for_code(code, records_by_code, catalog_title_by_code, shared_map, default_status=default_status)
         for code in codes
     ])
     completed = len([cell for cell in cells if cell["status"] in {"now", "done"}])
@@ -246,6 +256,7 @@ def _codes_for_rule_key(rule: dict, key: str) -> list[str]:
 def _requirement_sections(
     group: CurriculumRequirementGroup,
     records_by_code: dict[str, UserCourseRecord],
+    catalog_title_by_code: dict[str, str],
     shared_map: dict[str, list[str]],
 ) -> list[dict]:
     rule = group.rule or {}
@@ -260,6 +271,7 @@ def _requirement_sections(
             kind="required",
             codes=required_codes,
             records_by_code=records_by_code,
+            catalog_title_by_code=catalog_title_by_code,
             shared_map=shared_map,
             required_count=len(required_codes),
         ))
@@ -272,6 +284,7 @@ def _requirement_sections(
             kind="choice",
             codes=choice_codes,
             records_by_code=records_by_code,
+            catalog_title_by_code=catalog_title_by_code,
             shared_map=shared_map,
             required_count=max(choice_target or 0, 0) or None,
         ))
@@ -282,6 +295,7 @@ def _requirement_sections(
             kind="elective",
             codes=elective_codes,
             records_by_code=records_by_code,
+            catalog_title_by_code=catalog_title_by_code,
             shared_map=shared_map,
             required_count=group.min_courses,
             min_credits=group.min_credits,
@@ -292,12 +306,13 @@ def _requirement_sections(
 
 def _build_requirement_matrix(programs: list[CurriculumProgram], records: list[UserCourseRecord]) -> list[dict]:
     records_by_code = _record_by_code(records)
+    catalog_title_by_code = _catalog_title_by_code()
     shared_map = _shared_major_map(programs)
     matrices = []
     for program in programs:
         rows = []
         for group in program.requirement_groups.order_by(CurriculumRequirementGroup.sort_order.asc()).all():
-            sections = _requirement_sections(group, records_by_code, shared_map)
+            sections = _requirement_sections(group, records_by_code, catalog_title_by_code, shared_map)
             cells = _sort_cells([cell for section in sections for cell in section["cells"]])
             codes = [cell["course_code"] for cell in cells if cell.get("course_code")]
             satisfied = len([cell for cell in cells if cell["status"] in {"now", "done"}])
