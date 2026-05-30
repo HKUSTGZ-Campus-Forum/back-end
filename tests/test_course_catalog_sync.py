@@ -56,3 +56,35 @@ def test_sync_course_catalog_upserts_course_rows(app):
     assert course.name == "Academic Orientation for AI Students"
     assert course.credits == 1
     assert course.description == "Official description."
+
+
+def test_sync_course_catalog_updates_existing_spaced_course_code(app):
+    from app.services.course_catalog_sync import sync_course_catalog_from_payload
+
+    payload = {
+        "courses": [
+            {
+                "course_code": "AIAA1010",
+                "course_title": "Academic Orientation for AI Students",
+                "credit": "1",
+                "course_desc": "Official description.",
+            }
+        ]
+    }
+
+    with app.app_context():
+        db.session.add(Course(code="AIAA 1010", name="Old title", credits=0, is_active=True, is_deleted=False))
+        db.session.commit()
+        before_count = Course.query.count()
+
+        result = sync_course_catalog_from_payload(payload)
+        after_count = Course.query.count()
+        spaced_course = Course.query.filter_by(code="AIAA 1010").one()
+        catalog_course = Course.query.filter_by(code="AIAA1010").one()
+
+    assert result["upserted"] == 1
+    assert after_count == before_count
+    assert spaced_course.name == "Academic Orientation for AI Students"
+    assert spaced_course.credits == 1
+    assert spaced_course.description == "Official description."
+    assert catalog_course.description == "Official description."
