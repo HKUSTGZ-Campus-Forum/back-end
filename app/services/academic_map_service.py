@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 from decimal import Decimal
+from functools import lru_cache
+from pathlib import Path
 
 from app.models.academic_map import CurriculumProgram, CurriculumRequirementGroup, UserAcademicProfile, UserCourseRecord
 
@@ -9,6 +12,14 @@ ACTIVE_STATUSES = {
     UserCourseRecord.STATUS_COMPLETED,
     UserCourseRecord.STATUS_IN_PROGRESS,
     UserCourseRecord.STATUS_PLANNED,
+}
+
+STATUS_RANK = {
+    UserCourseRecord.STATUS_IN_PROGRESS: 0,
+    UserCourseRecord.STATUS_PLANNED: 0,
+    UserCourseRecord.STATUS_COMPLETED: 1,
+    UserCourseRecord.STATUS_INTERESTED: 3,
+    UserCourseRecord.STATUS_NOT_INTERESTED: 4,
 }
 
 GRADE_POINTS = {
@@ -107,6 +118,147 @@ def _major_grade_records(records: list[UserCourseRecord], program: CurriculumPro
     return [record for record in records if _normalized_code(record.course_code) in required_codes]
 
 
+def _record_by_code(records: list[UserCourseRecord]) -> dict[str, UserCourseRecord]:
+    return {_normalized_code(record.course_code): record for record in records}
+
+
+def _shared_major_map(programs: list[CurriculumProgram]) -> dict[str, list[str]]:
+    usage: dict[str, list[str]] = {}
+    for program in programs:
+        for group in program.requirement_groups.order_by(CurriculumRequirementGroup.sort_order.asc()).all():
+            for code in _codes_from_rule(group.rule or {}):
+                usage.setdefault(code, [])
+                if program.code not in usage[code]:
+                    usage[code].append(program.code)
+    return usage
+
+
+def _cell_for_code(code: str, records_by_code: dict[str, UserCourseRecord], shared_map: dict[str, list[str]]) -> dict:
+    normalized = _normalized_code(code)
+    record = records_by_code.get(normalized)
+    if record:
+        status = "now" if record.status in {UserCourseRecord.STATUS_IN_PROGRESS, UserCourseRecord.STATUS_PLANNED} else "done"
+        return {
+            "kind": "course",
+            "course_code": normalized,
+            "title": record.course_title,
+            "status": status,
+            "raw_status": record.status,
+            "shared_majors": shared_map.get(normalized, []),
+        }
+    return {
+        "kind": "course",
+        "course_code": normalized,
+        "title": None,
+        "status": "need",
+        "raw_status": None,
+        "shared_majors": shared_map.get(normalized, []),
+    }
+
+
+def _sort_cells(cells: list[dict]) -> list[dict]:
+    rank = {"now": 0, "done": 1, "need": 2, "choice": 3, "more": 4}
+    return sorted(cells, key=lambda cell: (rank.get(cell["status"], 9), cell.get("course_code") or cell.get("label") or ""))
+
+
+def _build_requirement_matrix(programs: list[CurriculumProgram], records: list[UserCourseRecord]) -> list[dict]:
+    records_by_code = _record_by_code(records)
+    shared_map = _shared_major_map(programs)
+    matrices = []
+    for program in programs:
+        rows = []
+        for group in program.requirement_groups.order_by(CurriculumRequirementGroup.sort_order.asc()).all():
+            codes = list(_codes_from_rule(group.rule or {}))
+            cells = _sort_cells([_cell_for_code(code, records_by_code, shared_map) for code in codes])
+            satisfied = len([cell for cell in cells if cell["status"] in {"now", "done"}])
+            target = max(group.min_courses or 0, len(codes))
+            visible = cells[:4]
+            if len(cells) > 4:
+                visible.append({
+                    "kind": "more",
+                    "label": f"+{len(cells) - 4} more",
+                    "status": "more",
+                    "hidden_count": len(cells) - 4,
+                })
+            rows.append({
+                "key": group.key,
+                "name_en": group.name_en,
+                "name_zh": group.name_zh,
+                "category": group.category,
+                "progress_label": f"{satisfied} / {target}" if target else "",
+                "visible_cells": visible,
+                "all_cells": cells,
+                "detail": {
+                    "min_courses": group.min_courses,
+                    "min_credits": group.min_credits,
+                    "rule": group.rule or {},
+                },
+            })
+        matrices.append({"program_code": program.code, "program": program.to_dict(), "rows": rows})
+    return matrices
+
+
+@lru_cache(maxsize=1)
+def _load_prerequisite_data() -> dict:
+    path = Path(__file__).resolve().parents[1] / "data" / "course_prerequisites.json"
+    if not path.exists():
+        return {"courses": []}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _missing_prerequisites(expression: dict | None, completed_codes: set[str]) -> list[str]:
+    if not expression:
+        return []
+    if expression.get("course_code"):
+        code = _normalized_code(expression.get("course_code"))
+        return [] if code in completed_codes else [code]
+    op = str(expression.get("op", "")).upper()
+    items = [item for item in expression.get("items", []) if isinstance(item, dict)]
+    if op == "AND":
+        missing: list[str] = []
+        for item in items:
+            missing.extend(_missing_prerequisites(item, completed_codes))
+        return sorted(set(missing))
+    if op == "OR":
+        item_missing = [_missing_prerequisites(item, completed_codes) for item in items]
+        if any(len(missing) == 0 for missing in item_missing):
+            return []
+        shortest = min(item_missing, key=len) if item_missing else []
+        return sorted(set(shortest))
+    return []
+
+
+def _build_prerequisite_metrics(records: list[UserCourseRecord]) -> dict:
+    completed_codes = {
+        _normalized_code(record.course_code)
+        for record in records
+        if record.status in ACTIVE_STATUSES
+    }
+    unlocked = 0
+    blockers = []
+    for item in _load_prerequisite_data().get("courses", []):
+        target_code = _normalized_code(item.get("course_code"))
+        if not target_code or target_code in completed_codes:
+            continue
+        expression = item.get("prerequisite_expression")
+        if not isinstance(expression, dict):
+            continue
+        missing = _missing_prerequisites(expression, completed_codes)
+        if missing:
+            blockers.append({
+                "course_code": target_code,
+                "course_title": item.get("course_title"),
+                "missing": missing,
+            })
+        else:
+            unlocked += 1
+    return {
+        "unlocked_count": unlocked,
+        "blocked_count": len(blockers),
+        "blockers": blockers[:8],
+    }
+
+
 def build_academic_map_summary(user_id: int) -> dict:
     profile = UserAcademicProfile.get_or_create_for_user(user_id)
     records = UserCourseRecord.query.filter_by(user_id=user_id).order_by(UserCourseRecord.created_at.asc()).all()
@@ -143,6 +295,8 @@ def build_academic_map_summary(user_id: int) -> dict:
                 "program_code": primary_program.code if primary_program else None,
             },
         },
+        "prerequisite_metrics": _build_prerequisite_metrics(records),
+        "requirement_matrix": _build_requirement_matrix(programs, records),
         "course_counts": {
             "imported": len(records),
             "completed": len(completed_records),

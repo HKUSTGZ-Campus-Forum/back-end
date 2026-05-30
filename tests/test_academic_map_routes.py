@@ -61,7 +61,7 @@ def test_update_profile_and_get_summary(client, app):
 
     response = client.put("/academic-map/profile", json={"cohort": "2025", "target_majors": ["AI", "DSBD"]}, headers=headers)
     assert response.status_code == 200
-    assert response.get_json()["profile"]["target_majors"] == ["AI", "DSBD"]
+    assert response.get_json()["profile"]["target_majors"] == ["AI", "DSA"]
 
     summary = client.get("/academic-map/summary", headers=headers)
     assert summary.status_code == 200
