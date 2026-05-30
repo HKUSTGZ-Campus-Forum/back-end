@@ -7,6 +7,7 @@ from app.extensions import db
 from app.models.academic_map import UserAcademicProfile, UserCourseRecord
 from app.models.course import Course
 from app.services.academic_map_service import build_academic_map_summary
+from app.services.academic_major_metadata import normalize_target_majors
 from app.services.course_history_importer import parse_course_history_text
 
 bp = Blueprint("academic_map", __name__, url_prefix="/academic-map")
@@ -41,7 +42,7 @@ def update_profile():
         profile.cohort = str(data["cohort"]).strip() or None
     if "target_majors" in data:
         majors = data["target_majors"] if isinstance(data["target_majors"], list) else []
-        profile.target_majors = [str(major).strip().upper() for major in majors if str(major).strip()][:3]
+        profile.target_majors = normalize_target_majors(majors)
     if "grade_policy" in data and data["grade_policy"] in ["keep_private", "drop_grades"]:
         profile.grade_policy = data["grade_policy"]
     db.session.commit()

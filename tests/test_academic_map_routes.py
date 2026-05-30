@@ -68,6 +68,19 @@ def test_update_profile_and_get_summary(client, app):
     assert summary.get_json()["profile"]["cohort"] == "2025"
 
 
+def test_update_profile_normalizes_legacy_major_aliases(client, app):
+    _user_id, headers = create_user_and_headers(app, "major_alias_user")
+
+    response = client.put(
+        "/academic-map/profile",
+        json={"cohort": "2025", "target_majors": ["AI", "DSBD", "SEEN"]},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["profile"]["target_majors"] == ["AI", "DSA", "SEE"]
+
+
 def test_parse_and_save_course_history_without_exposing_grade_publicly(client, app):
     _user_id, headers = create_user_and_headers(app, "import_user")
     pasted = "AIAA 2205 Introduction to AI 2024-25 Summer A+ 3.00"
