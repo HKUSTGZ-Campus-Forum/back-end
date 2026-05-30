@@ -39,6 +39,7 @@ def create_app(config_class=Config):
     with app.app_context():
         _auto_init_feedback_support()
         _auto_init_academic_map_support()
+        _auto_sync_course_catalog()
         _auto_migrate_gugu_reply_columns()
         _auto_init_contest()
         _ensure_mount_admin_role()
@@ -107,6 +108,19 @@ def _auto_init_academic_map_support():
         ],
         checkfirst=True,
     )
+
+
+def _auto_sync_course_catalog():
+    """Keep the Course table aligned with the bundled undergraduate catalog."""
+    try:
+        from app.models.course import Course
+        from app.services.course_catalog_sync import sync_course_catalog_from_file
+
+        db.metadata.create_all(bind=db.engine, tables=[Course.__table__], checkfirst=True)
+        sync_course_catalog_from_file()
+    except Exception:
+        db.session.rollback()
+        logger.exception("Failed to sync course catalog")
 
 
 def _ensure_mount_admin_role():

@@ -6,6 +6,7 @@ from sqlalchemy.ext.compiler import compiles
 from app import create_app
 from app.config import Config
 from app.extensions import db
+from app.models.academic_map import UserAcademicProfile, UserCourseRecord
 from app.models.user import User
 from app.models.user_role import UserRole
 
@@ -112,5 +113,48 @@ def test_parse_course_history_strips_copied_status_text(client, app):
 
     assert parse_response.status_code == 200
     parsed = parse_response.get_json()["rows"]
-    assert parsed[0]["course_title"] == "Acad. Orient for AI Ss"
+    assert parsed[0]["course_title"] == "Academic Orientation for AI Students"
     assert parsed[0]["status"] == "completed"
+
+
+def test_import_matches_course_catalog_by_normalized_code(client, app):
+    _user_id, headers = create_user_and_headers(app, "import_catalog_user")
+
+    pasted = "AIAA 1010\tAcad. Orient for AI Ss\t2024-25 Fall\tP\t1.00\tTaken"
+    parse_response = client.post("/academic-map/import/parse", json={"text": pasted}, headers=headers)
+
+    assert parse_response.status_code == 200
+    parsed = parse_response.get_json()["rows"]
+    assert parsed[0]["matched_course_code"] == "AIAA1010"
+    assert parsed[0]["course_title"] == "Academic Orientation for AI Students"
+    assert parsed[0]["units"] == 1
+
+    save_response = client.post(
+        "/academic-map/records/bulk",
+        json={"keep_grades": True, "records": parsed},
+        headers=headers,
+    )
+
+    assert save_response.status_code == 200
+    record = save_response.get_json()["records"][0]
+    assert record["course_id"] is not None
+    assert record["course_title"] == "Academic Orientation for AI Students"
+
+
+def test_clear_academic_map_records_for_current_user_only(client, app):
+    user_id, headers = create_user_and_headers(app, "clear_records_user")
+    other_user_id, _headers = create_user_and_headers(app, "clear_records_other")
+    with app.app_context():
+        db.session.add(UserAcademicProfile(user_id=user_id, cohort="2025", target_majors=["AI"]))
+        db.session.add(UserCourseRecord(user_id=user_id, course_code="AIAA 1010", units=1))
+        db.session.add(UserCourseRecord(user_id=other_user_id, course_code="AIAA 2205", units=3))
+        db.session.commit()
+
+    response = client.delete("/academic-map/records", headers=headers)
+
+    assert response.status_code == 200
+    assert response.get_json()["deleted_records"] == 1
+    with app.app_context():
+        assert UserCourseRecord.query.filter_by(user_id=user_id).count() == 0
+        assert UserAcademicProfile.query.filter_by(user_id=user_id).one().cohort is None
+        assert UserCourseRecord.query.filter_by(user_id=other_user_id).count() == 1

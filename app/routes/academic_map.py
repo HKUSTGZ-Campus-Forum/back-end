@@ -5,9 +5,9 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
 from app.models.academic_map import UserAcademicProfile, UserCourseRecord
-from app.models.course import Course
 from app.services.academic_map_service import build_academic_map_summary
 from app.services.academic_major_metadata import normalize_target_majors
+from app.services.course_catalog_matcher import enrich_import_row_with_catalog, find_course_by_normalized_code
 from app.services.course_history_importer import parse_course_history_text
 from app.utils.academic_map_import_text import clean_copied_status_text
 
@@ -62,7 +62,7 @@ def get_summary():
 @jwt_required()
 def parse_import():
     data = request.get_json() or {}
-    rows = parse_course_history_text(data.get("text", ""))
+    rows = [enrich_import_row_with_catalog(row) for row in parse_course_history_text(data.get("text", ""))]
     return jsonify({"rows": rows, "count": len(rows)}), 200
 
 
@@ -79,17 +79,18 @@ def save_records_bulk():
         course_code = str(row.get("course_code", "")).strip().upper()
         if not course_code:
             continue
-        matched_course = Course.query.filter_by(code=course_code, is_deleted=False).first()
+        matched_course = find_course_by_normalized_code(row.get("matched_course_code") or course_code)
         status = row.get("status") if row.get("status") in VALID_STATUSES else UserCourseRecord.STATUS_COMPLETED
         units = row.get("units")
+        resolved_units = units if units is not None else (matched_course.credits if matched_course else None)
         record = UserCourseRecord(
             user_id=user_id,
             course_id=matched_course.id if matched_course else None,
             course_code=course_code,
-            course_title=clean_copied_status_text(row.get("course_title")),
+            course_title=matched_course.name if matched_course else clean_copied_status_text(row.get("course_title")),
             term_label=row.get("term_label"),
             term_code=row.get("term_code"),
-            units=Decimal(str(units)) if units is not None else None,
+            units=Decimal(str(resolved_units)) if resolved_units is not None else None,
             status=status,
             grade=row.get("grade") if keep_grades else None,
             keep_grade=keep_grades and bool(row.get("grade")),
@@ -136,6 +137,19 @@ def delete_record(record_id):
     db.session.delete(record)
     db.session.commit()
     return "", 204
+
+
+@bp.route("/records", methods=["DELETE"])
+@jwt_required()
+def clear_records():
+    user_id = _current_user_id()
+    deleted_records = UserCourseRecord.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    profile = UserAcademicProfile.get_or_create_for_user(user_id)
+    profile.cohort = None
+    profile.target_majors = []
+    profile.grade_policy = "keep_private"
+    db.session.commit()
+    return jsonify({"deleted_records": deleted_records, "profile": profile.to_dict()}), 200
 
 
 @bp.route("/grades", methods=["DELETE"])
