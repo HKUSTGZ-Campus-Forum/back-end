@@ -125,6 +125,7 @@ def test_import_matches_course_catalog_by_normalized_code(client, app):
 
     assert parse_response.status_code == 200
     parsed = parse_response.get_json()["rows"]
+    assert parsed[0]["course_code"] == "AIAA1010"
     assert parsed[0]["matched_course_code"] == "AIAA1010"
     assert parsed[0]["course_title"] == "Academic Orientation for AI Students"
     assert parsed[0]["units"] == 1
@@ -138,7 +139,21 @@ def test_import_matches_course_catalog_by_normalized_code(client, app):
     assert save_response.status_code == 200
     record = save_response.get_json()["records"][0]
     assert record["course_id"] is not None
+    assert record["course_code"] == "AIAA1010"
     assert record["course_title"] == "Academic Orientation for AI Students"
+
+
+def test_import_can_match_catalog_from_title_when_code_is_missing(client, app):
+    _user_id, headers = create_user_and_headers(app, "import_title_user")
+
+    pasted = "Acad. Orient for AI Ss\t2024-25 Fall\tP\t1.00\tTaken"
+    parse_response = client.post("/academic-map/import/parse", json={"text": pasted}, headers=headers)
+
+    assert parse_response.status_code == 200
+    parsed = parse_response.get_json()["rows"]
+    assert parsed[0]["course_code"] == "AIAA1010"
+    assert parsed[0]["matched_course_code"] == "AIAA1010"
+    assert parsed[0]["course_title"] == "Academic Orientation for AI Students"
 
 
 def test_clear_academic_map_records_for_current_user_only(client, app):

@@ -33,10 +33,10 @@ def _parse_tab_row(parts: list[str]) -> dict[str, Any] | None:
     joined = " ".join(parts)
     code_match = COURSE_CODE_RE.search(joined)
     term_match = TERM_RE.search(joined)
-    if not code_match or not term_match:
+    if not term_match:
         return None
 
-    course_code = _normalize_course_code(code_match.group(1), code_match.group(2))
+    course_code = _normalize_course_code(code_match.group(1), code_match.group(2)) if code_match else ""
     term_label = f"{term_match.group(1)} {term_match.group(2).title()}"
     grade = None
     units = None
@@ -70,10 +70,11 @@ def _parse_tab_row(parts: list[str]) -> dict[str, Any] | None:
     }
 
 
-def _extract_title(line: str, course_code: str, term_label: str) -> str | None:
-    line = line.replace(course_code, " ", 1)
-    compact_code = course_code.replace(" ", "")
-    line = line.replace(compact_code, " ", 1)
+def _extract_title(line: str, course_code: str | None, term_label: str) -> str | None:
+    if course_code:
+        line = line.replace(course_code, " ", 1)
+        compact_code = course_code.replace(" ", "")
+        line = line.replace(compact_code, " ", 1)
     line = line.replace(term_label, " ", 1)
     line = re.sub(r"\b(A\+|A-|A|B\+|B-|B|C\+|C-|C|D|F|P|PA|PP|DI|W|AU|I)\b", " ", line)
     line = re.sub(r"\b[0-9]+(?:\.[0-9]+)?\b", " ", line)
@@ -83,10 +84,10 @@ def _extract_title(line: str, course_code: str, term_label: str) -> str | None:
 def _parse_loose_line(line: str) -> dict[str, Any] | None:
     code_match = COURSE_CODE_RE.search(line)
     term_match = TERM_RE.search(line)
-    if not code_match or not term_match:
+    if not term_match:
         return None
 
-    course_code = _normalize_course_code(code_match.group(1), code_match.group(2))
+    course_code = _normalize_course_code(code_match.group(1), code_match.group(2)) if code_match else ""
     term_label = f"{term_match.group(1)} {term_match.group(2).title()}"
     after_term = line[term_match.end():].split()
     grade = None

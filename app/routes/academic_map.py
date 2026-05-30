@@ -83,10 +83,11 @@ def save_records_bulk():
         status = row.get("status") if row.get("status") in VALID_STATUSES else UserCourseRecord.STATUS_COMPLETED
         units = row.get("units")
         resolved_units = units if units is not None else (matched_course.credits if matched_course else None)
+        resolved_code = matched_course.code if matched_course else course_code
         record = UserCourseRecord(
             user_id=user_id,
             course_id=matched_course.id if matched_course else None,
-            course_code=course_code,
+            course_code=resolved_code,
             course_title=matched_course.name if matched_course else clean_copied_status_text(row.get("course_title")),
             term_label=row.get("term_label"),
             term_code=row.get("term_code"),
