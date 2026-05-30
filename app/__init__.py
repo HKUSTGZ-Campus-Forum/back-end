@@ -38,6 +38,7 @@ def create_app(config_class=Config):
     # 启动时自动初始化比赛数据（幂等操作，重复执行安全）
     with app.app_context():
         _auto_init_feedback_support()
+        _auto_init_academic_map_support()
         _auto_migrate_gugu_reply_columns()
         _auto_init_contest()
         _ensure_mount_admin_role()
@@ -85,6 +86,27 @@ def _auto_init_feedback_support():
                 conn.commit()
     except Exception:
         db.session.rollback()
+
+
+def _auto_init_academic_map_support():
+    """Ensure Academic Map tables exist on dev/prod servers even if migrations are skipped."""
+    from app.models.academic_map import (
+        CurriculumProgram,
+        CurriculumRequirementGroup,
+        UserAcademicProfile,
+        UserCourseRecord,
+    )
+
+    db.metadata.create_all(
+        bind=db.engine,
+        tables=[
+            CurriculumProgram.__table__,
+            CurriculumRequirementGroup.__table__,
+            UserAcademicProfile.__table__,
+            UserCourseRecord.__table__,
+        ],
+        checkfirst=True,
+    )
 
 
 def _ensure_mount_admin_role():
