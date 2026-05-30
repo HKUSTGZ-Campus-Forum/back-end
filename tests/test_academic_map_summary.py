@@ -134,6 +134,32 @@ def test_requirement_matrix_orders_in_progress_before_completed(app):
     assert row["progress_label"] == "3 / 4"
 
 
+def test_requirement_matrix_uses_choice_minimum_for_progress(app):
+    with app.app_context():
+        create_user(108, "matrix_choice")
+        program = CurriculumProgram(code="AI", name_en="Artificial Intelligence", cohort="2025", total_min_credits=120)
+        db.session.add(program)
+        db.session.flush()
+        db.session.add(CurriculumRequirementGroup(
+            program_id=program.id,
+            key="ai_electives",
+            name_en="AI Electives",
+            category="major",
+            min_courses=2,
+            rule={"choices": ["AIAA2205", "AIAA3111", "AIAA3201", "DSAA2011"]},
+            sort_order=1,
+        ))
+        db.session.add(UserAcademicProfile(user_id=108, cohort="2025", target_majors=["AI"]))
+        add_record(108, "AIAA2205", status="completed")
+        db.session.commit()
+
+        summary = build_academic_map_summary(108)
+
+    row = summary["requirement_matrix"][0]["rows"][0]
+    assert row["progress_label"] == "1 / 2"
+    assert len(row["all_cells"]) == 4
+
+
 def test_shared_course_tags_use_target_majors(app):
     with app.app_context():
         create_user(104, "shared_tags")

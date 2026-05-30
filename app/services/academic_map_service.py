@@ -161,6 +161,21 @@ def _sort_cells(cells: list[dict]) -> list[dict]:
     return sorted(cells, key=lambda cell: (rank.get(cell["status"], 9), cell.get("course_code") or cell.get("label") or ""))
 
 
+def _requirement_target(group: CurriculumRequirementGroup, codes: list[str]) -> int:
+    rule = group.rule or {}
+    min_courses = group.min_courses or 0
+    required_values = []
+    for key in ("courses", "required_courses"):
+        value = rule.get(key)
+        if isinstance(value, list):
+            required_values.extend(value)
+    if required_values:
+        return max(min_courses, len(required_values))
+    if min_courses and any(isinstance(rule.get(key), list) for key in ("choices", "electives")):
+        return min_courses
+    return max(min_courses, len(codes))
+
+
 def _build_requirement_matrix(programs: list[CurriculumProgram], records: list[UserCourseRecord]) -> list[dict]:
     records_by_code = _record_by_code(records)
     shared_map = _shared_major_map(programs)
@@ -171,7 +186,7 @@ def _build_requirement_matrix(programs: list[CurriculumProgram], records: list[U
             codes = list(_codes_from_rule(group.rule or {}))
             cells = _sort_cells([_cell_for_code(code, records_by_code, shared_map) for code in codes])
             satisfied = len([cell for cell in cells if cell["status"] in {"now", "done"}])
-            target = max(group.min_courses or 0, len(codes))
+            target = _requirement_target(group, codes)
             visible = cells[:4]
             if len(cells) > 4:
                 visible.append({
