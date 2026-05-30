@@ -102,3 +102,15 @@ def test_parse_and_save_course_history_without_exposing_grade_publicly(client, a
     delete_response = client.delete("/academic-map/grades", headers=headers)
     assert delete_response.status_code == 200
     assert delete_response.get_json()["cleared_count"] == 1
+
+
+def test_parse_course_history_strips_copied_status_text(client, app):
+    _user_id, headers = create_user_and_headers(app, "import_status_user")
+    pasted = "AIAA 1010\tAcad. Orient for AI Ss\t2024-25 Fall\tP\t1.00\tTaken"
+
+    parse_response = client.post("/academic-map/import/parse", json={"text": pasted}, headers=headers)
+
+    assert parse_response.status_code == 200
+    parsed = parse_response.get_json()["rows"]
+    assert parsed[0]["course_title"] == "Acad. Orient for AI Ss"
+    assert parsed[0]["status"] == "completed"

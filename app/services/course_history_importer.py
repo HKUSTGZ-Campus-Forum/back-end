@@ -6,6 +6,32 @@ from typing import Any
 COURSE_CODE_RE = re.compile(r"\b([A-Z]{4})\s*([0-9]{4}[A-Z]?)\b")
 TERM_RE = re.compile(r"\b(20[0-9]{2}-[0-9]{2})\s+(Spring|Summer|Fall|Winter)\b", re.IGNORECASE)
 GRADE_RE = re.compile(r"^(A\+|A-|A|B\+|B-|B|C\+|C-|C|D|F|P|PA|PP|DI|W|AU|I)$", re.IGNORECASE)
+STATUS_WORDS = r"not\s*taken|in\s*progress|taken|completed|complete|registered|enrolled|planned|pending"
+STATUS_TITLE_RE = re.compile(rf"\b({STATUS_WORDS})\b", re.IGNORECASE)
+
+
+def _status_from_text(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = " ".join(value.strip().lower().split())
+    if normalized in {"taken", "completed", "complete"}:
+        return "completed"
+    if normalized in {"registered", "enrolled", "in progress"}:
+        return "in_progress"
+    if normalized in {"planned", "pending"}:
+        return "planned"
+    if normalized == "not taken":
+        return "not_interested"
+    return None
+
+
+def _status_from_text_fragment(value: str | None) -> str | None:
+    if not value:
+        return None
+    match = STATUS_TITLE_RE.search(value)
+    if not match:
+        return None
+    return _status_from_text(match.group(1))
 
 
 def _normalize_course_code(prefix: str, number: str) -> str:
@@ -38,14 +64,22 @@ def _parse_tab_row(parts: list[str]) -> dict[str, Any] | None:
     term_label = f"{term_match.group(1)} {term_match.group(2).title()}"
     grade = None
     units = None
+    status_from_text = None
     for part in parts:
         clean = part.strip()
         if GRADE_RE.match(clean):
             grade = clean.upper()
         elif re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", clean):
             units = _parse_units(clean)
+        else:
+            status_from_text = status_from_text or _status_from_text_fragment(clean)
 
     status, needs_review, review_reason = _status_from_grade(grade)
+    if status_from_text is not None:
+        status = status_from_text
+        if status != "planned":
+            needs_review = False
+            review_reason = None
     return {
         "course_code": course_code,
         "course_title": _extract_title(joined, course_code, term_label),
@@ -67,6 +101,7 @@ def _extract_title(line: str, course_code: str, term_label: str) -> str | None:
     line = line.replace(term_label, " ", 1)
     line = re.sub(r"\b(A\+|A-|A|B\+|B-|B|C\+|C-|C|D|F|P|PA|PP|DI|W|AU|I)\b", " ", line)
     line = re.sub(r"\b[0-9]+(?:\.[0-9]+)?\b", " ", line)
+    line = STATUS_TITLE_RE.sub(" ", line)
     title = " ".join(line.split())
     return title or None
 
@@ -82,13 +117,20 @@ def _parse_loose_line(line: str) -> dict[str, Any] | None:
     after_term = line[term_match.end():].split()
     grade = None
     units = None
+    status_from_text = None
     for token in after_term:
         if GRADE_RE.match(token):
             grade = token.upper()
         elif re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", token):
             units = _parse_units(token)
+    status_from_text = _status_from_text_fragment(" ".join(after_term))
 
     status, needs_review, review_reason = _status_from_grade(grade)
+    if status_from_text is not None:
+        status = status_from_text
+        if status != "planned":
+            needs_review = False
+            review_reason = None
     return {
         "course_code": course_code,
         "course_title": _extract_title(line, course_code, term_label),
