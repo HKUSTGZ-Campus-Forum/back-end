@@ -134,7 +134,12 @@ def _shared_major_map(programs: list[CurriculumProgram]) -> dict[str, list[str]]
     return usage
 
 
-def _cell_for_code(code: str, records_by_code: dict[str, UserCourseRecord], shared_map: dict[str, list[str]]) -> dict:
+def _cell_for_code(
+    code: str,
+    records_by_code: dict[str, UserCourseRecord],
+    shared_map: dict[str, list[str]],
+    default_status: str = "need",
+) -> dict:
     normalized = _normalized_code(code)
     record = records_by_code.get(normalized)
     if record:
@@ -151,7 +156,7 @@ def _cell_for_code(code: str, records_by_code: dict[str, UserCourseRecord], shar
         "kind": "course",
         "course_code": normalized,
         "title": None,
-        "status": "need",
+        "status": default_status,
         "raw_status": None,
         "shared_majors": shared_map.get(normalized, []),
     }
@@ -177,6 +182,114 @@ def _requirement_target(group: CurriculumRequirementGroup, codes: list[str]) -> 
     return max(min_courses, len(codes))
 
 
+def _section_label(kind: str, required_count: int | None, total_count: int, min_credits: int | None = None) -> tuple[str, str]:
+    if kind == "required":
+        return f"Required {total_count} courses", f"必修 {total_count} 门"
+    if kind == "choice":
+        if required_count:
+            return f"Choose {required_count} of {total_count}", f"{total_count} 选 {required_count}"
+        return f"Choose from {total_count}", f"{total_count} 门中选择"
+    if min_credits:
+        return f"At least {required_count or 0} courses / {min_credits} credits", f"至少 {required_count or 0} 门 / {min_credits} 学分"
+    return f"At least {required_count or 0} courses", f"至少 {required_count or 0} 门"
+
+
+def _requirement_section(
+    *,
+    key: str,
+    kind: str,
+    codes: list[str],
+    records_by_code: dict[str, UserCourseRecord],
+    shared_map: dict[str, list[str]],
+    required_count: int | None = None,
+    min_credits: int | None = None,
+) -> dict:
+    default_status = "need" if kind == "required" else "choice"
+    cells = _sort_cells([
+        _cell_for_code(code, records_by_code, shared_map, default_status=default_status)
+        for code in codes
+    ])
+    completed = len([cell for cell in cells if cell["status"] in {"now", "done"}])
+    total_count = len(cells)
+    label_en, label_zh = _section_label(kind, required_count, total_count, min_credits)
+    return {
+        "key": key,
+        "kind": kind,
+        "label_en": label_en,
+        "label_zh": label_zh,
+        "required_count": required_count,
+        "total_count": total_count,
+        "completed_count": completed,
+        "min_credits": min_credits,
+        "progress_label": f"{completed} / {required_count}" if required_count else "",
+        "cells": cells,
+    }
+
+
+def _codes_for_rule_key(rule: dict, key: str) -> list[str]:
+    values = rule.get(key)
+    if not isinstance(values, list):
+        return []
+    codes = []
+    for item in values:
+        if isinstance(item, str):
+            code = _normalized_code(item)
+        elif isinstance(item, dict):
+            code = _normalized_code(item.get("course_code"))
+        else:
+            code = ""
+        if code:
+            codes.append(code)
+    return codes
+
+
+def _requirement_sections(
+    group: CurriculumRequirementGroup,
+    records_by_code: dict[str, UserCourseRecord],
+    shared_map: dict[str, list[str]],
+) -> list[dict]:
+    rule = group.rule or {}
+    sections = []
+    required_codes = _codes_for_rule_key(rule, "required_courses") + _codes_for_rule_key(rule, "courses")
+    choice_codes = _codes_for_rule_key(rule, "choices")
+    elective_codes = _codes_for_rule_key(rule, "electives")
+
+    if required_codes:
+        sections.append(_requirement_section(
+            key=f"{group.key}:required",
+            kind="required",
+            codes=required_codes,
+            records_by_code=records_by_code,
+            shared_map=shared_map,
+            required_count=len(required_codes),
+        ))
+
+    if choice_codes:
+        remaining_required = (group.min_courses or 0) - len(required_codes)
+        choice_target = remaining_required if required_codes else group.min_courses
+        sections.append(_requirement_section(
+            key=f"{group.key}:choices",
+            kind="choice",
+            codes=choice_codes,
+            records_by_code=records_by_code,
+            shared_map=shared_map,
+            required_count=max(choice_target or 0, 0) or None,
+        ))
+
+    if elective_codes:
+        sections.append(_requirement_section(
+            key=f"{group.key}:electives",
+            kind="elective",
+            codes=elective_codes,
+            records_by_code=records_by_code,
+            shared_map=shared_map,
+            required_count=group.min_courses,
+            min_credits=group.min_credits,
+        ))
+
+    return sections
+
+
 def _build_requirement_matrix(programs: list[CurriculumProgram], records: list[UserCourseRecord]) -> list[dict]:
     records_by_code = _record_by_code(records)
     shared_map = _shared_major_map(programs)
@@ -184,8 +297,9 @@ def _build_requirement_matrix(programs: list[CurriculumProgram], records: list[U
     for program in programs:
         rows = []
         for group in program.requirement_groups.order_by(CurriculumRequirementGroup.sort_order.asc()).all():
-            codes = list(_codes_from_rule(group.rule or {}))
-            cells = _sort_cells([_cell_for_code(code, records_by_code, shared_map) for code in codes])
+            sections = _requirement_sections(group, records_by_code, shared_map)
+            cells = _sort_cells([cell for section in sections for cell in section["cells"]])
+            codes = [cell["course_code"] for cell in cells if cell.get("course_code")]
             satisfied = len([cell for cell in cells if cell["status"] in {"now", "done"}])
             target = _requirement_target(group, codes)
             visible = cells[:4]
@@ -204,6 +318,7 @@ def _build_requirement_matrix(programs: list[CurriculumProgram], records: list[U
                 "progress_label": f"{satisfied} / {target}" if target else "",
                 "visible_cells": visible,
                 "all_cells": cells,
+                "sections": sections,
                 "detail": {
                     "min_courses": group.min_courses,
                     "min_credits": group.min_credits,

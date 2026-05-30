@@ -160,6 +160,48 @@ def test_requirement_matrix_uses_choice_minimum_for_progress(app):
     assert len(row["all_cells"]) == 4
 
 
+def test_requirement_matrix_returns_grouped_required_and_choice_sections(app):
+    with app.app_context():
+        create_user(109, "matrix_sections")
+        program = CurriculumProgram(code="DSA", name_en="Data Science and Big Data Technology", cohort="2025", total_min_credits=120)
+        db.session.add(program)
+        db.session.flush()
+        db.session.add(CurriculumRequirementGroup(
+            program_id=program.id,
+            key="major_required",
+            name_en="Major Required Courses",
+            category="major",
+            min_courses=5,
+            min_credits=15,
+            rule={
+                "required_courses": ["DSAA2012", "DSAA2031", "DSAA2043"],
+                "choices": ["DSAA1001", "AIAA2205", "DSAA2011", "AIAA3111"],
+            },
+            sort_order=1,
+        ))
+        db.session.add(UserAcademicProfile(user_id=109, cohort="2025", target_majors=["DSA"]))
+        add_record(109, "DSAA2012", status="completed")
+        add_record(109, "DSAA2031", status="completed")
+        add_record(109, "AIAA2205", status="in_progress")
+        db.session.commit()
+
+        summary = build_academic_map_summary(109)
+
+    row = summary["requirement_matrix"][0]["rows"][0]
+    assert row["progress_label"] == "3 / 5"
+    assert len(row["sections"]) == 2
+    assert row["sections"][0]["kind"] == "required"
+    assert row["sections"][0]["required_count"] == 3
+    assert row["sections"][0]["progress_label"] == "2 / 3"
+    assert row["sections"][1]["kind"] == "choice"
+    assert row["sections"][1]["required_count"] == 2
+    assert row["sections"][1]["total_count"] == 4
+    assert row["sections"][1]["progress_label"] == "1 / 2"
+    assert row["sections"][1]["label_en"] == "Choose 2 of 4"
+    assert row["sections"][1]["label_zh"] == "4 选 2"
+    assert {cell["course_code"]: cell["status"] for cell in row["sections"][1]["cells"]}["DSAA1001"] == "choice"
+
+
 def test_shared_course_tags_use_target_majors(app):
     with app.app_context():
         create_user(104, "shared_tags")
