@@ -3,34 +3,94 @@
   "programs": [
     {
       "code": "AI",
-      "cohorts": ["2025", "2026"],
+      "cohorts": [
+        "2025",
+        "2026"
+      ],
       "name_en": "Artificial Intelligence",
       "name_zh": "人工智能",
       "total_min_credits": 120,
       "common_core_min_credits": 30,
       "major_min_credits": 85,
-      "home_areas": ["Information Hub"],
+      "home_areas": [
+        "Information Hub"
+      ],
       "source_file": "AI 25.pdf",
       "requirement_groups": [
         {
-          "key": "fundamental_required",
-          "name_en": "Fundamental Required Courses",
-          "name_zh": "基础必修课程",
+          "key": "fundamental_courses",
+          "name_en": "Fundamental Courses",
+          "name_zh": "基础课程",
           "category": "fundamental",
-          "min_credits": 10,
-          "min_courses": 4,
-          "rule": {"required_courses": ["UFUG1601", "UFUG2104", "UFUG2602", "UFUG2103"]},
+          "min_credits": 22,
+          "min_courses": 7,
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "UFUG1601",
+                    "UFUG2602",
+                    "UFUG2104"
+                  ]
+                },
+                {
+                  "key": "calculus_i",
+                  "label_en": "Calculus I",
+                  "label_zh": "微积分 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1102",
+                    "UFUG1105"
+                  ]
+                },
+                {
+                  "key": "calculus_ii",
+                  "label_en": "Calculus II",
+                  "label_zh": "微积分 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1103",
+                    "UFUG1106"
+                  ]
+                },
+                {
+                  "key": "linear_algebra",
+                  "label_en": "Linear algebra",
+                  "label_zh": "线性代数",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG2102",
+                    "UFUG2103"
+                  ]
+                },
+                {
+                  "key": "science",
+                  "label_en": "Science",
+                  "label_zh": "科学课程",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1301",
+                    "UFUG1302",
+                    "UFUG1401",
+                    "UFUG1501",
+                    "UFUG1503",
+                    "UFUG2106"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 10
-        },
-        {
-          "key": "fundamental_choices",
-          "name_en": "Fundamental Choice Courses",
-          "name_zh": "基础选项课程",
-          "category": "fundamental",
-          "min_credits": 12,
-          "min_courses": 4,
-          "rule": {"choices": ["UFUG1102", "UFUG1105", "UFUG1103", "UFUG1106", "UFUG2102", "UFUG2103", "UFUG1301", "UFUG1302", "UFUG1401", "UFUG1501", "UFUG1503", "UFUG2106"]},
-          "sort_order": 11
         },
         {
           "key": "major_required",
@@ -39,7 +99,34 @@
           "category": "major_required",
           "min_credits": 40,
           "min_courses": 13,
-          "rule": {"required_courses": ["AIAA1010", "DSAA2011", "DSAA2043", "AIAA2205", "AIAA2290", "AIAA2711", "DLED3020", "AIAA3102", "AIAA3111", "AIAA3201", "DLED4020", "AIAA4051", "AIAA4490"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "AIAA1010",
+                    "DSAA2011",
+                    "DSAA2043",
+                    "AIAA2205",
+                    "AIAA2290",
+                    "AIAA2711",
+                    "DLED3020",
+                    "AIAA3102",
+                    "AIAA3111",
+                    "AIAA3201",
+                    "DLED4020",
+                    "AIAA4051",
+                    "AIAA4490"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 20
         },
         {
@@ -49,20 +136,65 @@
           "category": "major_elective",
           "min_credits": 24,
           "min_courses": 8,
-          "rule": {"electives": ["UFUG2601", "DSAA1001", "DSAA2012", "AIAA2211", "AIAA3053", "AIAA3072", "AIAA3075", "AIAA3225", "AIAA3301", "AIAA3302", "AIAA3800", "AIAA4213", "AIAA4220", "AIAA4250", "AIAA4255", "AIAA4313", "AIAA4330", "AIAA4332", "AIAA4432", "AIAA4433", "AIAA4641", "AIAA4711", "AIAA4911"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "major_electives",
+                  "label_en": "Major electives",
+                  "label_zh": "专业选修",
+                  "type": "choose",
+                  "min_courses": 8,
+                  "courses": [
+                    "UFUG2601",
+                    "DSAA1001",
+                    "DSAA2012",
+                    "AIAA2211",
+                    "AIAA3053",
+                    "AIAA3072",
+                    "AIAA3075",
+                    "AIAA3225",
+                    "AIAA3301",
+                    "AIAA3302",
+                    "AIAA3800",
+                    "AIAA4213",
+                    "AIAA4220",
+                    "AIAA4250",
+                    "AIAA4255",
+                    "AIAA4313",
+                    "AIAA4330",
+                    "AIAA4332",
+                    "AIAA4432",
+                    "AIAA4433",
+                    "AIAA4641",
+                    "AIAA4711",
+                    "AIAA4911"
+                  ],
+                  "kind": "elective",
+                  "min_credits": 24
+                }
+              ]
+            }
+          },
           "sort_order": 30
         }
       ]
     },
     {
       "code": "AI",
-      "cohorts": ["2023", "2024"],
+      "cohorts": [
+        "2023",
+        "2024"
+      ],
       "name_en": "Artificial Intelligence",
       "name_zh": "人工智能",
       "total_min_credits": 120,
       "common_core_min_credits": 30,
       "major_min_credits": 85,
-      "home_areas": ["Information Hub"],
+      "home_areas": [
+        "Information Hub"
+      ],
       "source_file": "AI 23 24.pdf",
       "requirement_groups": [
         {
@@ -72,7 +204,81 @@
           "category": "fundamental",
           "min_credits": 21,
           "min_courses": 7,
-          "rule": {"required_courses": ["UFUG1601", "UFUG2104"], "choices": ["UFUG2601", "UFUG2602", "UFUG1102", "UFUG1105", "UFUG1103", "UFUG1106", "UFUG2102", "UFUG2103", "UFUG1301", "UFUG1302", "UFUG1401", "UFUG1501", "UFUG1503"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "UFUG1601",
+                    "UFUG2104"
+                  ]
+                },
+                {
+                  "key": "programming",
+                  "label_en": "Programming",
+                  "label_zh": "程序设计",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG2601",
+                    "UFUG2602"
+                  ]
+                },
+                {
+                  "key": "calculus_i",
+                  "label_en": "Calculus I",
+                  "label_zh": "微积分 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1102",
+                    "UFUG1105"
+                  ]
+                },
+                {
+                  "key": "calculus_ii",
+                  "label_en": "Calculus II",
+                  "label_zh": "微积分 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1103",
+                    "UFUG1106"
+                  ]
+                },
+                {
+                  "key": "linear_algebra",
+                  "label_en": "Linear algebra",
+                  "label_zh": "线性代数",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG2102",
+                    "UFUG2103"
+                  ]
+                },
+                {
+                  "key": "science",
+                  "label_en": "Science",
+                  "label_zh": "科学课程",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1301",
+                    "UFUG1302",
+                    "UFUG1401",
+                    "UFUG1501",
+                    "UFUG1503"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 10
         },
         {
@@ -82,7 +288,34 @@
           "category": "major_required",
           "min_credits": 40,
           "min_courses": 13,
-          "rule": {"required_courses": ["AIAA1010", "DSAA2011", "DSAA2043", "AIAA2205", "AIAA2290", "AIAA2711", "DLED3020", "AIAA3102", "AIAA3111", "AIAA3201", "DLED4020", "AIAA4051", "AIAA4490"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "AIAA1010",
+                    "DSAA2011",
+                    "DSAA2043",
+                    "AIAA2205",
+                    "AIAA2290",
+                    "AIAA2711",
+                    "DLED3020",
+                    "AIAA3102",
+                    "AIAA3111",
+                    "AIAA3201",
+                    "DLED4020",
+                    "AIAA4051",
+                    "AIAA4490"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 20
         },
         {
@@ -92,30 +325,165 @@
           "category": "major_elective",
           "min_credits": 24,
           "min_courses": 8,
-          "rule": {"electives": ["DSAA1001", "DSAA2012", "AIAA2211", "AIAA3053", "AIAA3072", "AIAA3075", "AIAA3225", "AIAA3301", "AIAA3302", "AIAA3800", "AIAA4213", "AIAA4220", "AIAA4250", "AIAA4255", "AIAA4313", "AIAA4330", "AIAA4332", "AIAA4432", "AIAA4435", "AIAA4641", "AIAA4711", "AIAA4911"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "major_electives",
+                  "label_en": "Major electives",
+                  "label_zh": "专业选修",
+                  "type": "choose",
+                  "min_courses": 8,
+                  "courses": [
+                    "DSAA1001",
+                    "DSAA2012",
+                    "AIAA2211",
+                    "AIAA3053",
+                    "AIAA3072",
+                    "AIAA3075",
+                    "AIAA3225",
+                    "AIAA3301",
+                    "AIAA3302",
+                    "AIAA3800",
+                    "AIAA4213",
+                    "AIAA4220",
+                    "AIAA4250",
+                    "AIAA4255",
+                    "AIAA4313",
+                    "AIAA4330",
+                    "AIAA4332",
+                    "AIAA4432",
+                    "AIAA4435",
+                    "AIAA4641",
+                    "AIAA4711",
+                    "AIAA4911"
+                  ],
+                  "kind": "elective",
+                  "min_credits": 24
+                }
+              ]
+            }
+          },
           "sort_order": 30
         }
       ]
     },
     {
       "code": "DSA",
-      "cohorts": ["2025", "2026"],
+      "cohorts": [
+        "2025",
+        "2026"
+      ],
       "name_en": "Data Science and Big Data Technology",
       "name_zh": "数据科学与大数据",
       "total_min_credits": 120,
       "common_core_min_credits": 30,
       "major_min_credits": 85,
-      "home_areas": ["Information Hub"],
+      "home_areas": [
+        "Information Hub"
+      ],
       "source_file": "DSA 25.pdf",
       "requirement_groups": [
         {
-          "key": "fundamental_choices",
+          "key": "fundamental_courses",
           "name_en": "Fundamental Courses",
           "name_zh": "基础课程",
           "category": "fundamental",
           "min_credits": 31,
           "min_courses": 10,
-          "rule": {"choices": ["UFUG1102", "UFUG1105", "UFUG1103", "UFUG1106", "UFUG1301", "UFUG1302", "UFUG1303", "UFUG1401", "UFUG1402", "UFUG1403", "UFUG1501", "UFUG1502", "UFUG1503", "UFUG1504", "UFUG1601", "UFUG1603", "UFUG2106", "DSAA2088", "UFUG2102", "UFUG2103", "UFUG2104", "UFUG2601", "UFUG2602"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "UFUG2104",
+                    "UFUG2601",
+                    "UFUG2602"
+                  ]
+                },
+                {
+                  "key": "calculus_i",
+                  "label_en": "Calculus I",
+                  "label_zh": "微积分 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1102",
+                    "UFUG1105"
+                  ]
+                },
+                {
+                  "key": "calculus_ii",
+                  "label_en": "Calculus II",
+                  "label_zh": "微积分 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1103",
+                    "UFUG1106"
+                  ]
+                },
+                {
+                  "key": "science",
+                  "label_en": "Science",
+                  "label_zh": "科学课程",
+                  "type": "choose",
+                  "min_courses": 2,
+                  "courses": [
+                    "UFUG1301",
+                    "UFUG1302",
+                    "UFUG1303",
+                    "UFUG1401",
+                    "UFUG1402",
+                    "UFUG1403",
+                    "UFUG1501",
+                    "UFUG1502",
+                    "UFUG1503",
+                    "UFUG1504"
+                  ]
+                },
+                {
+                  "key": "intro_cs",
+                  "label_en": "Introduction to computer science",
+                  "label_zh": "计算机科学导论",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1601",
+                    "UFUG1603"
+                  ]
+                },
+                {
+                  "key": "discrete_math",
+                  "label_en": "Discrete mathematics",
+                  "label_zh": "离散数学",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG2106",
+                    "DSAA2088"
+                  ]
+                },
+                {
+                  "key": "linear_algebra",
+                  "label_en": "Linear algebra",
+                  "label_zh": "线性代数",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG2102",
+                    "UFUG2103"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 10
         },
         {
@@ -125,7 +493,50 @@
           "category": "major_required",
           "min_credits": 30,
           "min_courses": 9,
-          "rule": {"required_courses": ["DSAA2012", "DSAA2031", "DSAA2043", "DSAA2044", "DLED3020", "DLED4020", "DSAA4591"], "choices": ["DSAA1001", "AIAA2205", "DSAA2011", "AIAA3111"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "DSAA2012",
+                    "DSAA2031",
+                    "DSAA2043",
+                    "DSAA2044",
+                    "DLED3020",
+                    "DLED4020",
+                    "DSAA4591"
+                  ]
+                },
+                {
+                  "key": "intro_major",
+                  "label_en": "Major introduction",
+                  "label_zh": "专业导论",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "DSAA1001",
+                    "AIAA2205"
+                  ]
+                },
+                {
+                  "key": "machine_learning",
+                  "label_en": "Machine learning",
+                  "label_zh": "机器学习",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "DSAA2011",
+                    "AIAA3111"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 20
         },
         {
@@ -135,7 +546,55 @@
           "category": "major_elective",
           "min_credits": 24,
           "min_courses": 8,
-          "rule": {"electives": ["DSAA1001", "DSAA1085", "DSAA2011", "DSAA2042", "DSAA2049", "DSAA2088", "DSAA3032", "DSAA3041", "DSAA3051", "DSAA3052", "DSAA3053", "DSAA3055", "DSAA3070", "DSAA3071", "DSAA3072", "DSAA3073", "DSAA3074", "DSAA4011", "DSAA4012", "DSAA4018", "DSAA4019", "DSAA4031", "DSAA4032", "DSAA4040", "DSAA4070", "DSAA4086", "AIAA2205", "AIAA2290", "AIAA3111", "FTEC3130", "FTEC4280"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "major_electives",
+                  "label_en": "Major electives",
+                  "label_zh": "专业选修",
+                  "type": "choose",
+                  "min_courses": 8,
+                  "courses": [
+                    "DSAA1001",
+                    "DSAA1085",
+                    "DSAA2011",
+                    "DSAA2042",
+                    "DSAA2049",
+                    "DSAA2088",
+                    "DSAA3032",
+                    "DSAA3041",
+                    "DSAA3051",
+                    "DSAA3052",
+                    "DSAA3053",
+                    "DSAA3055",
+                    "DSAA3070",
+                    "DSAA3071",
+                    "DSAA3072",
+                    "DSAA3073",
+                    "DSAA3074",
+                    "DSAA4011",
+                    "DSAA4012",
+                    "DSAA4018",
+                    "DSAA4019",
+                    "DSAA4031",
+                    "DSAA4032",
+                    "DSAA4040",
+                    "DSAA4070",
+                    "DSAA4086",
+                    "AIAA2205",
+                    "AIAA2290",
+                    "AIAA3111",
+                    "FTEC3130",
+                    "FTEC4280"
+                  ],
+                  "kind": "elective",
+                  "min_credits": 24
+                }
+              ]
+            }
+          },
           "sort_order": 30
         }
       ]
@@ -148,7 +607,9 @@
       "total_min_credits": 120,
       "common_core_min_credits": 30,
       "major_min_credits": 85,
-      "home_areas": ["Information Hub"],
+      "home_areas": [
+        "Information Hub"
+      ],
       "source_file": "DSA 24.pdf",
       "requirement_groups": [
         {
@@ -158,7 +619,109 @@
           "category": "fundamental",
           "min_credits": 31,
           "min_courses": 10,
-          "rule": {"required_courses": ["UFUG2104", "UFUG2601"], "choices": ["UFUG1102", "UFUG1105", "UFUG1103", "UFUG1106", "UFUG1301", "UFUG1302", "UFUG1303", "UFUG1401", "UFUG1402", "UFUG1403", "UFUG1501", "UFUG1502", "UFUG1503", "UFUG1504", "UFUG1601", "UFUG1603", "UFUG1701", "UFUG1801", "UFUG1811", "UFUG2106", "DSAA2088", "UFUG2102", "UFUG2103"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "UFUG2104",
+                    "UFUG2601"
+                  ]
+                },
+                {
+                  "key": "calculus_i",
+                  "label_en": "Calculus I",
+                  "label_zh": "微积分 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1102",
+                    "UFUG1105"
+                  ]
+                },
+                {
+                  "key": "calculus_ii",
+                  "label_en": "Calculus II",
+                  "label_zh": "微积分 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1103",
+                    "UFUG1106"
+                  ]
+                },
+                {
+                  "key": "science",
+                  "label_en": "Science",
+                  "label_zh": "科学课程",
+                  "type": "choose",
+                  "min_courses": 2,
+                  "courses": [
+                    "UFUG1301",
+                    "UFUG1302",
+                    "UFUG1303",
+                    "UFUG1401",
+                    "UFUG1402",
+                    "UFUG1403",
+                    "UFUG1501",
+                    "UFUG1502",
+                    "UFUG1503",
+                    "UFUG1504"
+                  ]
+                },
+                {
+                  "key": "intro_cs",
+                  "label_en": "Introduction to computer science",
+                  "label_zh": "计算机科学导论",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1601",
+                    "UFUG1603"
+                  ]
+                },
+                {
+                  "key": "interdisciplinary",
+                  "label_en": "Interdisciplinary course",
+                  "label_zh": "跨学科课程",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1701",
+                    "UFUG1801",
+                    "UFUG1811"
+                  ]
+                },
+                {
+                  "key": "discrete_math",
+                  "label_en": "Discrete mathematics",
+                  "label_zh": "离散数学",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG2106",
+                    "DSAA2088"
+                  ]
+                },
+                {
+                  "key": "linear_algebra",
+                  "label_en": "Linear algebra",
+                  "label_zh": "线性代数",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG2102",
+                    "UFUG2103"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 10
         },
         {
@@ -168,7 +731,50 @@
           "category": "major_required",
           "min_credits": 30,
           "min_courses": 9,
-          "rule": {"required_courses": ["DSAA2012", "DSAA2031", "DSAA2043", "DSAA2044", "DLED3020", "DLED4020", "DSAA4591"], "choices": ["DSAA1001", "AIAA2205", "DSAA2011", "AIAA3111"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "DSAA2012",
+                    "DSAA2031",
+                    "DSAA2043",
+                    "DSAA2044",
+                    "DLED3020",
+                    "DLED4020",
+                    "DSAA4591"
+                  ]
+                },
+                {
+                  "key": "intro_major",
+                  "label_en": "Major introduction",
+                  "label_zh": "专业导论",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "DSAA1001",
+                    "AIAA2205"
+                  ]
+                },
+                {
+                  "key": "machine_learning",
+                  "label_en": "Machine learning",
+                  "label_zh": "机器学习",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "DSAA2011",
+                    "AIAA3111"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 20
         },
         {
@@ -178,7 +784,55 @@
           "category": "major_elective",
           "min_credits": 24,
           "min_courses": 8,
-          "rule": {"electives": ["DSAA1001", "DSAA1085", "DSAA2011", "DSAA2042", "DSAA2049", "DSAA2088", "DSAA3032", "DSAA3041", "DSAA3051", "DSAA3052", "DSAA3053", "DSAA3055", "DSAA3070", "DSAA3071", "DSAA3072", "DSAA3073", "DSAA3074", "DSAA4011", "DSAA4012", "DSAA4018", "DSAA4019", "DSAA4031", "DSAA4032", "DSAA4040", "DSAA4070", "DSAA4086", "AIAA2205", "AIAA2290", "AIAA3111", "FTEC3130", "FTEC4280"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "major_electives",
+                  "label_en": "Major electives",
+                  "label_zh": "专业选修",
+                  "type": "choose",
+                  "min_courses": 8,
+                  "courses": [
+                    "DSAA1001",
+                    "DSAA1085",
+                    "DSAA2011",
+                    "DSAA2042",
+                    "DSAA2049",
+                    "DSAA2088",
+                    "DSAA3032",
+                    "DSAA3041",
+                    "DSAA3051",
+                    "DSAA3052",
+                    "DSAA3053",
+                    "DSAA3055",
+                    "DSAA3070",
+                    "DSAA3071",
+                    "DSAA3072",
+                    "DSAA3073",
+                    "DSAA3074",
+                    "DSAA4011",
+                    "DSAA4012",
+                    "DSAA4018",
+                    "DSAA4019",
+                    "DSAA4031",
+                    "DSAA4032",
+                    "DSAA4040",
+                    "DSAA4070",
+                    "DSAA4086",
+                    "AIAA2205",
+                    "AIAA2290",
+                    "AIAA3111",
+                    "FTEC3130",
+                    "FTEC4280"
+                  ],
+                  "kind": "elective",
+                  "min_credits": 24
+                }
+              ]
+            }
+          },
           "sort_order": 30
         }
       ]
@@ -191,7 +845,9 @@
       "total_min_credits": 120,
       "common_core_min_credits": 30,
       "major_min_credits": 85,
-      "home_areas": ["Information Hub"],
+      "home_areas": [
+        "Information Hub"
+      ],
       "source_file": "Curriculum Requirements - DSBD - 2023 cohort.pdf",
       "requirement_groups": [
         {
@@ -201,7 +857,86 @@
           "category": "fundamental",
           "min_credits": 31,
           "min_courses": 10,
-          "rule": {"required_courses": ["UFUG1601", "UFUG2601", "UFUG2103", "UFUG2104"], "choices": ["UFUG1102", "UFUG1105", "UFUG1103", "UFUG1106", "UFUG1301", "UFUG1302", "UFUG1401", "UFUG1501", "UFUG1502", "UFUG1503", "UFUG1504", "UFUG1701", "UFUG1801", "UFUG1811", "UFUG2106", "DSAA2088"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "UFUG1601",
+                    "UFUG2601",
+                    "UFUG2103",
+                    "UFUG2104"
+                  ]
+                },
+                {
+                  "key": "calculus_i",
+                  "label_en": "Calculus I",
+                  "label_zh": "微积分 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1102",
+                    "UFUG1105"
+                  ]
+                },
+                {
+                  "key": "calculus_ii",
+                  "label_en": "Calculus II",
+                  "label_zh": "微积分 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1103",
+                    "UFUG1106"
+                  ]
+                },
+                {
+                  "key": "science",
+                  "label_en": "Science",
+                  "label_zh": "科学课程",
+                  "type": "choose",
+                  "min_courses": 2,
+                  "courses": [
+                    "UFUG1301",
+                    "UFUG1302",
+                    "UFUG1401",
+                    "UFUG1501",
+                    "UFUG1502",
+                    "UFUG1503",
+                    "UFUG1504"
+                  ]
+                },
+                {
+                  "key": "interdisciplinary",
+                  "label_en": "Interdisciplinary course",
+                  "label_zh": "跨学科课程",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1701",
+                    "UFUG1801",
+                    "UFUG1811"
+                  ]
+                },
+                {
+                  "key": "discrete_math",
+                  "label_en": "Discrete mathematics",
+                  "label_zh": "离散数学",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG2106",
+                    "DSAA2088"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 10
         },
         {
@@ -211,7 +946,50 @@
           "category": "major_required",
           "min_credits": 30,
           "min_courses": 9,
-          "rule": {"required_courses": ["DSAA2012", "DSAA2031", "DSAA2043", "DSAA2044", "DLED3020", "DLED4020", "DSAA4591"], "choices": ["DSAA1001", "AIAA2205", "DSAA2011", "AIAA3111"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "DSAA2012",
+                    "DSAA2031",
+                    "DSAA2043",
+                    "DSAA2044",
+                    "DLED3020",
+                    "DLED4020",
+                    "DSAA4591"
+                  ]
+                },
+                {
+                  "key": "intro_major",
+                  "label_en": "Major introduction",
+                  "label_zh": "专业导论",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "DSAA1001",
+                    "AIAA2205"
+                  ]
+                },
+                {
+                  "key": "machine_learning",
+                  "label_en": "Machine learning",
+                  "label_zh": "机器学习",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "DSAA2011",
+                    "AIAA3111"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 20
         },
         {
@@ -221,7 +999,55 @@
           "category": "major_elective",
           "min_credits": 24,
           "min_courses": 8,
-          "rule": {"electives": ["DSAA1001", "DSAA1085", "DSAA2011", "DSAA2042", "DSAA2049", "DSAA2088", "AIAA2205", "AIAA2290", "DSAA3032", "DSAA3041", "DSAA3051", "DSAA3052", "DSAA3053", "DSAA3055", "DSAA3070", "DSAA3071", "DSAA3072", "DSAA3073", "DSAA3074", "AIAA3111", "FTEC3130", "DSAA4011", "DSAA4012", "DSAA4018", "DSAA4019", "DSAA4031", "DSAA4032", "DSAA4040", "DSAA4070", "DSAA4086", "FTEC4280"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "major_electives",
+                  "label_en": "Major electives",
+                  "label_zh": "专业选修",
+                  "type": "choose",
+                  "min_courses": 8,
+                  "courses": [
+                    "DSAA1001",
+                    "DSAA1085",
+                    "DSAA2011",
+                    "DSAA2042",
+                    "DSAA2049",
+                    "DSAA2088",
+                    "AIAA2205",
+                    "AIAA2290",
+                    "DSAA3032",
+                    "DSAA3041",
+                    "DSAA3051",
+                    "DSAA3052",
+                    "DSAA3053",
+                    "DSAA3055",
+                    "DSAA3070",
+                    "DSAA3071",
+                    "DSAA3072",
+                    "DSAA3073",
+                    "DSAA3074",
+                    "AIAA3111",
+                    "FTEC3130",
+                    "DSAA4011",
+                    "DSAA4012",
+                    "DSAA4018",
+                    "DSAA4019",
+                    "DSAA4031",
+                    "DSAA4032",
+                    "DSAA4040",
+                    "DSAA4070",
+                    "DSAA4086",
+                    "FTEC4280"
+                  ],
+                  "kind": "elective",
+                  "min_credits": 24
+                }
+              ]
+            }
+          },
           "sort_order": 30
         }
       ]
@@ -234,7 +1060,9 @@
       "total_min_credits": 120,
       "common_core_min_credits": 30,
       "major_min_credits": 90,
-      "home_areas": ["Function Hub"],
+      "home_areas": [
+        "Function Hub"
+      ],
       "source_file": "AMAT Curriculum Updated.pdf",
       "requirement_groups": [
         {
@@ -244,7 +1072,93 @@
           "category": "fundamental",
           "min_credits": 33,
           "min_courses": 11,
-          "rule": {"required_courses": ["UFUG1302", "UFUG1303", "UFUG1401", "UFUG2101", "UFUG2104"], "choices": ["UFUG1601", "UFUG1602", "UFUG2601", "UFUG1102", "UFUG1105", "UFUG1103", "UFUG1106", "UFUG1501", "UFUG1503", "UFUG1502", "UFUG1504", "UFUG2102", "UFUG2103"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "UFUG1302",
+                    "UFUG1303",
+                    "UFUG1401",
+                    "UFUG2101",
+                    "UFUG2104"
+                  ]
+                },
+                {
+                  "key": "programming",
+                  "label_en": "Programming",
+                  "label_zh": "程序设计",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1601",
+                    "UFUG1602",
+                    "UFUG2601"
+                  ]
+                },
+                {
+                  "key": "calculus_i",
+                  "label_en": "Calculus I",
+                  "label_zh": "微积分 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1102",
+                    "UFUG1105"
+                  ]
+                },
+                {
+                  "key": "calculus_ii",
+                  "label_en": "Calculus II",
+                  "label_zh": "微积分 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1103",
+                    "UFUG1106"
+                  ]
+                },
+                {
+                  "key": "physics_i",
+                  "label_en": "Physics I",
+                  "label_zh": "物理 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1501",
+                    "UFUG1503"
+                  ]
+                },
+                {
+                  "key": "physics_ii",
+                  "label_en": "Physics II",
+                  "label_zh": "物理 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1502",
+                    "UFUG1504"
+                  ]
+                },
+                {
+                  "key": "linear_algebra",
+                  "label_en": "Linear algebra",
+                  "label_zh": "线性代数",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG2102",
+                    "UFUG2103"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 10
         },
         {
@@ -254,7 +1168,44 @@
           "category": "major_required",
           "min_credits": 37,
           "min_courses": 13,
-          "rule": {"required_courses": ["AMAT1010", "AMAT2010", "AMAT2020", "AMAT2030", "AMAT2040", "AMAT2050", "AMAT2150", "AMAT2250", "AMAT2450", "DLED3010", "AMAT3060", "DLED4010"], "choices": ["AMAT4901", "AMAT4095"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "AMAT1010",
+                    "AMAT2010",
+                    "AMAT2020",
+                    "AMAT2030",
+                    "AMAT2040",
+                    "AMAT2050",
+                    "AMAT2150",
+                    "AMAT2250",
+                    "AMAT2450",
+                    "DLED3010",
+                    "AMAT3060",
+                    "DLED4010"
+                  ]
+                },
+                {
+                  "key": "capstone",
+                  "label_en": "Capstone",
+                  "label_zh": "毕业设计",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "AMAT4901",
+                    "AMAT4095"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 20
         },
         {
@@ -264,7 +1215,41 @@
           "category": "major_elective",
           "min_credits": 15,
           "min_courses": 5,
-          "rule": {"electives": ["AMAT1510", "AMAT2320", "AMAT2380", "AMAT3330", "AMAT3340", "AMAT3350", "AMAT3360", "AMAT3370", "AMAT3520", "AMAT3530", "AMAT3590", "AMAT3820", "AMAT4540", "AMAT4560", "AMAT4570", "AMAT4580", "AMAT4810"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "major_electives",
+                  "label_en": "Major electives",
+                  "label_zh": "专业选修",
+                  "type": "choose",
+                  "min_courses": 5,
+                  "courses": [
+                    "AMAT1510",
+                    "AMAT2320",
+                    "AMAT2380",
+                    "AMAT3330",
+                    "AMAT3340",
+                    "AMAT3350",
+                    "AMAT3360",
+                    "AMAT3370",
+                    "AMAT3520",
+                    "AMAT3530",
+                    "AMAT3590",
+                    "AMAT3820",
+                    "AMAT4540",
+                    "AMAT4560",
+                    "AMAT4570",
+                    "AMAT4580",
+                    "AMAT4810"
+                  ],
+                  "kind": "elective",
+                  "min_credits": 15
+                }
+              ]
+            }
+          },
           "sort_order": 30
         }
       ]
@@ -277,7 +1262,9 @@
       "total_min_credits": 120,
       "common_core_min_credits": 30,
       "major_min_credits": 85,
-      "home_areas": ["Function Hub"],
+      "home_areas": [
+        "Function Hub"
+      ],
       "source_file": "Curriculum Requirement - MSE - 2024 cohort - updated on May 19.pdf",
       "requirement_groups": [
         {
@@ -287,7 +1274,103 @@
           "category": "fundamental",
           "min_credits": 33,
           "min_courses": 11,
-          "rule": {"required_courses": ["UFUG1401", "UFUG2101", "UFUG2104"], "choices": ["UFUG1601", "UFUG1603", "UFUG2601", "UFUG1102", "UFUG1105", "UFUG1103", "UFUG1106", "UFUG1301", "UFUG1302", "UFUG1303", "UFUG1501", "UFUG1503", "UFUG1502", "UFUG1504", "UFUG2102", "UFUG2103"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "UFUG1303",
+                    "UFUG1401",
+                    "UFUG2101",
+                    "UFUG2104"
+                  ]
+                },
+                {
+                  "key": "programming",
+                  "label_en": "Programming",
+                  "label_zh": "程序设计",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1601",
+                    "UFUG1603",
+                    "UFUG2601"
+                  ]
+                },
+                {
+                  "key": "calculus_i",
+                  "label_en": "Calculus I",
+                  "label_zh": "微积分 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1102",
+                    "UFUG1105"
+                  ]
+                },
+                {
+                  "key": "calculus_ii",
+                  "label_en": "Calculus II",
+                  "label_zh": "微积分 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1103",
+                    "UFUG1106"
+                  ]
+                },
+                {
+                  "key": "chemistry",
+                  "label_en": "Chemistry",
+                  "label_zh": "化学",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1301",
+                    "UFUG1302"
+                  ]
+                },
+                {
+                  "key": "physics_i",
+                  "label_en": "Physics I",
+                  "label_zh": "物理 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1501",
+                    "UFUG1503"
+                  ]
+                },
+                {
+                  "key": "physics_ii",
+                  "label_en": "Physics II",
+                  "label_zh": "物理 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1502",
+                    "UFUG1504"
+                  ]
+                },
+                {
+                  "key": "linear_algebra",
+                  "label_en": "Linear algebra",
+                  "label_zh": "线性代数",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG2102",
+                    "UFUG2103"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 10
         },
         {
@@ -297,7 +1380,44 @@
           "category": "major_required",
           "min_credits": 37,
           "min_courses": 13,
-          "rule": {"required_courses": ["AMAT1010", "AMAT2010", "AMAT2020", "AMAT2030", "AMAT2040", "AMAT2150", "AMAT2250", "AMAT2450", "AMAT3350", "AMAT3520", "DLED3010", "DLED4010"], "choices": ["AMAT4901", "AMAT4095"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "AMAT1010",
+                    "AMAT2010",
+                    "AMAT2020",
+                    "AMAT2030",
+                    "AMAT2040",
+                    "AMAT2150",
+                    "AMAT2250",
+                    "AMAT2450",
+                    "AMAT3350",
+                    "AMAT3520",
+                    "DLED3010",
+                    "DLED4010"
+                  ]
+                },
+                {
+                  "key": "capstone",
+                  "label_en": "Capstone",
+                  "label_zh": "毕业设计",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "AMAT4901",
+                    "AMAT4095"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 20
         },
         {
@@ -307,20 +1427,66 @@
           "category": "major_elective",
           "min_credits": 15,
           "min_courses": 5,
-          "rule": {"electives": ["AMAT1510", "AMAT2050", "AMAT2320", "AMAT2380", "AMAT3060", "AMAT3330", "AMAT3340", "AMAT3360", "AMAT3370", "AMAT3530", "AMAT3590", "AMAT3820", "AMAT4540", "AMAT4560", "AMAT4570", "AMAT4580", "AMAT4810"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "major_electives",
+                  "label_en": "Major electives",
+                  "label_zh": "专业选修",
+                  "type": "choose",
+                  "min_courses": 5,
+                  "courses": [
+                    "AMAT1510",
+                    "AMAT2050",
+                    "AMAT2320",
+                    "AMAT2380",
+                    "AMAT3060",
+                    "AMAT3330",
+                    "AMAT3340",
+                    "AMAT3360",
+                    "AMAT3370",
+                    "AMAT3530",
+                    "AMAT3590",
+                    "AMAT3820",
+                    "AMAT4540",
+                    "AMAT4560",
+                    "AMAT4570",
+                    "AMAT4580",
+                    "AMAT4810"
+                  ],
+                  "kind": "elective",
+                  "min_credits": 15,
+                  "constraints": [
+                    {
+                      "type": "course_prefix",
+                      "value": "AMAT",
+                      "min_courses": 4
+                    }
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 30
         }
       ]
     },
     {
       "code": "SMMG",
-      "cohorts": ["2025", "2026"],
+      "cohorts": [
+        "2025",
+        "2026"
+      ],
       "name_en": "Smart Manufacturing Engineering",
       "name_zh": "智能制造工程",
       "total_min_credits": 120,
       "common_core_min_credits": 30,
       "major_min_credits": 85,
-      "home_areas": ["Systems Hub"],
+      "home_areas": [
+        "Systems Hub"
+      ],
       "source_file": "SMMG 25.pdf",
       "requirement_groups": [
         {
@@ -330,7 +1496,115 @@
           "category": "fundamental",
           "min_credits": 27,
           "min_courses": 9,
-          "rule": {"required_courses": ["UFUG1801"], "choices": ["UFUG1601", "UFUG1602", "UFUG1603", "UFUG2601", "UFUG2602", "UFUG2603", "UFUG2101", "UFUG1301", "UFUG1302", "UFUG1401", "UFUG1403", "UFUG1501", "UFUG1503", "UFUG1502", "UFUG1504", "UFUG1102", "UFUG1105", "UFUG1103", "UFUG1106", "UFUG2102", "UFUG2103"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "UFUG1801"
+                  ]
+                },
+                {
+                  "key": "intro_programming",
+                  "label_en": "Introductory programming",
+                  "label_zh": "程序设计基础",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1601",
+                    "UFUG1602",
+                    "UFUG1603",
+                    "UFUG2601"
+                  ]
+                },
+                {
+                  "key": "advanced_programming",
+                  "label_en": "Advanced programming",
+                  "label_zh": "进阶程序设计",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG2602",
+                    "UFUG2603",
+                    "UFUG2101"
+                  ]
+                },
+                {
+                  "key": "science",
+                  "label_en": "Science",
+                  "label_zh": "科学课程",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1301",
+                    "UFUG1302",
+                    "UFUG1401",
+                    "UFUG1403"
+                  ]
+                },
+                {
+                  "key": "physics_i",
+                  "label_en": "Physics I",
+                  "label_zh": "物理 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1501",
+                    "UFUG1503"
+                  ]
+                },
+                {
+                  "key": "physics_ii",
+                  "label_en": "Physics II",
+                  "label_zh": "物理 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1502",
+                    "UFUG1504"
+                  ]
+                },
+                {
+                  "key": "calculus_i",
+                  "label_en": "Calculus I",
+                  "label_zh": "微积分 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1102",
+                    "UFUG1105"
+                  ]
+                },
+                {
+                  "key": "calculus_ii",
+                  "label_en": "Calculus II",
+                  "label_zh": "微积分 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1103",
+                    "UFUG1106"
+                  ]
+                },
+                {
+                  "key": "linear_algebra",
+                  "label_en": "Linear algebra",
+                  "label_zh": "线性代数",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG2102",
+                    "UFUG2103"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 10
         },
         {
@@ -340,7 +1614,64 @@
           "category": "major_required",
           "min_credits": 40,
           "min_courses": 13,
-          "rule": {"required_courses": ["DLED3040", "SMMG3020", "SMMG3040", "SMMG3050", "SMMG3080", "SMMG3810", "SMMG3820", "SMMG4020", "SMMG4030", "DLED4040"], "choices": ["SMMG3000", "SMMG3010", "DSAA1085", "UFUG2104", "SMMG4901", "SMMG4960"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "DLED3040",
+                    "SMMG3020",
+                    "SMMG3040",
+                    "SMMG3050",
+                    "SMMG3080",
+                    "SMMG3810",
+                    "SMMG3820",
+                    "SMMG4020",
+                    "SMMG4030",
+                    "DLED4040"
+                  ]
+                },
+                {
+                  "key": "training",
+                  "label_en": "Professional training",
+                  "label_zh": "专业训练",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "SMMG3000",
+                    "SMMG3010"
+                  ]
+                },
+                {
+                  "key": "probability",
+                  "label_en": "Probability",
+                  "label_zh": "概率论",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "DSAA1085",
+                    "UFUG2104"
+                  ]
+                },
+                {
+                  "key": "capstone",
+                  "label_en": "Capstone",
+                  "label_zh": "毕业设计",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "SMMG4901",
+                    "SMMG4960"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 20
         },
         {
@@ -349,21 +1680,58 @@
           "name_zh": "专业选修课程",
           "category": "major_elective",
           "min_credits": 18,
-          "min_courses": 6,
-          "rule": {"electives": ["DSAA1001", "DSAA2011", "AIAA2205", "SMMG2030", "SMMG2640", "SMMG3030", "SMMG3060", "SMMG3690", "SMMG4010", "SMMG4040", "SMMG4610", "SMMG4620", "SMMG4630", "SMMG4640", "SMMG4650", "SMMG4660"]},
+          "min_courses": null,
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "major_electives",
+                  "label_en": "Major electives",
+                  "label_zh": "专业选修",
+                  "type": "choose",
+                  "courses": [
+                    "DSAA1001",
+                    "DSAA2011",
+                    "AIAA2205",
+                    "SMMG2030",
+                    "SMMG2640",
+                    "SMMG3030",
+                    "SMMG3060",
+                    "SMMG3690",
+                    "SMMG4010",
+                    "SMMG4040",
+                    "SMMG4610",
+                    "SMMG4620",
+                    "SMMG4630",
+                    "SMMG4640",
+                    "SMMG4650",
+                    "SMMG4660"
+                  ],
+                  "kind": "elective",
+                  "min_credits": 18
+                }
+              ]
+            }
+          },
           "sort_order": 30
         }
       ]
     },
     {
       "code": "SMMG",
-      "cohorts": ["2023", "2024"],
+      "cohorts": [
+        "2023",
+        "2024"
+      ],
       "name_en": "Smart Manufacturing Engineering",
       "name_zh": "智能制造工程",
       "total_min_credits": 120,
       "common_core_min_credits": 30,
       "major_min_credits": 89,
-      "home_areas": ["Systems Hub"],
+      "home_areas": [
+        "Systems Hub"
+      ],
       "source_file": "SMMG 23 24.pdf",
       "requirement_groups": [
         {
@@ -373,7 +1741,102 @@
           "category": "fundamental",
           "min_credits": 30,
           "min_courses": 10,
-          "rule": {"required_courses": ["UFUG2101", "UFUG1403", "UFUG1801"], "choices": ["UFUG1601", "UFUG1602", "UFUG2601", "UFUG1301", "UFUG1302", "UFUG1501", "UFUG1503", "UFUG1502", "UFUG1504", "UFUG1102", "UFUG1105", "UFUG1103", "UFUG1106", "UFUG2102", "UFUG2103"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "UFUG2101",
+                    "UFUG1403",
+                    "UFUG1801"
+                  ]
+                },
+                {
+                  "key": "programming",
+                  "label_en": "Programming",
+                  "label_zh": "程序设计",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1601",
+                    "UFUG1602",
+                    "UFUG2601"
+                  ]
+                },
+                {
+                  "key": "chemistry",
+                  "label_en": "Chemistry",
+                  "label_zh": "化学",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1301",
+                    "UFUG1302"
+                  ]
+                },
+                {
+                  "key": "physics_i",
+                  "label_en": "Physics I",
+                  "label_zh": "物理 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1501",
+                    "UFUG1503"
+                  ]
+                },
+                {
+                  "key": "physics_ii",
+                  "label_en": "Physics II",
+                  "label_zh": "物理 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1502",
+                    "UFUG1504"
+                  ]
+                },
+                {
+                  "key": "calculus_i",
+                  "label_en": "Calculus I",
+                  "label_zh": "微积分 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1102",
+                    "UFUG1105"
+                  ]
+                },
+                {
+                  "key": "calculus_ii",
+                  "label_en": "Calculus II",
+                  "label_zh": "微积分 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1103",
+                    "UFUG1106"
+                  ]
+                },
+                {
+                  "key": "linear_algebra",
+                  "label_en": "Linear algebra",
+                  "label_zh": "线性代数",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG2102",
+                    "UFUG2103"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 10
         },
         {
@@ -383,7 +1846,54 @@
           "category": "major_required",
           "min_credits": 39,
           "min_courses": 13,
-          "rule": {"required_courses": ["DSAA1085", "DLED3040", "SMMG3020", "SMMG3040", "SMMG3050", "SMMG3810", "SMMG3820", "SMMG4010", "SMMG4020", "SMMG4030", "DLED4040"], "choices": ["SMMG3000", "SMMG3010", "SMMG4901", "SMMG4960"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "DSAA1085",
+                    "DLED3040",
+                    "SMMG3020",
+                    "SMMG3040",
+                    "SMMG3050",
+                    "SMMG3810",
+                    "SMMG3820",
+                    "SMMG4010",
+                    "SMMG4020",
+                    "SMMG4030",
+                    "DLED4040"
+                  ]
+                },
+                {
+                  "key": "training",
+                  "label_en": "Professional training",
+                  "label_zh": "专业训练",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "SMMG3000",
+                    "SMMG3010"
+                  ]
+                },
+                {
+                  "key": "capstone",
+                  "label_en": "Capstone",
+                  "label_zh": "毕业设计",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "SMMG4901",
+                    "SMMG4960"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 20
         },
         {
@@ -392,8 +1902,40 @@
           "name_zh": "专业选修课程",
           "category": "major_elective",
           "min_credits": 18,
-          "min_courses": 6,
-          "rule": {"electives": ["DSAA1001", "DSAA2011", "AIAA2205", "SMMG2030", "SMMG2640", "SMMG3030", "SMMG3060", "SMMG3080", "SMMG3690", "SMMG4040", "SMMG4610", "SMMG4620", "SMMG4630", "SMMG4640", "SMMG4650", "SMMG4660"]},
+          "min_courses": null,
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "major_electives",
+                  "label_en": "Major electives",
+                  "label_zh": "专业选修",
+                  "type": "choose",
+                  "courses": [
+                    "DSAA1001",
+                    "DSAA2011",
+                    "AIAA2205",
+                    "SMMG2030",
+                    "SMMG2640",
+                    "SMMG3030",
+                    "SMMG3060",
+                    "SMMG3080",
+                    "SMMG3690",
+                    "SMMG4040",
+                    "SMMG4610",
+                    "SMMG4620",
+                    "SMMG4630",
+                    "SMMG4640",
+                    "SMMG4650",
+                    "SMMG4660"
+                  ],
+                  "kind": "elective",
+                  "min_credits": 18
+                }
+              ]
+            }
+          },
           "sort_order": 30
         }
       ]
@@ -406,7 +1948,9 @@
       "total_min_credits": 120,
       "common_core_min_credits": 30,
       "major_min_credits": 86,
-      "home_areas": ["Society Hub"],
+      "home_areas": [
+        "Society Hub"
+      ],
       "source_file": "FTEC 25.pdf",
       "requirement_groups": [
         {
@@ -416,7 +1960,59 @@
           "category": "fundamental",
           "min_credits": 24,
           "min_courses": 8,
-          "rule": {"required_courses": ["UFUG1601", "UFUG2101", "UFUG2103", "UFUG2105", "UFUG2106"], "choices": ["UFUG1102", "UFUG1105", "UFUG1103", "UFUG1106", "UFUG1602", "UFUG2601"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "UFUG1601",
+                    "UFUG2101",
+                    "UFUG2103",
+                    "UFUG2105",
+                    "UFUG2106"
+                  ]
+                },
+                {
+                  "key": "calculus_i",
+                  "label_en": "Calculus I",
+                  "label_zh": "微积分 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1102",
+                    "UFUG1105"
+                  ]
+                },
+                {
+                  "key": "calculus_ii",
+                  "label_en": "Calculus II",
+                  "label_zh": "微积分 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1103",
+                    "UFUG1106"
+                  ]
+                },
+                {
+                  "key": "programming",
+                  "label_en": "Programming",
+                  "label_zh": "程序设计",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1602",
+                    "UFUG2601"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 10
         },
         {
@@ -426,7 +2022,36 @@
           "category": "major_required",
           "min_credits": 47,
           "min_courses": 15,
-          "rule": {"required_courses": ["FTEC1010", "FTEC2120", "FTEC3110", "FTEC3130", "FTEC3210", "FTEC3220", "FTEC3310", "FTEC3320", "FTEC3330", "FTEC4210", "FTEC4310", "FTEC4910", "DSAA2011", "DLED3030", "DLED4030"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "FTEC1010",
+                    "FTEC2120",
+                    "FTEC3110",
+                    "FTEC3130",
+                    "FTEC3210",
+                    "FTEC3220",
+                    "FTEC3310",
+                    "FTEC3320",
+                    "FTEC3330",
+                    "FTEC4210",
+                    "FTEC4310",
+                    "FTEC4910",
+                    "DSAA2011",
+                    "DLED3030",
+                    "DLED4030"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 20
         },
         {
@@ -436,7 +2061,46 @@
           "category": "major_elective",
           "min_credits": 15,
           "min_courses": 5,
-          "rule": {"electives": ["FTEC2320", "FTEC2330", "FTEC3120", "FTEC3140", "FTEC3340", "FTEC4110", "FTEC4220", "FTEC4230", "FTEC4240", "FTEC4250", "FTEC4260", "FTEC4270", "FTEC4280", "FTEC4320", "FTEC4330", "FTEC4340", "FTEC4350", "FTEC4360", "FTEC4410", "FTEC4420", "FTEC4430", "FTEC4510"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "major_electives",
+                  "label_en": "Major electives",
+                  "label_zh": "专业选修",
+                  "type": "choose",
+                  "min_courses": 5,
+                  "courses": [
+                    "FTEC2320",
+                    "FTEC2330",
+                    "FTEC3120",
+                    "FTEC3140",
+                    "FTEC3340",
+                    "FTEC4110",
+                    "FTEC4220",
+                    "FTEC4230",
+                    "FTEC4240",
+                    "FTEC4250",
+                    "FTEC4260",
+                    "FTEC4270",
+                    "FTEC4280",
+                    "FTEC4320",
+                    "FTEC4330",
+                    "FTEC4340",
+                    "FTEC4350",
+                    "FTEC4360",
+                    "FTEC4410",
+                    "FTEC4420",
+                    "FTEC4430",
+                    "FTEC4510"
+                  ],
+                  "kind": "elective",
+                  "min_credits": 15
+                }
+              ]
+            }
+          },
           "sort_order": 30
         }
       ]
@@ -449,7 +2113,9 @@
       "total_min_credits": 120,
       "common_core_min_credits": 30,
       "major_min_credits": 86,
-      "home_areas": ["Systems Hub"],
+      "home_areas": [
+        "Systems Hub"
+      ],
       "source_file": "ROAS 25.pdf",
       "requirement_groups": [
         {
@@ -459,7 +2125,90 @@
           "category": "fundamental",
           "min_credits": 27,
           "min_courses": 9,
-          "rule": {"required_courses": ["UFUG1601", "UFUG2101", "UFUG2104"], "choices": ["UFUG2601", "UFUG2602", "UFUG1501", "UFUG1503", "UFUG1502", "UFUG1504", "UFUG1102", "UFUG1105", "UFUG1103", "UFUG1106", "UFUG2102", "UFUG2103"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "UFUG1601",
+                    "UFUG2101",
+                    "UFUG2104"
+                  ]
+                },
+                {
+                  "key": "programming",
+                  "label_en": "Programming",
+                  "label_zh": "程序设计",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG2601",
+                    "UFUG2602"
+                  ]
+                },
+                {
+                  "key": "physics_i",
+                  "label_en": "Physics I",
+                  "label_zh": "物理 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1501",
+                    "UFUG1503"
+                  ]
+                },
+                {
+                  "key": "physics_ii",
+                  "label_en": "Physics II",
+                  "label_zh": "物理 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1502",
+                    "UFUG1504"
+                  ]
+                },
+                {
+                  "key": "calculus_i",
+                  "label_en": "Calculus I",
+                  "label_zh": "微积分 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1102",
+                    "UFUG1105"
+                  ]
+                },
+                {
+                  "key": "calculus_ii",
+                  "label_en": "Calculus II",
+                  "label_zh": "微积分 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1103",
+                    "UFUG1106"
+                  ]
+                },
+                {
+                  "key": "linear_algebra",
+                  "label_en": "Linear algebra",
+                  "label_zh": "线性代数",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG2102",
+                    "UFUG2103"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 10
         },
         {
@@ -469,7 +2218,32 @@
           "category": "major_required",
           "min_credits": 38,
           "min_courses": 11,
-          "rule": {"required_courses": ["ROAS1010", "ROAS2100", "ROAS2200", "ROAS3300", "ROAS3700", "ROAS3760", "ROAS4220", "ROAS4900", "SMMG3080", "DLED3040", "DLED4040"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "ROAS1010",
+                    "ROAS2100",
+                    "ROAS2200",
+                    "ROAS3300",
+                    "ROAS3700",
+                    "ROAS3760",
+                    "ROAS4220",
+                    "ROAS4900",
+                    "SMMG3080",
+                    "DLED3040",
+                    "DLED4040"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 20
         },
         {
@@ -479,7 +2253,42 @@
           "category": "major_elective",
           "min_credits": 21,
           "min_courses": 7,
-          "rule": {"electives": ["ROAS3180", "ROAS3230", "ROAS3800", "ROAS3900", "ROAS4100", "ROAS4200", "ROAS4210", "ROAS4320", "ROAS4360", "ROAS4400", "ROAS4471", "ROAS4500", "ROAS4600", "ROAS4800", "ROAS4860", "DSAA2043", "AIAA3102", "SMMG4660"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "major_electives",
+                  "label_en": "Major electives",
+                  "label_zh": "专业选修",
+                  "type": "choose",
+                  "min_courses": 7,
+                  "courses": [
+                    "ROAS3180",
+                    "ROAS3230",
+                    "ROAS3800",
+                    "ROAS3900",
+                    "ROAS4100",
+                    "ROAS4200",
+                    "ROAS4210",
+                    "ROAS4320",
+                    "ROAS4360",
+                    "ROAS4400",
+                    "ROAS4471",
+                    "ROAS4500",
+                    "ROAS4600",
+                    "ROAS4800",
+                    "ROAS4860",
+                    "DSAA2043",
+                    "AIAA3102",
+                    "SMMG4660"
+                  ],
+                  "kind": "elective",
+                  "min_credits": 21
+                }
+              ]
+            }
+          },
           "sort_order": 30
         }
       ]
@@ -492,7 +2301,9 @@
       "total_min_credits": 120,
       "common_core_min_credits": 30,
       "major_min_credits": 87,
-      "home_areas": ["Systems Hub"],
+      "home_areas": [
+        "Systems Hub"
+      ],
       "source_file": "MICS 25.pdf",
       "requirement_groups": [
         {
@@ -502,7 +2313,79 @@
           "category": "fundamental",
           "min_credits": 22,
           "min_courses": 7,
-          "rule": {"required_courses": ["UFUG2601"], "choices": ["UFUG1102", "UFUG1105", "UFUG1103", "UFUG1106", "UFUG2101", "UFUG2102", "UFUG2103", "UFUG2104", "UFUG1501", "UFUG1503", "UFUG1502", "UFUG1504"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "UFUG2601"
+                  ]
+                },
+                {
+                  "key": "calculus_i",
+                  "label_en": "Calculus I",
+                  "label_zh": "微积分 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1102",
+                    "UFUG1105"
+                  ]
+                },
+                {
+                  "key": "calculus_ii",
+                  "label_en": "Calculus II",
+                  "label_zh": "微积分 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1103",
+                    "UFUG1106"
+                  ]
+                },
+                {
+                  "key": "mathematics",
+                  "label_en": "Mathematics",
+                  "label_zh": "数学",
+                  "type": "choose",
+                  "min_courses": 2,
+                  "courses": [
+                    "UFUG2101",
+                    "UFUG2102",
+                    "UFUG2103",
+                    "UFUG2104"
+                  ]
+                },
+                {
+                  "key": "physics_i",
+                  "label_en": "Physics I",
+                  "label_zh": "物理 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1501",
+                    "UFUG1503"
+                  ]
+                },
+                {
+                  "key": "physics_ii",
+                  "label_en": "Physics II",
+                  "label_zh": "物理 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1502",
+                    "UFUG1504"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 10
         },
         {
@@ -512,7 +2395,30 @@
           "category": "major_required",
           "min_credits": 34,
           "min_courses": 9,
-          "rule": {"required_courses": ["MICS2010", "MICS2020", "MICS2070", "MICS3090", "MICS4040", "MICS4990", "DLED3010", "DLED4010", "ROAS2100"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "MICS2010",
+                    "MICS2020",
+                    "MICS2070",
+                    "MICS3090",
+                    "MICS4040",
+                    "MICS4990",
+                    "DLED3010",
+                    "DLED4010",
+                    "ROAS2100"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 20
         },
         {
@@ -521,8 +2427,48 @@
           "name_zh": "专业选修课程",
           "category": "major_elective",
           "min_credits": 31,
-          "min_courses": 10,
-          "rule": {"electives": ["MICS1010", "MICS2710", "MICS3030", "MICS3430", "MICS3510", "MICS3520", "MICS3820", "MICS3830", "MICS4020", "MICS4100", "MICS4110", "MICS4120", "MICS4130", "MICS4210", "MICS4310", "MICS4510", "MICS4530", "MICS4540", "MICS4550", "MICS4560", "MICS4820", "AMAT2020", "AMAT4570"]},
+          "min_courses": 11,
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "major_electives",
+                  "label_en": "Major electives",
+                  "label_zh": "专业选修",
+                  "type": "choose",
+                  "min_courses": 11,
+                  "courses": [
+                    "MICS1010",
+                    "MICS2710",
+                    "MICS3030",
+                    "MICS3430",
+                    "MICS3510",
+                    "MICS3520",
+                    "MICS3820",
+                    "MICS3830",
+                    "MICS4020",
+                    "MICS4100",
+                    "MICS4110",
+                    "MICS4120",
+                    "MICS4130",
+                    "MICS4210",
+                    "MICS4310",
+                    "MICS4510",
+                    "MICS4530",
+                    "MICS4540",
+                    "MICS4550",
+                    "MICS4560",
+                    "MICS4820",
+                    "AMAT2020",
+                    "AMAT4570"
+                  ],
+                  "kind": "elective",
+                  "min_credits": 31
+                }
+              ]
+            }
+          },
           "sort_order": 30
         }
       ]
@@ -535,7 +2481,9 @@
       "total_min_credits": 120,
       "common_core_min_credits": 30,
       "major_min_credits": 89,
-      "home_areas": ["Function Hub"],
+      "home_areas": [
+        "Function Hub"
+      ],
       "source_file": "SEEN 26.pdf",
       "requirement_groups": [
         {
@@ -545,7 +2493,80 @@
           "category": "fundamental",
           "min_credits": 27,
           "min_courses": 9,
-          "rule": {"required_courses": ["UFUG1301", "UFUG2101", "UFUG2102", "UFUG2104"], "choices": ["UFUG1601", "UFUG2601", "UFUG1501", "UFUG1503", "UFUG1502", "UFUG1504", "UFUG1102", "UFUG1105", "UFUG1103", "UFUG1106"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "UFUG1301",
+                    "UFUG2101",
+                    "UFUG2102",
+                    "UFUG2104"
+                  ]
+                },
+                {
+                  "key": "programming",
+                  "label_en": "Programming",
+                  "label_zh": "程序设计",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1601",
+                    "UFUG2601"
+                  ]
+                },
+                {
+                  "key": "physics_i",
+                  "label_en": "Physics I",
+                  "label_zh": "物理 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1501",
+                    "UFUG1503"
+                  ]
+                },
+                {
+                  "key": "physics_ii",
+                  "label_en": "Physics II",
+                  "label_zh": "物理 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1502",
+                    "UFUG1504"
+                  ]
+                },
+                {
+                  "key": "calculus_i",
+                  "label_en": "Calculus I",
+                  "label_zh": "微积分 I",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1102",
+                    "UFUG1105"
+                  ]
+                },
+                {
+                  "key": "calculus_ii",
+                  "label_en": "Calculus II",
+                  "label_zh": "微积分 II",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "UFUG1103",
+                    "UFUG1106"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 10
         },
         {
@@ -554,8 +2575,46 @@
           "name_zh": "专业必修课程",
           "category": "major_required",
           "min_credits": 41,
-          "min_courses": 13,
-          "rule": {"required_courses": ["SEEN2010", "SEEN2030", "SEEN2040", "SEEN3000", "SEEN3010", "SEEN3040", "SEEN3060", "SEEN3070", "SEEN4901", "DLED3010", "DLED4010", "AIAA2205", "ROAS2200"], "choices": ["SMMG2640", "AMAT3060"]},
+          "min_courses": 14,
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "fixed_courses",
+                  "label_en": "Fixed courses",
+                  "label_zh": "固定课程",
+                  "type": "required",
+                  "courses": [
+                    "SEEN2010",
+                    "SEEN2030",
+                    "SEEN2040",
+                    "SEEN3000",
+                    "SEEN3010",
+                    "SEEN3040",
+                    "SEEN3060",
+                    "SEEN3070",
+                    "SEEN4901",
+                    "DLED3010",
+                    "DLED4010",
+                    "AIAA2205",
+                    "ROAS2200"
+                  ]
+                },
+                {
+                  "key": "materials",
+                  "label_en": "Materials science",
+                  "label_zh": "材料科学",
+                  "type": "choose",
+                  "min_courses": 1,
+                  "courses": [
+                    "SMMG2640",
+                    "AMAT3060"
+                  ]
+                }
+              ]
+            }
+          },
           "sort_order": 20
         },
         {
@@ -565,7 +2624,38 @@
           "category": "major_elective",
           "min_credits": 21,
           "min_courses": 7,
-          "rule": {"electives": ["SEEN3020", "SEEN3050", "SEEN3130", "SEEN3140", "SEEN4110", "SEEN4120", "SEEN4130", "SEEN4140", "SEEN4150", "SEEN4160", "SEEN4170", "SEEN4180", "SEEN4190", "SMMG4660"]},
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "key": "major_electives",
+                  "label_en": "Major electives",
+                  "label_zh": "专业选修",
+                  "type": "choose",
+                  "min_courses": 7,
+                  "courses": [
+                    "SEEN3020",
+                    "SEEN3050",
+                    "SEEN3130",
+                    "SEEN3140",
+                    "SEEN4110",
+                    "SEEN4120",
+                    "SEEN4130",
+                    "SEEN4140",
+                    "SEEN4150",
+                    "SEEN4160",
+                    "SEEN4170",
+                    "SEEN4180",
+                    "SEEN4190",
+                    "SMMG4660"
+                  ],
+                  "kind": "elective",
+                  "min_credits": 21
+                }
+              ]
+            }
+          },
           "sort_order": 30
         }
       ]

@@ -108,8 +108,9 @@ def test_bundled_curriculum_payload_contains_official_ai_requirement_rows(app):
     assert program.name_zh == "人工智能"
     assert program.total_min_credits == 120
     assert program.major_min_credits == 85
-    assert "AIAA2205" in group.rule["required_courses"]
-    assert "AIAA4490" in group.rule["required_courses"]
+    fixed_courses = group.rule["rule_tree"]["children"][0]["courses"]
+    assert "AIAA2205" in fixed_courses
+    assert "AIAA4490" in fixed_courses
 
 
 def test_sync_curriculum_requirements_expands_multiple_cohorts(app):
