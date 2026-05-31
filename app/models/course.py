@@ -19,6 +19,17 @@ class Course(db.Model):
     updated_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
                           onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
+    # Scheduler fields
+    subject = db.Column(db.String(4), nullable=True)
+    catalog_number = db.Column(db.String(16), nullable=True)
+    course_title_abbr = db.Column(db.String(48), nullable=True)
+    pre_requirement = db.Column(db.Text, nullable=True)
+    co_requirement = db.Column(db.Text, nullable=True)
+    exclusion = db.Column(db.Text, nullable=True)
+    pg_course = db.Column(db.Boolean, default=False, nullable=True)
+    klms_course = db.Column(db.Boolean, default=False, nullable=True)
+    vector = db.Column(db.String(16), nullable=True)
+
     # Relationships
     instructor = db.relationship('User', foreign_keys=[instructor_id], backref=db.backref('instructed_courses', lazy='dynamic'))
 
@@ -41,7 +52,17 @@ class Course(db.Model):
             "is_active": self.is_active,
             "is_deleted": self.is_deleted,
             "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat()
+            "updated_at": self.updated_at.isoformat(),
+            # Scheduler fields
+            "subject": self.subject,
+            "catalog_number": self.catalog_number,
+            "course_title_abbr": self.course_title_abbr,
+            "pre_requirement": self.pre_requirement,
+            "co_requirement": self.co_requirement,
+            "exclusion": self.exclusion,
+            "pg_course": self.pg_course,
+            "klms_course": self.klms_course,
+            "vector": self.vector,
         }
 
     def create_semester_tag(self, semester):
