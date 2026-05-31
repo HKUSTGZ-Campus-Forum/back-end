@@ -8,7 +8,6 @@ Usage:
 This script is idempotent — it can be run multiple times safely.
 """
 import argparse
-import sys
 from sqlalchemy import create_engine, text
 from app import create_app
 from app.extensions import db
@@ -21,9 +20,9 @@ from app.models.scheduler_map import SchedulerMapComponent, SchedulerMapLine
 def migrate_courses(source_conn):
     """Migrate course data from source to UniKorn courses table."""
     rows = source_conn.execute(text(
-        'SELECT "courseCode", "courseTitle", "courseTitleAbbr", "courseDesc", '
-        '"preRequirement", "coRequirement", "exclusion", credit, subject, '
-        '"catalogNumber", "PGCourse", "KLMSCourse", vector FROM course'
+        'SELECT course_code, course_title, course_title_abbr, course_desc, '
+        'pre_requirement, co_requirement, exclusion, credit, subject, '
+        'catalog_number, pg_course, klms_course, vector FROM course'
     )).fetchall()
 
     created = 0
@@ -76,8 +75,8 @@ def migrate_sections_and_lectures(source_conn):
     db.session.commit()
 
     sections = source_conn.execute(text(
-        'SELECT "semesterId", "sectionId", "courseCode", name, bundle, layer, '
-        'quota, "sectionType", "isMain" FROM section'
+        'SELECT semester_id, section_id, course_code, name, bundle, layer, '
+        'quota, section_type, is_main FROM section'
     )).fetchall()
 
     section_count = 0
@@ -104,7 +103,7 @@ def migrate_sections_and_lectures(source_conn):
     print(f"Sections: {section_count} migrated")
 
     lectures = source_conn.execute(text(
-        'SELECT "semesterId", "sectionId", day, "startTime", "endTime", room, instructor FROM lecture'
+        'SELECT semester_id, section_id, day, start_time, end_time, room, instructor FROM lecture'
     )).fetchall()
 
     lecture_count = 0
@@ -133,7 +132,7 @@ def migrate_map_data(source_conn):
     db.session.commit()
 
     comps = source_conn.execute(text(
-        'SELECT id, "nodeType", "xCoordinate", "yCoordinate", category FROM map_component'
+        'SELECT id, node_type, x_coordinate, y_coordinate, category FROM map_component'
     )).fetchall()
 
     for row in comps:
@@ -150,7 +149,7 @@ def migrate_map_data(source_conn):
     print(f"Map components: {len(comps)} migrated")
 
     map_lines = source_conn.execute(text(
-        'SELECT "startId", "endId", "lineType", "xCoordinate", category FROM map_line'
+        'SELECT start_id, end_id, line_type, x_coordinate, category FROM map_line'
     )).fetchall()
 
     for row in map_lines:
