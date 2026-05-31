@@ -16,9 +16,11 @@ from flask_jwt_extended import jwt_required, get_jwt_identity, current_user
 from sqlalchemy import func, desc, asc
 from functools import wraps
 import bleach
+import re
 
 bp = Blueprint('course', __name__, url_prefix='/courses')
 COURSE_REVIEW_TAG = "course-review"
+COURSE_TYPE_PATTERN = re.compile(r"^([A-Za-z]{4})")
 
 def admin_required(fn):
     """Decorator to ensure the user has admin privileges"""
@@ -82,6 +84,16 @@ def _get_visible_offering_tags(course, current_offering_tag):
 
     return visible_offering_tags
 
+
+def _get_course_type(course):
+    subject = (course.subject or "").strip().upper()
+    if len(subject) == 4 and subject.isalpha():
+        return subject
+
+    match = COURSE_TYPE_PATTERN.match((course.code or "").strip())
+    return match.group(1).upper() if match else None
+
+
 @bp.route('/filters', methods=['GET'])
 def get_course_filters():
     """Get available filter options for courses"""
@@ -96,10 +108,8 @@ def get_course_filters():
         course_types = set()
         
         for course in courses:
-            # Extract course type from course code (prefix before space or number)
-            code_parts = course.code.split()
-            if code_parts:
-                course_type = code_parts[0]  # e.g., "BSBE", "AIAA"
+            course_type = _get_course_type(course)
+            if course_type:
                 course_types.add(course_type)
         
         # Get semesters from existing course tags
