@@ -39,6 +39,7 @@ def create_app(config_class=Config):
     with app.app_context():
         _auto_init_feedback_support()
         _auto_init_academic_map_support()
+        _auto_init_scheduler_support()
         _auto_sync_course_catalog()
         _auto_sync_academic_curriculum()
         _auto_migrate_gugu_reply_columns()
@@ -106,6 +107,54 @@ def _auto_init_academic_map_support():
             CurriculumRequirementGroup.__table__,
             UserAcademicProfile.__table__,
             UserCourseRecord.__table__,
+        ],
+        checkfirst=True,
+    )
+
+
+def _auto_init_scheduler_support():
+    """Ensure scheduler columns and tables exist even if Alembic migrations are skipped."""
+    from sqlalchemy import inspect, text
+    from app.models.course import Course
+    from app.models.scheduler_section import SchedulerSection
+    from app.models.scheduler_lecture import SchedulerLecture
+    from app.models.scheduler_map import SchedulerMapComponent, SchedulerMapLine
+    from app.models.scheduler_cart import SchedulerUserCourseCart, SchedulerUserBundleCart
+
+    db.metadata.create_all(bind=db.engine, tables=[Course.__table__], checkfirst=True)
+
+    existing = {column['name'] for column in inspect(db.engine).get_columns('courses')}
+    scheduler_columns = {
+        'subject': 'VARCHAR(4)',
+        'catalog_number': 'VARCHAR(16)',
+        'course_title_abbr': 'VARCHAR(48)',
+        'pre_requirement': 'TEXT',
+        'co_requirement': 'TEXT',
+        'exclusion': 'TEXT',
+        'pg_course': 'BOOLEAN DEFAULT false',
+        'klms_course': 'BOOLEAN DEFAULT false',
+        'vector': 'VARCHAR(16)',
+    }
+    with db.engine.begin() as conn:
+        for column_name, column_type in scheduler_columns.items():
+            if column_name in existing:
+                continue
+            if db.engine.dialect.name == 'postgresql':
+                conn.execute(text(
+                    f'ALTER TABLE courses ADD COLUMN IF NOT EXISTS {column_name} {column_type}'
+                ))
+            else:
+                conn.execute(text(f'ALTER TABLE courses ADD COLUMN {column_name} {column_type}'))
+
+    db.metadata.create_all(
+        bind=db.engine,
+        tables=[
+            SchedulerSection.__table__,
+            SchedulerLecture.__table__,
+            SchedulerMapComponent.__table__,
+            SchedulerMapLine.__table__,
+            SchedulerUserCourseCart.__table__,
+            SchedulerUserBundleCart.__table__,
         ],
         checkfirst=True,
     )
