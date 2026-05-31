@@ -13,16 +13,16 @@ def _normalize_code(value: Any) -> str:
     return "".join(str(value or "").split()).upper()
 
 
-def _credits(value: Any) -> int:
+def _credits(value: Any) -> int | None:
     matches = re.findall(r"\d+(?:\.\d+)?", str(value or ""))
     for match in matches:
         try:
             credits = int(float(match))
         except ValueError:
             continue
-        if credits > 0:
+        if credits >= 0:
             return credits
-    return 0
+    return None
 
 
 def sync_course_catalog_from_payload(payload: dict[str, Any]) -> dict[str, int]:
@@ -44,7 +44,7 @@ def sync_course_catalog_from_payload(payload: dict[str, Any]) -> dict[str, int]:
         credits = _credits(item.get("credit"))
         matching_courses = courses_by_normalized_code.get(normalized_code, [])
         if not matching_courses:
-            if credits <= 0:
+            if credits is None:
                 skipped += 1
                 continue
             course = Course(code=code, name=name, credits=credits, is_active=True, is_deleted=False)
@@ -56,7 +56,7 @@ def sync_course_catalog_from_payload(payload: dict[str, Any]) -> dict[str, int]:
 
         for matched_course in matching_courses or [course]:
             matched_course.name = name
-            if credits > 0:
+            if credits is not None:
                 matched_course.credits = credits
             matched_course.is_active = True
             matched_course.is_deleted = False

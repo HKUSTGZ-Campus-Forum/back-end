@@ -111,3 +111,26 @@ def test_sync_course_catalog_parses_credit_ranges_for_new_courses(app):
     assert result["upserted"] == 1
     assert course.credits == 3
     assert course.description == "Range credit description."
+
+
+def test_sync_course_catalog_keeps_explicit_zero_credit_courses(app):
+    from app.services.course_catalog_sync import sync_course_catalog_from_payload
+
+    payload = {
+        "courses": [
+            {
+                "course_code": "TEST0000",
+                "course_title": "Zero Credit Seminar",
+                "credit": "0",
+                "course_desc": "A valid zero-credit course.",
+            }
+        ]
+    }
+
+    with app.app_context():
+        result = sync_course_catalog_from_payload(payload)
+        course = Course.query.filter_by(code="TEST0000").one()
+
+    assert result["upserted"] == 1
+    assert result["skipped"] == 0
+    assert course.credits == 0
