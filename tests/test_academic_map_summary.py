@@ -8,6 +8,7 @@ from app import create_app
 from app.config import Config
 from app.extensions import db
 from app.models.academic_map import CurriculumProgram, CurriculumRequirementGroup, UserAcademicProfile, UserCourseRecord
+from app.models.course import Course
 from app.models.user import User
 from app.models.user_role import UserRole
 from app.services.academic_map_service import build_academic_map_summary
@@ -285,3 +286,112 @@ def test_prerequisite_metrics_preserve_and_or_logic(app, monkeypatch):
     assert summary["prerequisite_metrics"]["blocked_count"] == 1
     assert summary["prerequisite_metrics"]["blockers"][0]["course_code"] == "AIAA3072"
     assert summary["prerequisite_metrics"]["blockers"][0]["missing"] == ["AIAA2711"]
+
+
+def test_requirement_matrix_returns_current_and_projected_rule_tree_progress(app):
+    with app.app_context():
+        create_user(111, "matrix_rule_tree")
+        program = CurriculumProgram(code="DSA", name_en="Data Science and Big Data Technology", cohort="2025", total_min_credits=120)
+        db.session.add(program)
+        db.session.flush()
+        db.session.add(CurriculumRequirementGroup(
+            program_id=program.id,
+            key="fundamental_courses",
+            name_en="Fundamental Courses",
+            name_zh="基础课程",
+            category="fundamental",
+            min_courses=2,
+            min_credits=6,
+            rule={
+                "rule_tree": {
+                    "type": "all_of",
+                    "children": [
+                        {"type": "choose", "key": "calculus_i", "min_courses": 1, "courses": ["UFUG1102", "UFUG1105"]},
+                        {"type": "choose", "key": "calculus_ii", "min_courses": 1, "courses": ["UFUG1103", "UFUG1106"]},
+                    ],
+                }
+            },
+            sort_order=1,
+        ))
+        db.session.add(UserAcademicProfile(user_id=111, cohort="2025", target_majors=["DSA"]))
+        add_record(111, "UFUG1105", status="completed")
+        add_record(111, "UFUG1106", status="planned")
+        db.session.commit()
+
+        summary = build_academic_map_summary(111)
+
+    row = summary["requirement_matrix"][0]["rows"][0]
+    assert row["current"]["satisfied"] is False
+    assert row["projected"]["satisfied"] is True
+    assert [section["key"] for section in row["sections"]] == ["calculus_i", "calculus_ii"]
+    assert row["sections"][1]["projected"]["counted_courses"] == 1
+
+
+def test_requirement_matrix_prefers_catalog_credit_over_imported_units(app):
+    with app.app_context():
+        create_user(112, "matrix_catalog_credit")
+        program = CurriculumProgram(code="AI", name_en="Artificial Intelligence", cohort="2025", total_min_credits=120)
+        db.session.add(program)
+        db.session.flush()
+        db.session.add(CurriculumRequirementGroup(
+            program_id=program.id,
+            key="major_electives",
+            name_en="Major Electives",
+            category="major_elective",
+            rule={
+                "rule_tree": {
+                    "type": "choose",
+                    "key": "major_electives",
+                    "kind": "elective",
+                    "min_courses": 1,
+                    "min_credits": 4,
+                    "courses": ["UFUG2601"],
+                }
+            },
+        ))
+        db.session.add(UserAcademicProfile(user_id=112, cohort="2025", target_majors=["AI"]))
+        catalog_course = Course.query.filter_by(code="UFUG2601").one()
+        catalog_course.credits = 4
+        add_record(112, "UFUG2601", status="completed", units=3)
+        db.session.commit()
+
+        row = build_academic_map_summary(112)["requirement_matrix"][0]["rows"][0]
+
+    cell = row["sections"][0]["cells"][0]
+    assert row["current"]["counted_credits"] == 4
+    assert cell["credits"] == 4
+    assert cell["credit_source"] == "catalog"
+
+
+def test_requirement_matrix_falls_back_to_imported_units_when_catalog_is_missing(app):
+    with app.app_context():
+        create_user(113, "matrix_record_credit")
+        program = CurriculumProgram(code="AI", name_en="Artificial Intelligence", cohort="2025", total_min_credits=120)
+        db.session.add(program)
+        db.session.flush()
+        db.session.add(CurriculumRequirementGroup(
+            program_id=program.id,
+            key="major_electives",
+            name_en="Major Electives",
+            category="major_elective",
+            rule={
+                "rule_tree": {
+                    "type": "choose",
+                    "key": "major_electives",
+                    "kind": "elective",
+                    "min_courses": 1,
+                    "min_credits": 3,
+                    "courses": ["TEST3000"],
+                }
+            },
+        ))
+        db.session.add(UserAcademicProfile(user_id=113, cohort="2025", target_majors=["AI"]))
+        add_record(113, "TEST3000", status="completed", units=3)
+        db.session.commit()
+
+        row = build_academic_map_summary(113)["requirement_matrix"][0]["rows"][0]
+
+    cell = row["sections"][0]["cells"][0]
+    assert row["current"]["counted_credits"] == 3
+    assert cell["credits"] == 3
+    assert cell["credit_source"] == "record"

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from app.models.academic_map import CurriculumProgram, CurriculumRequirementGroup, UserAcademicProfile, UserCourseRecord
 from app.models.course import Course
+from app.services.academic_curriculum_evaluator import evaluate_requirement_program
 from app.utils.academic_map_import_text import clean_copied_status_text
 
 
@@ -103,9 +104,12 @@ def _codes_from_rule(rule: dict) -> set[str]:
                     codes.add(_normalized_code(item))
                 elif isinstance(item, dict) and item.get("course_code"):
                     codes.add(_normalized_code(item.get("course_code")))
-    for item in rule.get("items", []) if isinstance(rule.get("items"), list) else []:
-        if isinstance(item, dict):
-            codes.update(_codes_from_rule(item))
+    for key in ("items", "children", "constraints"):
+        for item in rule.get(key, []) if isinstance(rule.get(key), list) else []:
+            if isinstance(item, dict):
+                codes.update(_codes_from_rule(item))
+    if isinstance(rule.get("rule_tree"), dict):
+        codes.update(_codes_from_rule(rule["rule_tree"]))
     return {code for code in codes if code}
 
 
@@ -129,6 +133,46 @@ def _catalog_title_by_code() -> dict[str, str]:
         _normalized_code(course.code): course.name
         for course in Course.query.filter(Course.is_deleted == False).all()
     }
+
+
+def _catalog_by_code() -> dict[str, dict]:
+    return {
+        _normalized_code(course.code): {
+            "title": course.name,
+            "credits": float(course.credits) if course.credits is not None else None,
+        }
+        for course in Course.query.filter(Course.is_deleted == False).all()
+    }
+
+
+def _evaluation_courses(
+    records_by_code: dict[str, UserCourseRecord],
+    catalog_by_code: dict[str, dict],
+    shared_map: dict[str, list[str]],
+) -> dict[str, dict]:
+    codes = set(catalog_by_code) | set(records_by_code)
+    result = {}
+    for code in codes:
+        record = records_by_code.get(code)
+        catalog = catalog_by_code.get(code, {})
+        if catalog.get("credits") is not None:
+            credits = catalog["credits"]
+            credit_source = "catalog"
+        elif record and record.units is not None:
+            credits = _units(record)
+            credit_source = "record"
+        else:
+            credits = None
+            credit_source = None
+        result[code] = {
+            "course_code": code,
+            "title": (clean_copied_status_text(record.course_title) if record else None) or catalog.get("title"),
+            "record_status": record.status if record else None,
+            "credits": credits,
+            "credit_source": credit_source,
+            "shared_majors": shared_map.get(code, []),
+        }
+    return result
 
 
 def _shared_major_map(programs: list[CurriculumProgram]) -> dict[str, list[str]]:
@@ -304,36 +348,73 @@ def _requirement_sections(
     return sections
 
 
+def _legacy_cell_status(cell: dict) -> str:
+    if cell.get("record_status") == UserCourseRecord.STATUS_COMPLETED:
+        return "done"
+    if cell.get("record_status") in {UserCourseRecord.STATUS_IN_PROGRESS, UserCourseRecord.STATUS_PLANNED}:
+        return "now"
+    return "choice"
+
+
+def _legacy_row_aliases(evaluated: dict) -> dict:
+    all_cells = []
+    seen = set()
+    for section in evaluated["sections"]:
+        for cell in section["cells"]:
+            code = cell["course_code"]
+            if code in seen:
+                continue
+            seen.add(code)
+            all_cells.append({**cell, "status": _legacy_cell_status(cell)})
+    all_cells = _sort_cells(all_cells)
+    visible_cells = all_cells[:4]
+    if len(all_cells) > 4:
+        visible_cells.append({
+            "kind": "more",
+            "label": f"+{len(all_cells) - 4} more",
+            "status": "more",
+            "hidden_count": len(all_cells) - 4,
+        })
+    current = evaluated["current"]
+    return {
+        "progress_label": f"{current['counted_courses']} / {current['required_courses'] or '-'}",
+        "all_cells": all_cells,
+        "visible_cells": visible_cells,
+    }
+
+
 def _build_requirement_matrix(programs: list[CurriculumProgram], records: list[UserCourseRecord]) -> list[dict]:
     records_by_code = _record_by_code(records)
-    catalog_title_by_code = _catalog_title_by_code()
+    catalog_by_code = _catalog_by_code()
     shared_map = _shared_major_map(programs)
+    evaluation_courses = _evaluation_courses(records_by_code, catalog_by_code, shared_map)
     matrices = []
     for program in programs:
         rows = []
-        for group in program.requirement_groups.order_by(CurriculumRequirementGroup.sort_order.asc()).all():
-            sections = _requirement_sections(group, records_by_code, catalog_title_by_code, shared_map)
-            cells = _sort_cells([cell for section in sections for cell in section["cells"]])
-            codes = [cell["course_code"] for cell in cells if cell.get("course_code")]
-            satisfied = len([cell for cell in cells if cell["status"] in {"now", "done"}])
-            target = _requirement_target(group, codes)
-            visible = cells[:4]
-            if len(cells) > 4:
-                visible.append({
-                    "kind": "more",
-                    "label": f"+{len(cells) - 4} more",
-                    "status": "more",
-                    "hidden_count": len(cells) - 4,
-                })
+        groups = program.requirement_groups.order_by(CurriculumRequirementGroup.sort_order.asc()).all()
+        evaluated_groups = evaluate_requirement_program(
+            [
+                {
+                    "key": group.key,
+                    "rule": group.rule or {},
+                    "min_courses": group.min_courses,
+                    "min_credits": group.min_credits,
+                }
+                for group in groups
+            ],
+            evaluation_courses,
+        )
+        for group, evaluated in zip(groups, evaluated_groups):
             rows.append({
                 "key": group.key,
                 "name_en": group.name_en,
                 "name_zh": group.name_zh,
                 "category": group.category,
-                "progress_label": f"{satisfied} / {target}" if target else "",
-                "visible_cells": visible,
-                "all_cells": cells,
-                "sections": sections,
+                "current": evaluated["current"],
+                "projected": evaluated["projected"],
+                "sections": evaluated["sections"],
+                "warnings": evaluated["warnings"],
+                **_legacy_row_aliases(evaluated),
                 "detail": {
                     "min_courses": group.min_courses,
                     "min_credits": group.min_credits,

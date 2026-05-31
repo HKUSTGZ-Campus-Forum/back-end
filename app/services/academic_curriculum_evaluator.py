@@ -92,6 +92,23 @@ def _required_credits(leaf: dict[str, Any]) -> int | None:
     return int(value) if value is not None else None
 
 
+def _section_labels(leaf: dict[str, Any], total_count: int) -> tuple[str, str]:
+    required_count = _required_courses(leaf)
+    min_credits = _required_credits(leaf)
+    if leaf.get("type") == "required":
+        return f"Required {total_count} courses", f"必修 {total_count} 门"
+    if leaf.get("kind") != "elective":
+        if required_count:
+            return f"Choose {required_count} of {total_count}", f"{total_count} 选 {required_count}"
+        return f"Choose from {total_count}", f"{total_count} 门中选择"
+    if min_credits:
+        return (
+            f"At least {required_count} courses / {min_credits} credits",
+            f"至少 {required_count} 门 / {min_credits} 学分",
+        )
+    return f"At least {required_count} courses", f"至少 {required_count} 门"
+
+
 def _candidate_codes(leaf: dict[str, Any], courses_by_code: dict[str, dict]) -> list[str]:
     return sorted(
         {
@@ -357,12 +374,13 @@ def _merge_sections(
             )
         current_progress = _view_for_group(current, [leaf])
         projected_progress = _view_for_group(projected, [leaf])
+        default_label_en, default_label_zh = _section_labels(leaf, len(cells))
         sections.append(
             {
                 "key": leaf["key"],
                 "kind": "required" if leaf.get("type") == "required" else leaf.get("kind", "choice"),
-                "label_en": leaf.get("label_en") or leaf["key"],
-                "label_zh": leaf.get("label_zh"),
+                "label_en": leaf.get("label_en") or default_label_en,
+                "label_zh": leaf.get("label_zh") or default_label_zh,
                 "current": current_progress,
                 "projected": projected_progress,
                 "cells": cells,
