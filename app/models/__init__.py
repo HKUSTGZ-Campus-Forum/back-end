@@ -30,3 +30,7 @@ from .feedback_comment import FeedbackComment
 from .feedback_merge_comment import FeedbackMergeComment
 from .feedback_audit_event import FeedbackAuditEvent
 from .academic_map import CurriculumProgram, CurriculumRequirementGroup, UserAcademicProfile, UserCourseRecord
+from .scheduler_section import SchedulerSection
+from .scheduler_lecture import SchedulerLecture
+from .scheduler_map import SchedulerMapComponent, SchedulerMapLine
+from .scheduler_cart import SchedulerUserCourseCart, SchedulerUserBundleCart
