@@ -42,15 +42,14 @@ def _normalize_rule(value: Any) -> dict:
     for key, raw in value.items():
         if key in {"courses", "required_courses", "choices", "electives"} and isinstance(raw, list):
             normalized[key] = [_course_code(item) for item in raw if _course_code(item)]
-        elif key == "items" and isinstance(raw, list):
+        elif key in {"items", "children", "constraints"} and isinstance(raw, list):
             normalized[key] = [
-                {
-                    **{k: v for k, v in item.items() if k not in {"courses", "required_courses", "choices", "electives", "items"}},
-                    **_normalize_rule(item),
-                }
+                _normalize_rule(item)
                 for item in raw
                 if isinstance(item, dict)
             ]
+        elif key == "rule_tree" and isinstance(raw, dict):
+            normalized[key] = _normalize_rule(raw)
         else:
             normalized[key] = raw
     return normalized

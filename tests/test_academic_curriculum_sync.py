@@ -141,3 +141,66 @@ def test_sync_curriculum_requirements_expands_multiple_cohorts(app):
 
     assert result["programs_upserted"] == 2
     assert [program.cohort for program in programs] == ["2025", "2026"]
+
+
+def test_sync_curriculum_requirements_preserves_nested_rule_tree(app):
+    from app.services.academic_curriculum_sync import sync_curriculum_requirements_from_payload
+
+    payload = {
+        "programs": [
+            {
+                "code": "dsa",
+                "cohort": "2025",
+                "name_en": "Data Science and Big Data Technology",
+                "requirement_groups": [
+                    {
+                        "key": "fundamental_courses",
+                        "name_en": "Fundamental Courses",
+                        "category": "fundamental",
+                        "rule": {
+                            "rule_tree": {
+                                "type": "all_of",
+                                "children": [
+                                    {
+                                        "type": "choose",
+                                        "key": "calculus_i",
+                                        "min_courses": 1,
+                                        "courses": ["ufug 1102", "UFUG1105"],
+                                    },
+                                    {
+                                        "type": "required",
+                                        "key": "fixed",
+                                        "courses": ["ufug 2104"],
+                                    },
+                                ],
+                            }
+                        },
+                    }
+                ],
+            }
+        ]
+    }
+
+    with app.app_context():
+        sync_curriculum_requirements_from_payload(payload)
+        program = CurriculumProgram.query.filter_by(code="DSA", cohort="2025").one()
+        group = CurriculumRequirementGroup.query.filter_by(program_id=program.id, key="fundamental_courses").one()
+
+    assert group.rule == {
+        "rule_tree": {
+            "type": "all_of",
+            "children": [
+                {
+                    "type": "choose",
+                    "key": "calculus_i",
+                    "min_courses": 1,
+                    "courses": ["UFUG1102", "UFUG1105"],
+                },
+                {
+                    "type": "required",
+                    "key": "fixed",
+                    "courses": ["UFUG2104"],
+                },
+            ],
+        }
+    }
