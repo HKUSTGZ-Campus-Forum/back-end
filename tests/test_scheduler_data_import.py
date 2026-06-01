@@ -11,7 +11,10 @@ from app.models.course import Course
 from app.models.scheduler_lecture import SchedulerLecture
 from app.models.scheduler_map import SchedulerMapComponent, SchedulerMapLine
 from app.models.scheduler_section import SchedulerSection
-from app.scripts.migrate_scheduler_data import SnapshotValidationError, import_snapshot
+from app.scripts.migrate_scheduler_data import (
+    SnapshotValidationError,
+    import_snapshot,
+)
 
 
 @compiles(JSONB, 'sqlite')
@@ -124,6 +127,33 @@ def test_import_snapshot_rejects_orphan_map_line(app):
             import_snapshot(conn)
         assert SchedulerMapComponent.query.count() == 0
         assert SchedulerMapLine.query.count() == 0
+
+
+def test_create_source_engine_maps_schema_query_to_postgres_search_path(monkeypatch):
+    captured = {}
+
+    def fake_create_engine(url, **kwargs):
+        captured['url'] = url
+        captured['kwargs'] = kwargs
+        return 'engine'
+
+    monkeypatch.setattr(importer, 'create_engine', fake_create_engine)
+
+    engine = importer.create_source_engine(
+        'postgresql://user:pass@localhost/course_scheduler?schema=public'
+    )
+
+    assert engine == 'engine'
+    assert str(captured['url']) == 'postgresql://user:***@localhost/course_scheduler'
+    assert captured['url'].query == {}
+    assert captured['kwargs']['connect_args']['options'] == '-csearch_path=public'
+
+
+def test_create_source_engine_rejects_unsafe_schema_query():
+    with pytest.raises(SnapshotValidationError):
+        importer.create_source_engine(
+            'postgresql://user:pass@localhost/course_scheduler?schema=public%3Bdrop'
+        )
 
 
 def test_import_snapshot_rolls_back_when_destination_validation_fails(app, monkeypatch):

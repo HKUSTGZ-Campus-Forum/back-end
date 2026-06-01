@@ -10,9 +10,11 @@ upserted by course code.
 """
 import argparse
 import json
+import re
 from dataclasses import dataclass
 
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
 from app import create_app
 from app.extensions import db
@@ -24,6 +26,23 @@ from app.models.scheduler_section import SchedulerSection
 
 class SnapshotValidationError(RuntimeError):
     pass
+
+
+def create_source_engine(source_url):
+    url = make_url(source_url)
+    query = dict(url.query)
+    schema = query.pop('schema', None)
+    if schema is None:
+        return create_engine(source_url)
+
+    if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*(,[A-Za-z_][A-Za-z0-9_]*)*', schema):
+        raise SnapshotValidationError('invalid source schema name')
+
+    url = url.set(query=query)
+    connect_args = {}
+    if url.get_backend_name() == 'postgresql':
+        connect_args['options'] = f'-csearch_path={schema}'
+    return create_engine(url, connect_args=connect_args)
 
 
 @dataclass
@@ -207,7 +226,7 @@ def main():
     args = parser.parse_args()
 
     app = create_app()
-    with create_engine(args.source).connect() as source_conn, app.app_context():
+    with create_source_engine(args.source).connect() as source_conn, app.app_context():
         if source_conn.dialect.name == 'postgresql':
             source_conn.execute(text('SET TRANSACTION READ ONLY'))
         print(json.dumps(import_snapshot(source_conn), ensure_ascii=True, sort_keys=True))
