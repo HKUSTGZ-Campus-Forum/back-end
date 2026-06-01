@@ -247,3 +247,87 @@ def test_add_multiple_courses_to_cart(client, auth_headers, seed_courses):
     assert len(data) == 2
     codes = sorted([item['course_code'] for item in data])
     assert codes == ['TEST1001', 'TEST1010']
+
+
+def test_add_to_cart_rejects_missing_json(client, auth_headers, seed_courses):
+    resp = client.post('/scheduler/cart/2530/add', headers=auth_headers)
+
+    assert resp.status_code == 400
+    assert resp.get_json() == {'error': 'Invalid JSON body'}
+
+
+def test_add_to_cart_rejects_non_string_course_code(client, auth_headers, seed_courses):
+    resp = client.post('/scheduler/cart/2530/add',
+                       json={'course_code': 123},
+                       headers=auth_headers)
+
+    assert resp.status_code == 400
+    assert resp.get_json() == {'error': 'Invalid course code'}
+
+
+def test_toggle_course_rejects_missing_json(client, auth_headers, seed_courses):
+    client.post('/scheduler/cart/2530/add',
+                json={'course_code': 'TEST1001'},
+                headers=auth_headers)
+
+    resp = client.put('/scheduler/cart/2530/course/TEST1001/toggle',
+                      headers=auth_headers)
+
+    assert resp.status_code == 400
+    assert resp.get_json() == {'error': 'Invalid JSON body'}
+
+
+def test_add_to_cart_rejects_course_without_sections(client, auth_headers, app):
+    with app.app_context():
+        db.session.add(Course(code='EMPTY1001', name='No Sections', credits=3))
+        db.session.commit()
+
+    resp = client.post('/scheduler/cart/2530/add',
+                       json={'course_code': 'EMPTY1001'},
+                       headers=auth_headers)
+
+    assert resp.status_code == 422
+    assert resp.get_json() == {'error': 'Course has no sections for semester'}
+
+
+def test_cart_serialization_orders_layers_bundles_and_sections(client, auth_headers, app):
+    with app.app_context():
+        course = Course(code='SORT1001', name='Sort Me', credits=3)
+        db.session.add(course)
+        db.session.flush()
+        db.session.add_all([
+            SchedulerSection(semester_id='2530', section_id='SORT-T02', course_id=course.id,
+                             name='T02', bundle=2, layer=1, quota=10, section_type='T', is_main=False),
+            SchedulerSection(semester_id='2530', section_id='SORT-L02', course_id=course.id,
+                             name='L02', bundle=2, layer=0, quota=10, section_type='L', is_main=True),
+            SchedulerSection(semester_id='2530', section_id='SORT-L01', course_id=course.id,
+                             name='L01', bundle=1, layer=0, quota=10, section_type='L', is_main=True),
+        ])
+        db.session.commit()
+
+    client.post('/scheduler/cart/2530/add',
+                json={'course_code': 'SORT1001'},
+                headers=auth_headers)
+    data = client.get('/scheduler/cart/2530', headers=auth_headers).get_json()[0]
+
+    assert list(data['layers']) == ['0', '1']
+    assert [bundle['id'] for bundle in data['layers']['0']] == [1, 2]
+    assert data['layers']['0'][0]['sections'][0]['section_id'] == 'SORT-L01'
+
+
+def test_cart_is_isolated_between_users(client, auth_headers, seed_courses, app):
+    client.post('/scheduler/cart/2530/add',
+                json={'course_code': 'TEST1001'},
+                headers=auth_headers)
+
+    with app.app_context():
+        role = UserRole.query.filter_by(name='user').first()
+        other = User(username='other_scheduler_user', email='other_scheduler@hkust-gz.edu.cn',
+                     email_verified=True, role_id=role.id)
+        other.set_password('password123')
+        db.session.add(other)
+        db.session.commit()
+        token = create_access_token(identity=str(other.id))
+
+    other_headers = {'Authorization': f'Bearer {token}'}
+    assert client.get('/scheduler/cart/2530', headers=other_headers).get_json() == []

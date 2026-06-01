@@ -18,6 +18,32 @@ SEMESTER_META = {
 }
 
 
+def _json_body():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return None, (jsonify({'error': 'Invalid JSON body'}), 400)
+    return data, None
+
+
+def _sections_for_course(course_id, semester):
+    return (
+        SchedulerSection.query
+        .filter_by(course_id=course_id, semester_id=semester)
+        .order_by(SchedulerSection.layer, SchedulerSection.bundle, SchedulerSection.section_id)
+        .all()
+    )
+
+
+def _lectures_for_section(semester_id, section_id):
+    return (
+        SchedulerLecture.query
+        .filter_by(semester_id=semester_id, section_id=section_id)
+        .order_by(SchedulerLecture.day, SchedulerLecture.start_time,
+                  SchedulerLecture.end_time, SchedulerLecture.id)
+        .all()
+    )
+
+
 # --- Semester & Course Search ---
 
 @bp.route('/semesters', methods=['GET'])
@@ -91,13 +117,16 @@ def get_course_detail(code):
     sections_query = SchedulerSection.query.filter_by(course_id=course.id)
     if semester:
         sections_query = sections_query.filter_by(semester_id=semester)
-    sections = sections_query.all()
+    sections = sections_query.order_by(
+        SchedulerSection.semester_id,
+        SchedulerSection.layer,
+        SchedulerSection.bundle,
+        SchedulerSection.section_id,
+    ).all()
 
     section_data = []
     for s in sections:
-        lectures = SchedulerLecture.query.filter_by(
-            semester_id=s.semester_id, section_id=s.section_id
-        ).all()
+        lectures = _lectures_for_section(s.semester_id, s.section_id)
         section_data.append({
             'semester_id': s.semester_id,
             'section_id': s.section_id,
@@ -141,15 +170,13 @@ def _serialize_cart_item(cart_item):
     if not course:
         return None
 
-    sections = SchedulerSection.query.filter_by(
-        course_id=course.id, semester_id=cart_item.semester_id
-    ).all()
+    sections = _sections_for_course(course.id, cart_item.semester_id)
 
     bundles = SchedulerUserBundleCart.query.filter_by(
         user_id=cart_item.user_id,
         semester_id=cart_item.semester_id,
         course_code=cart_item.course_code,
-    ).all()
+    ).order_by(SchedulerUserBundleCart.layer, SchedulerUserBundleCart.id).all()
     bundle_map = {(b.id, b.layer): b.enabled for b in bundles}
 
     section_groups = {}
@@ -162,9 +189,7 @@ def _serialize_cart_item(cart_item):
                 'enabled': bundle_map.get(key, True),
                 'sections': [],
             }
-        lectures = SchedulerLecture.query.filter_by(
-            semester_id=s.semester_id, section_id=s.section_id
-        ).all()
+        lectures = _lectures_for_section(s.semester_id, s.section_id)
         section_groups[key]['sections'].append({
             'section_id': s.section_id,
             'name': s.name,
@@ -182,7 +207,7 @@ def _serialize_cart_item(cart_item):
 
     # Group bundles by layer
     layers = {}
-    for bg in section_groups.values():
+    for bg in sorted(section_groups.values(), key=lambda item: (item['layer'], item['id'])):
         layer = bg['layer']
         if layer not in layers:
             layers[layer] = []
@@ -220,8 +245,13 @@ def get_cart(semester):
 def add_to_cart(semester):
     """Add a course to the cart."""
     user_id = int(get_jwt_identity())
-    data = request.get_json()
-    course_code = data.get('course_code', '').strip().upper()
+    data, error = _json_body()
+    if error:
+        return error
+    raw_course_code = data.get('course_code')
+    if not isinstance(raw_course_code, str) or not raw_course_code.strip():
+        return jsonify({'error': 'Invalid course code'}), 400
+    course_code = raw_course_code.strip().upper()
 
     course = Course.query.filter_by(code=course_code, is_deleted=False).first()
     if not course:
@@ -233,6 +263,10 @@ def add_to_cart(semester):
     if existing:
         return jsonify({'error': 'Course already in cart'}), 409
 
+    sections = _sections_for_course(course.id, semester)
+    if not sections:
+        return jsonify({'error': 'Course has no sections for semester'}), 422
+
     cart = SchedulerUserCourseCart(
         user_id=user_id,
         semester_id=semester,
@@ -242,7 +276,6 @@ def add_to_cart(semester):
     db.session.add(cart)
 
     # Auto-create bundle entries for all sections
-    sections = SchedulerSection.query.filter_by(course_id=course.id, semester_id=semester).all()
     seen = set()
     for s in sections:
         key = (s.bundle, s.layer)
@@ -286,7 +319,9 @@ def remove_from_cart(semester, code):
 def toggle_course_enabled(semester, code):
     """Toggle course enabled state."""
     user_id = int(get_jwt_identity())
-    data = request.get_json()
+    data, error = _json_body()
+    if error:
+        return error
     cart = SchedulerUserCourseCart.query.filter_by(
         user_id=user_id, semester_id=semester, course_code=code.upper()
     ).first()
@@ -302,7 +337,9 @@ def toggle_course_enabled(semester, code):
 def toggle_bundle_enabled(semester, code, bundle_id, layer):
     """Toggle bundle enabled state."""
     user_id = int(get_jwt_identity())
-    data = request.get_json()
+    data, error = _json_body()
+    if error:
+        return error
     bundle = SchedulerUserBundleCart.query.filter_by(
         user_id=user_id, semester_id=semester, course_code=code.upper(),
         id=bundle_id, layer=layer
@@ -319,7 +356,9 @@ def toggle_bundle_enabled(semester, code, bundle_id, layer):
 def toggle_layer_enabled(semester, code, layer):
     """Toggle all bundles in a layer for a course."""
     user_id = int(get_jwt_identity())
-    data = request.get_json()
+    data, error = _json_body()
+    if error:
+        return error
     bundles = SchedulerUserBundleCart.query.filter_by(
         user_id=user_id, semester_id=semester, course_code=code.upper(), layer=layer
     ).all()
