@@ -146,6 +146,12 @@ def _auto_init_scheduler_support():
             else:
                 conn.execute(text(f'ALTER TABLE courses ADD COLUMN {column_name} {column_type}'))
 
+        if db.engine.dialect.name == 'postgresql':
+            conn.execute(text('ALTER TABLE courses DROP CONSTRAINT IF EXISTS valid_credits'))
+            conn.execute(text(
+                'ALTER TABLE courses ADD CONSTRAINT valid_credits CHECK (credits >= 0)'
+            ))
+
     db.metadata.create_all(
         bind=db.engine,
         tables=[
