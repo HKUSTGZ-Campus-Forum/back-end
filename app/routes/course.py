@@ -1,5 +1,7 @@
 from flask import Blueprint, request, jsonify
 from app.models.course import Course
+from app.models.scheduler_lecture import SchedulerLecture
+from app.models.scheduler_section import SchedulerSection
 from app.models.tag import Tag, TagType
 from app.models.post import Post
 from app.models.user import User
@@ -21,6 +23,40 @@ import re
 bp = Blueprint('course', __name__, url_prefix='/courses')
 COURSE_REVIEW_TAG = "course-review"
 COURSE_TYPE_PATTERN = re.compile(r"^([A-Za-z]{4})")
+
+
+def _compact_course_code(value):
+    return "".join(ch for ch in str(value or "").upper() if ch.isalnum())
+
+
+def _display_course_code(value):
+    compact = _compact_course_code(value)
+    prefix = "".join(ch for ch in compact if ch.isalpha())
+    suffix = compact[len(prefix):]
+    return f"{prefix} {suffix}".strip() if prefix and suffix else compact
+
+
+def _find_course_by_identifier(identifier):
+    raw = str(identifier or "").strip()
+    if raw.isdigit():
+        return Course.query.filter_by(id=int(raw), is_deleted=False).first()
+    compact = _compact_course_code(raw)
+    return Course.query.filter(
+        func.upper(func.replace(Course.code, " ", "")) == compact,
+        Course.is_deleted == False,
+    ).first()
+
+
+def _scheduler_semester_id(year, semester_code):
+    suffix = {
+        "fall": "10",
+        "winter": "20",
+        "spring": "30",
+        "summer": "40",
+    }.get(semester_code)
+    if not suffix:
+        return None
+    return f"{int(year) % 100:02d}{suffix}"
 
 def admin_required(fn):
     """Decorator to ensure the user has admin privileges"""
@@ -62,6 +98,38 @@ def _get_course_semester_entries(course, language='zh'):
 
     sorted_codes = sort_semesters(list(semester_entries.keys()))
     return [semester_entries[code] for code in sorted_codes if code in semester_entries]
+
+
+def _scheduler_offering_summary(course, semester_id):
+    if not semester_id:
+        return {"section_count": 0, "instructors": []}
+    sections = SchedulerSection.query.filter_by(course_id=course.id, semester_id=semester_id).all()
+    instructors = []
+    for section in sections:
+        lectures = SchedulerLecture.query.filter_by(
+            semester_id=section.semester_id,
+            section_id=section.section_id,
+        ).all()
+        for lecture in lectures:
+            if lecture.instructor and lecture.instructor not in instructors:
+                instructors.append(lecture.instructor)
+    return {
+        "section_count": len(sections),
+        "instructors": instructors,
+    }
+
+
+def _serialize_course_overview_offerings(course, language):
+    entries = _get_course_semester_entries(course, language)
+    serialized = []
+    for entry in entries:
+        scheduler_semester_id = _scheduler_semester_id(entry["year"], entry["season"])
+        serialized.append({
+            **entry,
+            "scheduler_semester_id": scheduler_semester_id,
+            **_scheduler_offering_summary(course, scheduler_semester_id),
+        })
+    return serialized
 
 
 def _get_visible_offering_tags(course, current_offering_tag):
@@ -257,6 +325,68 @@ def create_course():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+@bp.route('/resolve/<identifier>', methods=['GET'])
+def resolve_course_identifier(identifier):
+    course = _find_course_by_identifier(identifier)
+    if not course:
+        return jsonify({"error": "Course not found"}), 404
+    return jsonify({
+        "course_id": course.id,
+        "course_code": _compact_course_code(course.code),
+        "display_code": _display_course_code(course.code),
+        "overview_path": f"/courses/{_compact_course_code(course.code)}",
+    }), 200
+
+
+@bp.route('/by-code/<code>/overview', methods=['GET'])
+@jwt_required(optional=True)
+def get_course_overview(code):
+    course = _find_course_by_identifier(code)
+    if not course:
+        return jsonify({"error": "Course not found"}), 404
+
+    language = request.args.get('lang', 'zh')
+    user_id = get_jwt_identity()
+    academic_record = None
+    if user_id:
+        from app.models.academic_map import UserCourseRecord
+        from app.services.academic_map_service import strongest_record_for_course
+        records = UserCourseRecord.query.filter_by(user_id=int(user_id)).all()
+        record = strongest_record_for_course(records, course.code)
+        academic_record = record.to_dict(include_grade=True) if record else None
+
+    compact_code = _compact_course_code(course.code)
+    return jsonify({
+        "course": {
+            "id": course.id,
+            "code": compact_code,
+            "display_code": _display_course_code(course.code),
+            "title": course.name,
+            "credits": course.credits,
+            "description": course.description,
+            "subject": course.subject,
+            "catalog_number": course.catalog_number,
+            "course_title_abbr": course.course_title_abbr,
+            "pre_requirement": course.pre_requirement,
+            "co_requirement": course.co_requirement,
+            "exclusion": course.exclusion,
+            "pg_course": course.pg_course,
+            "klms_course": course.klms_course,
+            "is_active": course.is_active,
+        },
+        "offerings": _serialize_course_overview_offerings(course, language),
+        "academic_record": academic_record,
+        "requirement_hits": [],
+        "prerequisite_summary": {
+            "missing": [],
+            "downstream": [],
+        },
+        "links": {
+            "universe_focus": f"/courses?focus={compact_code}",
+        },
+    }), 200
+
 
 @bp.route('/<int:course_id>', methods=['GET'])
 def get_course(course_id):

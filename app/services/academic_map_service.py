@@ -128,6 +128,14 @@ def _record_by_code(records: list[UserCourseRecord]) -> dict[str, UserCourseReco
     return {_normalized_code(record.course_code): record for record in records}
 
 
+def strongest_record_for_course(records: list[UserCourseRecord], course_code: str) -> UserCourseRecord | None:
+    normalized = _normalized_code(course_code)
+    matches = [record for record in records if _normalized_code(record.course_code) == normalized]
+    if not matches:
+        return None
+    return sorted(matches, key=lambda record: STATUS_RANK.get(record.status, 9))[0]
+
+
 def _catalog_title_by_code() -> dict[str, str]:
     return {
         _normalized_code(course.code): course.name
