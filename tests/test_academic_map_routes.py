@@ -7,6 +7,7 @@ from app import create_app
 from app.config import Config
 from app.extensions import db
 from app.models.academic_map import UserAcademicProfile, UserCourseRecord
+from app.models.course import Course
 from app.models.user import User
 from app.models.user_role import UserRole
 
@@ -173,3 +174,98 @@ def test_clear_academic_map_records_for_current_user_only(client, app):
         assert UserCourseRecord.query.filter_by(user_id=user_id).count() == 0
         assert UserAcademicProfile.query.filter_by(user_id=user_id).one().cohort is None
         assert UserCourseRecord.query.filter_by(user_id=other_user_id).count() == 1
+
+
+def test_mark_course_interested_creates_course_level_record(client, app):
+    _user_id, headers = create_user_and_headers(app, "interested_user")
+
+    response = client.put("/academic-map/courses/AIAA2205/interest", json={}, headers=headers)
+
+    assert response.status_code == 200
+    record = response.get_json()["record"]
+    assert record["status"] == "interested"
+    assert record["course_code"] == "AIAA2205"
+    assert record["course_title"] == "Introduction to Artificial Intelligence"
+    assert record["term_label"] is None
+    assert record["term_code"] is None
+    assert record["course_id"] is not None
+
+
+def test_mark_course_interested_does_not_overwrite_completed_record(client, app):
+    user_id, headers = create_user_and_headers(app, "completed_interest_user")
+    with app.app_context():
+        course = Course.query.filter_by(code="AIAA2205").one()
+        db.session.add(
+            UserCourseRecord(
+                user_id=user_id,
+                course_id=course.id,
+                course_code=course.code,
+                course_title=course.name,
+                status=UserCourseRecord.STATUS_COMPLETED,
+                term_label="2024-25 Fall",
+            )
+        )
+        db.session.commit()
+
+    response = client.put("/academic-map/courses/AIAA2205/interest", json={}, headers=headers)
+
+    assert response.status_code == 409
+    record = response.get_json()["record"]
+    assert record["status"] == "completed"
+    assert record["term_label"] == "2024-25 Fall"
+
+
+def test_cancel_course_interested_deletes_only_interested_record(client, app):
+    user_id, headers = create_user_and_headers(app, "cancel_interest_user")
+    with app.app_context():
+        course = Course.query.filter_by(code="AIAA2205").one()
+        db.session.add(
+            UserCourseRecord(
+                user_id=user_id,
+                course_id=course.id,
+                course_code=course.code,
+                course_title=course.name,
+                status=UserCourseRecord.STATUS_INTERESTED,
+            )
+        )
+        db.session.add(
+            UserCourseRecord(
+                user_id=user_id,
+                course_code="AIAA1010",
+                course_title="Academic Orientation for AI Students",
+                status=UserCourseRecord.STATUS_INTERESTED,
+            )
+        )
+        db.session.commit()
+
+    response = client.delete("/academic-map/courses/AIAA2205/interest", headers=headers)
+
+    assert response.status_code == 200
+    assert response.get_json()["deleted"] == 1
+    with app.app_context():
+        assert UserCourseRecord.query.filter_by(user_id=user_id, course_code="AIAA2205").count() == 0
+        assert UserCourseRecord.query.filter_by(user_id=user_id, course_code="AIAA1010").count() == 1
+
+
+def test_cancel_course_interested_does_not_delete_completed_record(client, app):
+    user_id, headers = create_user_and_headers(app, "cancel_completed_user")
+    with app.app_context():
+        course = Course.query.filter_by(code="AIAA2205").one()
+        db.session.add(
+            UserCourseRecord(
+                user_id=user_id,
+                course_id=course.id,
+                course_code=course.code,
+                course_title=course.name,
+                status=UserCourseRecord.STATUS_COMPLETED,
+            )
+        )
+        db.session.commit()
+
+    response = client.delete("/academic-map/courses/AIAA2205/interest", headers=headers)
+
+    assert response.status_code == 200
+    assert response.get_json()["deleted"] == 0
+    with app.app_context():
+        record = UserCourseRecord.query.filter_by(user_id=user_id, course_code="AIAA2205").one()
+        assert record.status == UserCourseRecord.STATUS_COMPLETED

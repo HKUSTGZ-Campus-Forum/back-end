@@ -1,4 +1,5 @@
 from decimal import Decimal
+import re
 
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
@@ -20,6 +21,16 @@ VALID_STATUSES = {
     UserCourseRecord.STATUS_INTERESTED,
     UserCourseRecord.STATUS_NOT_INTERESTED,
 }
+
+STRONG_STATUSES = {
+    UserCourseRecord.STATUS_COMPLETED,
+    UserCourseRecord.STATUS_IN_PROGRESS,
+    UserCourseRecord.STATUS_PLANNED,
+}
+
+
+def _compact_course_code(value: str | None) -> str:
+    return re.sub(r"[^A-Z0-9]+", "", (value or "").upper())
 
 
 def _current_user_id() -> int:
@@ -56,6 +67,74 @@ def get_summary():
     summary = build_academic_map_summary(_current_user_id())
     db.session.commit()
     return jsonify(summary), 200
+
+
+@bp.route("/courses/<course_code>/interest", methods=["PUT"])
+@jwt_required()
+def mark_course_interested(course_code):
+    user_id = _current_user_id()
+    normalized_code = _compact_course_code(course_code)
+    if not normalized_code:
+        return jsonify({"error": "Course code is required."}), 400
+
+    matched_course = find_course_by_normalized_code(normalized_code)
+    resolved_code = matched_course.code if matched_course else normalized_code
+    matching_records = [
+        record
+        for record in UserCourseRecord.query.filter_by(user_id=user_id).all()
+        if _compact_course_code(record.course_code) == normalized_code
+    ]
+
+    strong_record = next((record for record in matching_records if record.status in STRONG_STATUSES), None)
+    if strong_record:
+        return jsonify({"error": "Course already has a stronger academic status.", "record": strong_record.to_dict()}), 409
+
+    interested_record = next(
+        (record for record in matching_records if record.status == UserCourseRecord.STATUS_INTERESTED),
+        None,
+    )
+    if interested_record:
+        return jsonify({"record": interested_record.to_dict(include_grade=True)}), 200
+
+    raw_payload = request.get_json() or {}
+    units = raw_payload.get("units")
+    resolved_units = units if units is not None else (matched_course.credits if matched_course else None)
+    record = UserCourseRecord(
+        user_id=user_id,
+        course_id=matched_course.id if matched_course else None,
+        course_code=resolved_code,
+        course_title=matched_course.name if matched_course else clean_copied_status_text(raw_payload.get("course_title")),
+        term_label=None,
+        term_code=None,
+        units=Decimal(str(resolved_units)) if resolved_units is not None else None,
+        status=UserCourseRecord.STATUS_INTERESTED,
+        import_source=UserCourseRecord.SOURCE_MANUAL,
+        needs_review=matched_course is None,
+        review_reason=None if matched_course else "Course was not matched in the course database.",
+        raw_payload=raw_payload,
+    )
+    db.session.add(record)
+    db.session.commit()
+    return jsonify({"record": record.to_dict(include_grade=True)}), 200
+
+
+@bp.route("/courses/<course_code>/interest", methods=["DELETE"])
+@jwt_required()
+def cancel_course_interested(course_code):
+    user_id = _current_user_id()
+    normalized_code = _compact_course_code(course_code)
+    if not normalized_code:
+        return jsonify({"deleted": 0}), 200
+
+    deleted = 0
+    records = UserCourseRecord.query.filter_by(user_id=user_id, status=UserCourseRecord.STATUS_INTERESTED).all()
+    for record in records:
+        if _compact_course_code(record.course_code) == normalized_code:
+            db.session.delete(record)
+            deleted += 1
+
+    db.session.commit()
+    return jsonify({"deleted": deleted}), 200
 
 
 @bp.route("/import/parse", methods=["POST"])
