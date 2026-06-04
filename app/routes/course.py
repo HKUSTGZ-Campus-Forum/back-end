@@ -36,15 +36,61 @@ def _display_course_code(value):
     return f"{prefix} {suffix}".strip() if prefix and suffix else compact
 
 
+def _parse_scheduler_semester_id(semester_id):
+    raw = str(semester_id or "").strip()
+    if len(raw) != 4 or not raw.isdigit():
+        return None
+    season = {
+        "10": "fall",
+        "20": "winter",
+        "30": "spring",
+        "40": "summer",
+    }.get(raw[2:])
+    if not season:
+        return None
+    return f"20{raw[:2]}", season
+
+
+def _course_has_scheduler_metadata(course):
+    return any([
+        course.subject,
+        course.catalog_number,
+        course.course_title_abbr,
+        course.pre_requirement,
+        course.co_requirement,
+        course.exclusion,
+        course.vector,
+    ])
+
+
+def _course_has_scheduler_sections(course):
+    return SchedulerSection.query.filter_by(course_id=course.id).first() is not None
+
+
+def _rank_course_identifier_candidate(course, compact):
+    code = str(course.code or "").upper()
+    return (
+        code == compact,
+        _course_has_scheduler_sections(course),
+        _course_has_scheduler_metadata(course),
+        " " not in code,
+        course.updated_at or course.created_at,
+        course.id,
+    )
+
+
 def _find_course_by_identifier(identifier):
     raw = str(identifier or "").strip()
     if raw.isdigit():
         return Course.query.filter_by(id=int(raw), is_deleted=False).first()
     compact = _compact_course_code(raw)
-    return Course.query.filter(
+    candidates = Course.query.filter(
         func.upper(func.replace(Course.code, " ", "")) == compact,
         Course.is_deleted == False,
-    ).first()
+    ).all()
+    if not candidates:
+        return None
+    return max(candidates, key=lambda course: _rank_course_identifier_candidate(course, compact))
 
 
 def _scheduler_semester_id(year, semester_code):
@@ -92,6 +138,21 @@ def _get_course_semester_entries(course, language='zh'):
         if course_code != course.code:
             continue
 
+        key = f"{year}{semester_code}"
+        if key not in semester_entries:
+            semester_entries[key] = _build_semester_info(year, semester_code, language)
+
+    scheduler_semester_ids = (
+        db.session.query(SchedulerSection.semester_id)
+        .filter_by(course_id=course.id)
+        .distinct()
+        .all()
+    )
+    for (semester_id,) in scheduler_semester_ids:
+        parsed = _parse_scheduler_semester_id(semester_id)
+        if not parsed:
+            continue
+        year, semester_code = parsed
         key = f"{year}{semester_code}"
         if key not in semester_entries:
             semester_entries[key] = _build_semester_info(year, semester_code, language)

@@ -137,6 +137,81 @@ def test_get_course_overview_by_compact_code(client, app):
     assert data["offerings"][0]["instructors"] == ["Dr. AI"]
 
 
+def test_course_overview_prefers_scheduler_course_when_compact_codes_duplicate(client, app):
+    with app.app_context():
+        legacy_course = Course(
+            code="DUPL 2205",
+            name="Legacy Duplicate",
+            credits=3,
+            description="Legacy row from forum tags.",
+            is_active=True,
+        )
+        db.session.add(legacy_course)
+        db.session.flush()
+        legacy_course.create_semester_tag("2025spring")
+
+        scheduler_course = Course(
+            code="DUPL2205",
+            name="Scheduler Duplicate",
+            credits=3,
+            subject="DUPL",
+            catalog_number="2205",
+            description="Scheduler row with sections.",
+            pre_requirement="DUPL 1001",
+            is_active=True,
+        )
+        db.session.add(scheduler_course)
+        db.session.flush()
+        db.session.add_all([
+            SchedulerSection(
+                semester_id="2530",
+                section_id="DUPL2205-L01",
+                course_id=scheduler_course.id,
+                name="L01",
+                bundle=1,
+                layer=0,
+                quota=60,
+                section_type="L",
+                is_main=True,
+            ),
+            SchedulerSection(
+                semester_id="2530",
+                section_id="DUPL2205-T01",
+                course_id=scheduler_course.id,
+                name="T01",
+                bundle=1,
+                layer=1,
+                quota=30,
+                section_type="T",
+                is_main=False,
+            ),
+            SchedulerLecture(
+                semester_id="2530",
+                section_id="DUPL2205-L01",
+                day=1,
+                start_time=900,
+                end_time=1030,
+                room="Room 101",
+                instructor="Dr. Scheduler",
+            ),
+        ])
+        scheduler_course_id = scheduler_course.id
+        db.session.commit()
+
+    response = client.get("/courses/by-code/DUPL2205/overview")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["course"]["id"] == scheduler_course_id
+    assert data["course"]["code"] == "DUPL2205"
+    assert data["course"]["title"] == "Scheduler Duplicate"
+    assert data["course"]["pre_requirement"] == "DUPL 1001"
+    assert data["offerings"][0]["offering_tag"] == "25-26Spring"
+    assert data["offerings"][0]["scheduler_semester_id"] == "2530"
+    assert data["offerings"][0]["section_count"] == 2
+    assert data["offerings"][0]["instructors"] == ["Dr. Scheduler"]
+
+
 def test_get_course_overview_includes_authenticated_academic_record(client, app):
     course_id = seed_course(app)
     headers = create_user_and_headers(app, course_id)
