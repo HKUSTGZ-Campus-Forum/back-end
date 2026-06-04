@@ -92,6 +92,31 @@ def test_list_semesters(client, seed_courses):
     assert data[0]['name'] == '2025-26 Spring'
 
 
+def test_list_semesters_includes_25_26_summer_label(client, app):
+    with app.app_context():
+        course = Course(code="SUMR1001", name="Summer Course", credits=3)
+        db.session.add(course)
+        db.session.flush()
+        db.session.add(SchedulerSection(
+            semester_id="2540",
+            section_id="SUMR-L01",
+            course_id=course.id,
+            name="L01",
+            bundle=1,
+            layer=0,
+            quota=30,
+            section_type="L",
+            is_main=True,
+        ))
+        db.session.commit()
+
+    resp = client.get('/scheduler/semesters')
+    assert resp.status_code == 200
+    summer = next(item for item in resp.get_json() if item['id'] == '2540')
+    assert summer['name'] == '2025-26 Summer'
+    assert summer['name_zh'] == '25-26夏'
+
+
 def test_search_courses(client, seed_courses):
     resp = client.get('/scheduler/courses/search?query=English&semester=2530')
     assert resp.status_code == 200

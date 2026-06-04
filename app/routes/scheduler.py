@@ -15,6 +15,7 @@ SEMESTER_META = {
     '2440': {'name': '2024-25 Summer', 'name_zh': '24-25夏'},
     '2510': {'name': '2025-26 Fall', 'name_zh': '25-26秋'},
     '2530': {'name': '2025-26 Spring', 'name_zh': '25-26春'},
+    '2540': {'name': '2025-26 Summer', 'name_zh': '25-26夏'},
 }
 
 
