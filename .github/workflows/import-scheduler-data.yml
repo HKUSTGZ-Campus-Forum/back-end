@@ -1,0 +1,36 @@
+name: Import Scheduler Data to Dev
+
+on:
+  workflow_dispatch:
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Import via SSH
+      uses: appleboy/ssh-action@master
+      env:
+        COURSEPLAN_READONLY_DATABASE_URL: ${{ secrets.COURSEPLAN_READONLY_DATABASE_URL }}
+      with:
+        host: ${{ secrets.DEV_HOST }}
+        username: ${{ secrets.DEV_USER }}
+        key: ${{ secrets.DEV_SSH_KEY }}
+        envs: COURSEPLAN_READONLY_DATABASE_URL
+        script: |
+          set -e
+          if [ -z "$COURSEPLAN_READONLY_DATABASE_URL" ]; then
+            echo "COURSEPLAN_READONLY_DATABASE_URL secret is missing"
+            exit 1
+          fi
+
+          cd /data/dev_unikorn/back-end/
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+
+          source venv/bin/activate
+          python -m app.scripts.migrate_scheduler_data --source "$COURSEPLAN_READONLY_DATABASE_URL"
+
+          sudo /usr/bin/systemctl restart dev-unikorn-api.service
+          echo "Scheduler data import complete."

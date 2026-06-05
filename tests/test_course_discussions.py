@@ -1,6 +1,9 @@
 import pytest
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
 
 from app import create_app
+from app.config import Config
 from app.extensions import db
 from app.models.course import Course
 from app.models.user import User
@@ -9,12 +12,26 @@ from app.routes.post import SYSTEM_REVIEW_TAG, validate_and_get_tag
 from app.utils.semester import format_offering_display_tag
 
 
+@compiles(JSONB, "sqlite")
+def compile_jsonb_sqlite(_type, _compiler, **_kw):
+    return "JSON"
+
+
+class TestConfig(Config):
+    TESTING = True
+    SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+    CACHE_TYPE = "SimpleCache"
+    ENABLE_BACKGROUND_TASKS = False
+    JWT_SECRET_KEY = "test-secret"
+
+
 @pytest.fixture
-def client():
-    app = create_app()
-    app.config["TESTING"] = True
-    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///:memory:"
-    app.config["JWT_SECRET_KEY"] = "test-secret"
+def client(monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    for proxy_key in ["ALL_PROXY", "all_proxy", "HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"]:
+        monkeypatch.delenv(proxy_key, raising=False)
+    app = create_app(TestConfig)
 
     with app.test_client() as client:
         with app.app_context():
@@ -23,6 +40,14 @@ def client():
 
 
 def _create_course(code="AIAA2205"):
+    existing = Course.query.filter_by(code=code).first()
+    if existing:
+        existing.name = "Introduction to Artificial Intelligence"
+        existing.description = ""
+        existing.credits = 3
+        db.session.commit()
+        return existing
+
     course = Course(
         code=code,
         name="Introduction to Artificial Intelligence",
@@ -99,9 +124,16 @@ def test_course_discussions_include_current_and_previous_offerings_only(client):
             "other-course-discussion",
             [other_course.code, format_offering_display_tag("2025", "spring")],
         )
+        course_id = course.id
+        current_post_id = current_post.id
+        earlier_same_year_id = earlier_same_year.id
+        previous_year_id = previous_year.id
+        future_post_id = future_post.id
+        review_post_id = review_post.id
+        other_course_post_id = other_course_post.id
 
     response = client.get(
-        f"/courses/{course.id}/discussions",
+        f"/courses/{course_id}/discussions",
         query_string={"offering": "25-26Spring"},
     )
 
@@ -110,12 +142,12 @@ def test_course_discussions_include_current_and_previous_offerings_only(client):
     returned_ids = {post["id"] for post in payload["posts"]}
 
     assert payload["total_count"] == 3
-    assert current_post.id in returned_ids
-    assert earlier_same_year.id in returned_ids
-    assert previous_year.id in returned_ids
-    assert future_post.id not in returned_ids
-    assert review_post.id not in returned_ids
-    assert other_course_post.id not in returned_ids
+    assert current_post_id in returned_ids
+    assert earlier_same_year_id in returned_ids
+    assert previous_year_id in returned_ids
+    assert future_post_id not in returned_ids
+    assert review_post_id not in returned_ids
+    assert other_course_post_id not in returned_ids
 
 
 def test_course_discussions_for_fall_offering_excludes_newer_same_year_posts(client):
@@ -133,9 +165,12 @@ def test_course_discussions_for_fall_offering_excludes_newer_same_year_posts(cli
             "hidden-spring-post",
             [course.code, format_offering_display_tag("2025", "spring")],
         )
+        course_id = course.id
+        visible_fall_post_id = visible_fall_post.id
+        hidden_spring_post_id = hidden_spring_post.id
 
     response = client.get(
-        f"/courses/{course.id}/discussions",
+        f"/courses/{course_id}/discussions",
         query_string={"offering": "25-26Fall"},
     )
 
@@ -143,8 +178,8 @@ def test_course_discussions_for_fall_offering_excludes_newer_same_year_posts(cli
     payload = response.get_json()
     returned_ids = {post["id"] for post in payload["posts"]}
 
-    assert visible_fall_post.id in returned_ids
-    assert hidden_spring_post.id not in returned_ids
+    assert visible_fall_post_id in returned_ids
+    assert hidden_spring_post_id not in returned_ids
 
 
 def test_course_discussions_reject_unknown_offering_for_course(client):
@@ -155,9 +190,10 @@ def test_course_discussions_reject_unknown_offering_for_course(client):
             "legacy-fall-post",
             [course.code, format_offering_display_tag("2024", "fall")],
         )
+        course_id = course.id
 
     response = client.get(
-        f"/courses/{course.id}/discussions",
+        f"/courses/{course_id}/discussions",
         query_string={"offering": "25-26Spring"},
     )
 

@@ -69,6 +69,46 @@ class UserIdentity(db.Model):
                 }
         
         return data
+
+    def to_admin_dict(self):
+        """Serialize identity verification data for admin review surfaces."""
+        data = self.to_dict(include_documents=True, include_admin_info=True)
+
+        if self.user:
+            data["user"] = {
+                "id": self.user.id,
+                "username": self.user.username,
+                "email": self.user.email,
+                "profile_picture_url": self.user.avatar_url,
+                "created_at": self.user.created_at.isoformat() if self.user.created_at else None,
+            }
+
+        documents = []
+        for document in self.verification_documents or []:
+            if not isinstance(document, dict):
+                continue
+
+            file_id = document.get("file_id")
+            file_record = None
+            if file_id:
+                from app.models.file import File
+                file_record = File.query.filter_by(id=file_id, is_deleted=False).first()
+
+            documents.append({
+                "file_id": file_id,
+                "filename": (
+                    file_record.original_filename
+                    if file_record
+                    else document.get("filename") or document.get("name")
+                ),
+                "uploaded_at": document.get("uploaded_at"),
+                "size": file_record.file_size if file_record else document.get("size"),
+                "mime_type": file_record.mime_type if file_record else document.get("mime_type") or document.get("type"),
+                "view_url": f"/api/files/view/{file_id}" if file_id else None,
+            })
+
+        data["verification_documents"] = documents
+        return data
     
     def is_active(self):
         """Check if this identity verification is currently active"""

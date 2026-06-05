@@ -262,6 +262,97 @@ def withdraw_verification_request(verification_id):
         return jsonify({"success": False, "error": "Failed to withdraw verification request"}), 500
 
 # Admin endpoints for identity verification management
+def _identity_admin_counts():
+    statuses = [
+        UserIdentity.PENDING,
+        UserIdentity.APPROVED,
+        UserIdentity.REJECTED,
+        UserIdentity.REVOKED,
+    ]
+    counts = {
+        status: UserIdentity.query.filter_by(status=status).count()
+        for status in statuses
+    }
+    counts["total"] = sum(counts.values())
+    return counts
+
+
+@identity_bp.route('/admin/requests', methods=['GET'])
+@jwt_required()
+def list_admin_verification_requests():
+    """Get identity verification requests across all statuses (admin only)."""
+    try:
+        current_user_id = get_jwt_identity()
+        current_user = User.query.get(current_user_id)
+
+        if not current_user or not current_user.is_admin():
+            return jsonify({"success": False, "error": "Access denied"}), 403
+
+        status = request.args.get('status')
+        identity_type_id = request.args.get('identity_type_id')
+        sort = request.args.get('sort', 'newest')
+
+        try:
+            page = max(1, int(request.args.get('page', 1)))
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "error": "Invalid page"}), 400
+
+        try:
+            per_page = min(100, max(1, int(request.args.get('per_page', 20))))
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "error": "Invalid per_page"}), 400
+
+        valid_statuses = {
+            UserIdentity.PENDING,
+            UserIdentity.APPROVED,
+            UserIdentity.REJECTED,
+            UserIdentity.REVOKED,
+        }
+        if status and status not in valid_statuses:
+            return jsonify({"success": False, "error": "Invalid status"}), 400
+
+        query = UserIdentity.query
+        if status:
+            query = query.filter_by(status=status)
+
+        if identity_type_id:
+            try:
+                identity_type_id_value = int(identity_type_id)
+            except (TypeError, ValueError):
+                return jsonify({"success": False, "error": "Invalid identity_type_id"}), 400
+            query = query.filter_by(identity_type_id=identity_type_id_value)
+
+        if sort == 'oldest':
+            query = query.order_by(UserIdentity.created_at.asc())
+        elif sort == 'priority':
+            priority_case = db.case(
+                (UserIdentity.status == UserIdentity.PENDING, 0),
+                (UserIdentity.status == UserIdentity.APPROVED, 1),
+                (UserIdentity.status == UserIdentity.REJECTED, 2),
+                (UserIdentity.status == UserIdentity.REVOKED, 3),
+                else_=4,
+            )
+            query = query.order_by(priority_case.asc(), UserIdentity.created_at.asc())
+        else:
+            query = query.order_by(UserIdentity.created_at.desc())
+
+        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+
+        return jsonify({
+            "success": True,
+            "requests": [item.to_admin_dict() for item in pagination.items],
+            "total": pagination.total,
+            "page": page,
+            "pages": pagination.pages,
+            "per_page": per_page,
+            "counts": _identity_admin_counts(),
+        }), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error fetching admin verification requests: {e}")
+        return jsonify({"success": False, "error": "Failed to fetch verification requests"}), 500
+
+
 @identity_bp.route('/admin/pending', methods=['GET'])
 @jwt_required()
 def get_pending_verifications():
@@ -277,15 +368,7 @@ def get_pending_verifications():
         
         result = []
         for verification in pending_verifications:
-            verification_data = verification.to_dict(include_documents=True, include_admin_info=True)
-            # Add user information
-            if verification.user:
-                verification_data["user"] = {
-                    "id": verification.user.id,
-                    "username": verification.user.username,
-                    "email": verification.user.email,
-                    "created_at": verification.user.created_at.isoformat()
-                }
+            verification_data = verification.to_admin_dict()
             result.append(verification_data)
         
         return jsonify({

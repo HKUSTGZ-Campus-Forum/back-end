@@ -1,0 +1,2947 @@
+{
+  "semester_id": "2540",
+  "courses": [
+    {
+      "course_code": "AIAA2205",
+      "sections": [
+        {
+          "course_code": "AIAA2205",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6023",
+          "quota": 50,
+          "enrol": 0,
+          "avail": 50,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 3,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 228, E2",
+              "instructor": "LIU, Li"
+            },
+            {
+              "day": 5,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 228, E2",
+              "instructor": "LIU, Li"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "AIAA",
+      "catalog_number": "2205",
+      "course_title": "Introduction to Artificial Intelligence",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "AIAA3102",
+      "sections": [
+        {
+          "course_code": "AIAA3102",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6024",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 202, W4",
+              "instructor": "CHEN, Huangxun"
+            },
+            {
+              "day": 3,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 202, W4",
+              "instructor": "CHEN, Huangxun"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "AIAA",
+      "catalog_number": "3102",
+      "course_title": "Python Programming with Artificial Intelligence",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "AIAA3800",
+      "sections": [
+        {
+          "course_code": "AIAA3800",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6076",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 101, W4",
+              "instructor": "HU, Zhiming"
+            },
+            {
+              "day": 3,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 101, W4",
+              "instructor": "HU, Zhiming"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "AIAA",
+      "catalog_number": "3800",
+      "course_title": "Human-Centered Artificial Intelligence",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "AIAA4313",
+      "sections": [
+        {
+          "course_code": "AIAA4313",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6077",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1330",
+              "end_time": "1450",
+              "room": "Rm 101, W4",
+              "instructor": "LONG, Yan"
+            },
+            {
+              "day": 4,
+              "start_time": "1330",
+              "end_time": "1450",
+              "room": "Rm 101, W4",
+              "instructor": "LONG, Yan"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "AIAA4313",
+          "section_type": "T",
+          "name": "T01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6078",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1500",
+              "end_time": "1620",
+              "room": "Rm 101, W4",
+              "instructor": "LONG, Yan"
+            },
+            {
+              "day": 4,
+              "start_time": "1500",
+              "end_time": "1620",
+              "room": "Rm 101, W4",
+              "instructor": "LONG, Yan"
+            }
+          ],
+          "is_main": false,
+          "layer": 1
+        }
+      ],
+      "subject": "AIAA",
+      "catalog_number": "4313",
+      "course_title": "Frontier Topics in AI Security and Privacy",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "AIAA5023",
+      "sections": [
+        {
+          "course_code": "AIAA5023",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6067",
+          "quota": 20,
+          "enrol": 0,
+          "avail": 20,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1330",
+              "end_time": "1620",
+              "room": "Rm 105, W3",
+              "instructor": "ZHAO, Tianxiang"
+            },
+            {
+              "day": 3,
+              "start_time": "1330",
+              "end_time": "1620",
+              "room": "Rm 105, W3",
+              "instructor": "ZHAO, Tianxiang"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "AIAA",
+      "catalog_number": "5023",
+      "course_title": "Foundations of Deep Neural Networks",
+      "course_desc": "This course helps students to get basic knowledge about deep neural networks, helping them to understand basic concepts, capabilities and challenges of deep neural networks.",
+      "credit": 3,
+      "pg_course": true,
+      "vector": "[3-0-0:3]",
+      "matching": ""
+    },
+    {
+      "course_code": "AIAA5034",
+      "sections": [
+        {
+          "course_code": "AIAA5034",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6066",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1800",
+              "end_time": "2050",
+              "room": "Rm 102, W1",
+              "instructor": "RIKOS, APOSTOLOS"
+            },
+            {
+              "day": 4,
+              "start_time": "1800",
+              "end_time": "2050",
+              "room": "Rm 102, W1",
+              "instructor": "RIKOS, APOSTOLOS"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "AIAA",
+      "catalog_number": "5034",
+      "course_title": "Reinforcement Learning and Optimization",
+      "course_desc": "Learning to make good decisions is one of the keys to autonomous systems. This course will focus on Reinforcement Learning (RL), a currently very active subfield of artificial intelligence, and it will discuss selectively a number of algorithmic topics including Markov Decision Process, Q-Learning, function approximation, exploration and exploitation, policy search, imitation learning, model-based RL and optimal control. This course provides both the foundations and techniques for developing RL and deep RL algorithms that interact with physical environments, and real application cases of RL will be introduced. Basic knowledge of machine learning and mathematical optimization are expected for this course.",
+      "credit": 3,
+      "pg_course": true,
+      "vector": "[3-0-0:3]",
+      "matching": ""
+    },
+    {
+      "course_code": "BSBE5300",
+      "sections": [
+        {
+          "course_code": "BSBE5300",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6059",
+          "quota": 15,
+          "enrol": 0,
+          "avail": 15,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1330",
+              "end_time": "1620",
+              "room": "Rm 201, W1",
+              "instructor": "ZHANG, Xian"
+            },
+            {
+              "day": 2,
+              "start_time": "1330",
+              "end_time": "1620",
+              "room": "Rm 201, W1",
+              "instructor": "ZHANG, Xian"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "BSBE",
+      "catalog_number": "5300",
+      "course_title": "Brain and Behavior",
+      "course_desc": "This course covers the basic knowledge of neuroscience, including neuronal communications in the brain, the fundamental information and electrophysiological properties of neurons, neuroanatomy, psychopharmacology, and how the activity of neurons and neural circuits, together with chemical systems in the brains, yield emotion, motivated behaviors, learning and memory.",
+      "credit": 3,
+      "pg_course": true,
+      "vector": "[3-0-0:3]",
+      "matching": ""
+    },
+    {
+      "course_code": "BSBE5500",
+      "sections": [
+        {
+          "course_code": "BSBE5500",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6060",
+          "quota": 15,
+          "enrol": 0,
+          "avail": 15,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 3,
+              "start_time": "1330",
+              "end_time": "1620",
+              "room": "Rm 201, W1",
+              "instructor": "WU, Jun"
+            },
+            {
+              "day": 4,
+              "start_time": "1330",
+              "end_time": "1620",
+              "room": "Rm 201, W1",
+              "instructor": "WU, Jun"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "BSBE",
+      "catalog_number": "5500",
+      "course_title": "Principles of Biomaterials, Drug Delivery and Tissue Engineering",
+      "course_desc": "This course covers the basic knowledge of biomaterials, drug delivery and tissue engineering: natural biomaterials, synthetic biomaterials, biomaterials for drug delivery, biomaterials for tissue engineering, biomaterial formulations (nanoparticles, nanofibers and microspheres), biocompatibility, biodegradability, with focus on the structure-function of the biomaterials and how to develop biomaterials for a variety of biomedical applications.",
+      "credit": 3,
+      "pg_course": true,
+      "vector": "[3-0-0:3]",
+      "matching": ""
+    },
+    {
+      "course_code": "CNGF5400",
+      "sections": [
+        {
+          "course_code": "CNGF5400",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6073",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 201, W2",
+              "instructor": "QI, Shaozhou"
+            },
+            {
+              "day": 5,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 201, W2",
+              "instructor": "QI, Shaozhou"
+            },
+            {
+              "day": 3,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 201, W2",
+              "instructor": "QI, Shaozhou"
+            },
+            {
+              "day": 4,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 201, W2",
+              "instructor": "QI, Shaozhou"
+            },
+            {
+              "day": 3,
+              "start_time": "1330",
+              "end_time": "1620",
+              "room": "Rm 201, W2",
+              "instructor": "QI, Shaozhou"
+            },
+            {
+              "day": 4,
+              "start_time": "1330",
+              "end_time": "1620",
+              "room": "Rm 201, W2",
+              "instructor": "QI, Shaozhou"
+            },
+            {
+              "day": 2,
+              "start_time": "1330",
+              "end_time": "1620",
+              "room": "Rm 201, W2",
+              "instructor": "QI, Shaozhou"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "CNGF",
+      "catalog_number": "5400",
+      "course_title": "Carbon Pricing, Trading, and Climate Finance Innovations",
+      "course_desc": "This course provides an in-depth exploration of the role of market mechanisms and financial instruments in addressing climate change and promoting the transitionto a low-carbon economy. The course covers the fundamental concepts, theories, and practices related to carbon markets, carbon pricing, and climate finance. Students will learn about the design, implementation, and operation of various carbon market mechanisms, such as cap-and-trade systems, carbon taxes, and voluntary carbon markets. The course also examines innovative climate finance instruments, including green bonds, climate funds, and climate risk insurance, and their potential to mobilize capital for climate change mitigation and adaptation projects. Through case studies, simulations, and hands-on projects, students will gain practical skills in analyzing, designing, and evaluating carbon market and climate finance interventions.",
+      "credit": 3,
+      "pg_course": true,
+      "vector": "[3-0-0:3]",
+      "matching": ""
+    },
+    {
+      "course_code": "CNGF6030",
+      "sections": [
+        {
+          "course_code": "CNGF6030",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6081",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "CNGF",
+      "catalog_number": "6030",
+      "course_title": "Career Fair Workshop",
+      "course_desc": "This course offers students the chance to acquire essential career readiness skills and knowledge. These workshops are facilitated by the faculty members of CNCC Thrust and cover a wide range of topics, such as resume writing techniques, effective strategies for navigating career fairs, and exploring different career path options, among others. Graded P or F.",
+      "credit": 1,
+      "pg_course": true,
+      "vector": "[1-0-0:1]",
+      "matching": ""
+    },
+    {
+      "course_code": "CNGF6050",
+      "sections": [],
+      "subject": "CNGF",
+      "catalog_number": "6050",
+      "course_title": "Internship I",
+      "course_desc": "This course is the first part of a 6-month mandatory and guaranteed internship. It provides students with the opportunity to gain practical experience in the industry, applying the knowledge and skills acquired throughout their academic program. Under the guidance of both academic supervisors and industry mentors, students will work on real-world projects related to carbon neutrality and green finance. This hands-on experience will enable students to develop a deeper understanding of how their expertise can be applied to address various climate change challenges faced by organizations. Throughout the internship, students will enhance their problem-solving abilities, professional communication skills, and industry-specific knowledge, preparing them for successful careers in the field of sustainable finance and environmental management.",
+      "credit": 3,
+      "pg_course": true,
+      "vector": "3 credits",
+      "matching": ""
+    },
+    {
+      "course_code": "DLED3020",
+      "sections": [
+        {
+          "course_code": "DLED3020",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6056",
+          "quota": 33,
+          "enrol": 0,
+          "avail": 33,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1200",
+              "end_time": "1320",
+              "room": "Rm 221, W1",
+              "instructor": "LI, Yue"
+            },
+            {
+              "day": 2,
+              "start_time": "1200",
+              "end_time": "1320",
+              "room": "Rm 221, W1",
+              "instructor": "LI, Yue"
+            },
+            {
+              "day": 3,
+              "start_time": "1200",
+              "end_time": "1320",
+              "room": "Rm 221, W1",
+              "instructor": "LI, Yue"
+            },
+            {
+              "day": 5,
+              "start_time": "1200",
+              "end_time": "1320",
+              "room": "Rm 221, W1",
+              "instructor": "LI, Yue"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "DLED3020",
+          "section_type": "L",
+          "name": "L02",
+          "bundle": 2,
+          "semester_id": "2540",
+          "section_id": "6057",
+          "quota": 33,
+          "enrol": 0,
+          "avail": 33,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "0900",
+              "end_time": "1020",
+              "room": "Rm 102, W1",
+              "instructor": "LI, Yue"
+            },
+            {
+              "day": 2,
+              "start_time": "0900",
+              "end_time": "1020",
+              "room": "Rm 102, W1",
+              "instructor": "LI, Yue"
+            },
+            {
+              "day": 3,
+              "start_time": "0900",
+              "end_time": "1020",
+              "room": "Rm 102, W1",
+              "instructor": "LI, Yue"
+            },
+            {
+              "day": 5,
+              "start_time": "0900",
+              "end_time": "1020",
+              "room": "Rm 102, W1",
+              "instructor": "LI, Yue"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "DLED",
+      "catalog_number": "3020",
+      "course_title": "English Communication I for Information Hub programs",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "DSAA1001",
+      "sections": [
+        {
+          "course_code": "DSAA1001",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6008",
+          "quota": 80,
+          "enrol": 0,
+          "avail": 80,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 228, E2",
+              "instructor": "LI, Lei & WANG, Wei & ZHANG, Yongqi"
+            },
+            {
+              "day": 4,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 228, E2",
+              "instructor": "LI, Lei & WANG, Wei & ZHANG, Yongqi"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "DSAA1001",
+          "section_type": "LA",
+          "name": "LA01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6009",
+          "quota": 80,
+          "enrol": 0,
+          "avail": 80,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1800",
+              "end_time": "1850",
+              "room": "Rm 228, E2",
+              "instructor": "LI, Lei & WANG, Wei & ZHANG, Yongqi"
+            },
+            {
+              "day": 4,
+              "start_time": "1800",
+              "end_time": "1850",
+              "room": "Rm 228, E2",
+              "instructor": "LI, Lei & WANG, Wei & ZHANG, Yongqi"
+            }
+          ],
+          "is_main": false,
+          "layer": 1
+        }
+      ],
+      "subject": "DSAA",
+      "catalog_number": "1001",
+      "course_title": "Introduction to Data Science and Analytics",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "DSAA2011",
+      "sections": [
+        {
+          "course_code": "DSAA2011",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6010",
+          "quota": 80,
+          "enrol": 0,
+          "avail": 80,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 102, W4",
+              "instructor": "WEI, Jiaheng"
+            },
+            {
+              "day": 4,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 102, W4",
+              "instructor": "WEI, Jiaheng"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "DSAA2011",
+          "section_type": "LA",
+          "name": "LA01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6011",
+          "quota": 80,
+          "enrol": 0,
+          "avail": 80,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 3,
+              "start_time": "1400",
+              "end_time": "1450",
+              "room": "Rm 102, W4",
+              "instructor": "WEI, Jiaheng"
+            },
+            {
+              "day": 5,
+              "start_time": "1400",
+              "end_time": "1450",
+              "room": "Rm 102, W4",
+              "instructor": "WEI, Jiaheng"
+            }
+          ],
+          "is_main": false,
+          "layer": 1
+        }
+      ],
+      "subject": "DSAA",
+      "catalog_number": "2011",
+      "course_title": "Machine Learning",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "DSAA2042",
+      "sections": [
+        {
+          "course_code": "DSAA2042",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6018",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1200",
+              "end_time": "1450",
+              "room": "Rm 222, W1",
+              "instructor": "WEN, Zeyi"
+            },
+            {
+              "day": 4,
+              "start_time": "1200",
+              "end_time": "1450",
+              "room": "Rm 222, W1",
+              "instructor": "WEN, Zeyi"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "DSAA2042",
+          "section_type": "LA",
+          "name": "LA01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6019",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1900",
+              "end_time": "1950",
+              "room": "Rm 228, E1",
+              "instructor": "WEN, Zeyi"
+            },
+            {
+              "day": 4,
+              "start_time": "1900",
+              "end_time": "1950",
+              "room": "Rm 228, E1",
+              "instructor": "WEN, Zeyi"
+            }
+          ],
+          "is_main": false,
+          "layer": 1
+        }
+      ],
+      "subject": "DSAA",
+      "catalog_number": "2042",
+      "course_title": "Computer Architecture and Systems",
+      "course_desc": "",
+      "credit": 4,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "DSAA3073",
+      "sections": [
+        {
+          "course_code": "DSAA3073",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6014",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1030",
+              "end_time": "1320",
+              "room": "Rm 222, W1",
+              "instructor": "WANG, Wei"
+            },
+            {
+              "day": 3,
+              "start_time": "1030",
+              "end_time": "1320",
+              "room": "Rm 222, W1",
+              "instructor": "WANG, Wei"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "DSAA3073",
+          "section_type": "T",
+          "name": "T01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6015",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1800",
+              "end_time": "1850",
+              "room": "Rm 222, W1",
+              "instructor": "WANG, Wei"
+            },
+            {
+              "day": 3,
+              "start_time": "1800",
+              "end_time": "1850",
+              "room": "Rm 222, W1",
+              "instructor": "WANG, Wei"
+            }
+          ],
+          "is_main": false,
+          "layer": 1
+        }
+      ],
+      "subject": "DSAA",
+      "catalog_number": "3073",
+      "course_title": "Theories in Data Science",
+      "course_desc": "",
+      "credit": 4,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "DSAA4012",
+      "sections": [
+        {
+          "course_code": "DSAA4012",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6013",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 202, W4",
+              "instructor": "DUAN, Huayi"
+            },
+            {
+              "day": 3,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 202, W4",
+              "instructor": "DUAN, Huayi"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "DSAA",
+      "catalog_number": "4012",
+      "course_title": "Machine Learning Systems",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "FTEC3210",
+      "sections": [
+        {
+          "course_code": "FTEC3210",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6074",
+          "quota": 20,
+          "enrol": 0,
+          "avail": 20,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1330",
+              "end_time": "1620",
+              "room": "Rm 105, W3",
+              "instructor": "CHEN, Sijia"
+            },
+            {
+              "day": 4,
+              "start_time": "1330",
+              "end_time": "1620",
+              "room": "Rm 105, W3",
+              "instructor": "CHEN, Sijia"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "FTEC",
+      "catalog_number": "3210",
+      "course_title": "Data Analysis with Python",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "FUNH5000",
+      "sections": [
+        {
+          "course_code": "FUNH5000",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6058",
+          "quota": 20,
+          "enrol": 0,
+          "avail": 20,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1000",
+              "end_time": "1150",
+              "room": "Rm 105, W3",
+              "instructor": "YANG, Qichun"
+            },
+            {
+              "day": 2,
+              "start_time": "1000",
+              "end_time": "1150",
+              "room": "Rm 105, W3",
+              "instructor": "YANG, Qichun"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "FUNH",
+      "catalog_number": "5000",
+      "course_title": "Introduction to Function Hub for Sustainable Future",
+      "course_desc": "This course covers background knowledge in the thrust areas of the Function Hub, including Advanced Materials, Sustainable Energy and Environment, Microelectronics, and Earth, Ocean and Atmospheric Sciences.",
+      "credit": 2,
+      "pg_course": true,
+      "vector": "[2-0-0:2]",
+      "matching": ""
+    },
+    {
+      "course_code": "IPEN6110",
+      "sections": [
+        {
+          "course_code": "IPEN6110",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6070",
+          "quota": 50,
+          "enrol": 0,
+          "avail": 50,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 228, E2",
+              "instructor": "HOU, Yun & XU, Kewei"
+            },
+            {
+              "day": 3,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 228, E2",
+              "instructor": "HOU, Yun & XU, Kewei"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "IPEN",
+      "catalog_number": "6110",
+      "course_title": "Capstone Project",
+      "course_desc": "This course consists of 6 credits and will last for two regular terms. In the first term, students learn and integrate the latest technology topics through seminars,lectures, and workshops. After completing four micro-policy analysis reports, students can familiarize themselves with technology policy hot spots and policy analysis tools, as well as the cooperation skills and role division among the groups. In the second term, they will complete group projects on selected topics for science and technology policy under the supervision offaculty members. The participation of the universityâs internal community and external organizations in these projects will be highly encouraged. The university will be responsible for the control, management and evaluation of the project. Students will exercise their teamwork skills, analyze science and technology policy issues and develop concise reports of their findings and recommendations. They should write the paper acting as an assistant to a particular decision-maker in a government, nonprofit organization, business or private sector. This course is for MSc(TP) students only. May be graded PP.",
+      "credit": 6,
+      "pg_course": true,
+      "vector": "[6 credits]",
+      "matching": ""
+    },
+    {
+      "course_code": "MSSM6000",
+      "sections": [],
+      "subject": "MSSM",
+      "catalog_number": "6000",
+      "course_title": "Independent Project",
+      "course_desc": "An independent research project related to Smart Manufacturing carried out under the supervision of faculty members. Grade PP, P or F.",
+      "credit": 4,
+      "pg_course": true,
+      "vector": "[4 credits]",
+      "matching": ""
+    },
+    {
+      "course_code": "MSSM6001",
+      "sections": [],
+      "subject": "MSSM",
+      "catalog_number": "6001",
+      "course_title": "Industry Internship Project I",
+      "course_desc": "The Industry Internship Project provides students with the opportunity to apply their theoretical knowledge and academic training to real-world manufacturing environments, allowing them to gain practical experience and witness the application of smart manufacturing concepts in action. Students are required to complete an industry internship with a duration of 6 months. The internship consists of two parts. In MSSM 6001, students are required to submit a mid-term progress report for review by the academic and industry supervisors. Graded PP, P or F.",
+      "credit": 4,
+      "pg_course": true,
+      "vector": "[4 credits]",
+      "matching": ""
+    },
+    {
+      "course_code": "PDEV6800O",
+      "sections": [],
+      "subject": "PDEV",
+      "catalog_number": "6800O",
+      "course_title": "Introduction to Teaching and Learning in Higher Education",
+      "course_desc": "The course is designed to strengthen studentsâ competence in teaching. It comprises 2 parts: Part 1 aims to equip all full-time research postgraduate (RPg) students with basic teaching skills before assuming teaching assistant duties for the department. Good teaching skills can be acquired through learning and practice.Â  This 10-hour mandatory training course provides all graduate teaching assistants (GTA) with the necessary theoretical knowledge with practical opportunities to apply and build up their knowledge, skills and confidence in taking up their teaching duties. At the end of the course, GTAs should be able to (1) facilitate teaching in tutorials and laboratory settings; (2) provide meaningful feedback to their students; and (3) design an active learning environment to engage their students. In Part 2, students are required to perform instructional delivery assigned by their respective departments to complete this course. MPhil students are required to give at least one 30-minute session of instructional delivery in front of a group of students for one term. PhD students are required to give at least one such session each in two different terms. Graded PP, P or F.",
+      "credit": 0,
+      "pg_course": true,
+      "vector": "[0 credit]",
+      "matching": ""
+    },
+    {
+      "course_code": "ROAS1010",
+      "sections": [
+        {
+          "course_code": "ROAS1010",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6001",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1200",
+              "end_time": "1450",
+              "room": "Rm 202, W4",
+              "instructor": "JI, Yiding & XU, Renjing & YU, Huan & ZHAO, Hang & ZHU, Lei"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "ROAS",
+      "catalog_number": "1010",
+      "course_title": "Introduction to Robotics and Autonomous Systems",
+      "course_desc": "",
+      "credit": 1,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "ROAS2200",
+      "sections": [
+        {
+          "course_code": "ROAS2200",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6004",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 202, W4",
+              "instructor": "JIANG, Hongwu & ZHAO, Hang"
+            },
+            {
+              "day": 4,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 202, W4",
+              "instructor": "JIANG, Hongwu & ZHAO, Hang"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "ROAS2200",
+          "section_type": "T",
+          "name": "T01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6005",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1800",
+              "end_time": "1850",
+              "room": "Rm 202, W4",
+              "instructor": "JIANG, Hongwu & ZHAO, Hang"
+            },
+            {
+              "day": 4,
+              "start_time": "1800",
+              "end_time": "1850",
+              "room": "Rm 202, W4",
+              "instructor": "JIANG, Hongwu & ZHAO, Hang"
+            }
+          ],
+          "is_main": false,
+          "layer": 1
+        }
+      ],
+      "subject": "ROAS",
+      "catalog_number": "2200",
+      "course_title": "Electronic Circuits",
+      "course_desc": "",
+      "credit": 4,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "ROAS4220",
+      "sections": [
+        {
+          "course_code": "ROAS4220",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6002",
+          "quota": 20,
+          "enrol": 0,
+          "avail": 20,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1400",
+              "end_time": "1650",
+              "room": "Rm 201, W4",
+              "instructor": "NIE, Qiang"
+            },
+            {
+              "day": 3,
+              "start_time": "1400",
+              "end_time": "1650",
+              "room": "Rm 201, W4",
+              "instructor": "NIE, Qiang"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "ROAS4220",
+          "section_type": "LA",
+          "name": "LA01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6003",
+          "quota": 20,
+          "enrol": 0,
+          "avail": 20,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1700",
+              "end_time": "1750",
+              "room": "Rm 201, W4",
+              "instructor": "NIE, Qiang"
+            },
+            {
+              "day": 3,
+              "start_time": "1700",
+              "end_time": "1750",
+              "room": "Rm 201, W4",
+              "instructor": "NIE, Qiang"
+            }
+          ],
+          "is_main": false,
+          "layer": 1
+        }
+      ],
+      "subject": "ROAS",
+      "catalog_number": "4220",
+      "course_title": "Introduction to Robotics: Kinematics, Planning and Control",
+      "course_desc": "",
+      "credit": 4,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "SEEN2010",
+      "sections": [
+        {
+          "course_code": "SEEN2010",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6082",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "0900",
+              "end_time": "0950",
+              "room": "Rm 222, W1",
+              "instructor": "HUANG, Jiaqiang & LIANG, Yutong & QIU, Huihe & ZHOU, Teng"
+            },
+            {
+              "day": 3,
+              "start_time": "0900",
+              "end_time": "0950",
+              "room": "Rm 222, W1",
+              "instructor": "HUANG, Jiaqiang & LIANG, Yutong & QIU, Huihe & ZHOU, Teng"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "SEEN",
+      "catalog_number": "2010",
+      "course_title": "Introduction to New Energy Science and Engineering",
+      "course_desc": "",
+      "credit": 1,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "SMMG3000",
+      "sections": [],
+      "subject": "SMMG",
+      "catalog_number": "3000",
+      "course_title": "Industrial Training",
+      "course_desc": "",
+      "credit": 0,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "SMMG4610",
+      "sections": [
+        {
+          "course_code": "SMMG4610",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6006",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1330",
+              "end_time": "1450",
+              "room": "Rm 228, E2",
+              "instructor": "JOHNSON, SHANE MIGUEL"
+            },
+            {
+              "day": 2,
+              "start_time": "1330",
+              "end_time": "1450",
+              "room": "Rm 228, E2",
+              "instructor": "JOHNSON, SHANE MIGUEL"
+            },
+            {
+              "day": 3,
+              "start_time": "1330",
+              "end_time": "1450",
+              "room": "Rm 228, E2",
+              "instructor": "JOHNSON, SHANE MIGUEL"
+            },
+            {
+              "day": 5,
+              "start_time": "1330",
+              "end_time": "1450",
+              "room": "Rm 228, E2",
+              "instructor": "JOHNSON, SHANE MIGUEL"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "SMMG",
+      "catalog_number": "4610",
+      "course_title": "Product Design and Lifecycle Management",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "SMMG4660",
+      "sections": [
+        {
+          "course_code": "SMMG4660",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6079",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 101, W4",
+              "instructor": "CHEN, Li & TANG, Kai"
+            },
+            {
+              "day": 2,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 101, W4",
+              "instructor": "CHEN, Li & TANG, Kai"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "SMMG4660",
+          "section_type": "T",
+          "name": "T01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6080",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [],
+          "is_main": false,
+          "layer": 1
+        }
+      ],
+      "subject": "SMMG",
+      "catalog_number": "4660",
+      "course_title": "Numerical Methods in Engineering",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UCUG1071",
+      "sections": [
+        {
+          "course_code": "UCUG1071",
+          "section_type": "T",
+          "name": "T01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6038",
+          "quota": 20,
+          "enrol": 0,
+          "avail": 20,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1200",
+              "end_time": "1450",
+              "room": "Rm 102, W1",
+              "instructor": "HAO, Tun"
+            },
+            {
+              "day": 4,
+              "start_time": "1200",
+              "end_time": "1450",
+              "room": "Rm 102, W1",
+              "instructor": "HAO, Tun"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "UCUG",
+      "catalog_number": "1071",
+      "course_title": "Intermediate Listening and Speaking of Putonghua",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UCUG1501",
+      "sections": [
+        {
+          "course_code": "UCUG1501",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6043",
+          "quota": 20,
+          "enrol": 0,
+          "avail": 20,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1300",
+              "end_time": "1450",
+              "room": "Rm 201, E3",
+              "instructor": "YIP, David Kei Man & ZHANG, Junjie"
+            },
+            {
+              "day": 3,
+              "start_time": "1300",
+              "end_time": "1450",
+              "room": "Rm 201, E3",
+              "instructor": "YIP, David Kei Man & ZHANG, Junjie"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "UCUG1501",
+          "section_type": "T",
+          "name": "T01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6044",
+          "quota": 20,
+          "enrol": 0,
+          "avail": 20,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1500",
+              "end_time": "1620",
+              "room": "Rm 228, E1",
+              "instructor": "YIP, David Kei Man & ZHANG, Junjie"
+            },
+            {
+              "day": 3,
+              "start_time": "1500",
+              "end_time": "1620",
+              "room": "Rm 228, E1",
+              "instructor": "YIP, David Kei Man & ZHANG, Junjie"
+            }
+          ],
+          "is_main": false,
+          "layer": 1
+        }
+      ],
+      "subject": "UCUG",
+      "catalog_number": "1501",
+      "course_title": "Introduction to Photography and Digital Imaging",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UCUG1504",
+      "sections": [
+        {
+          "course_code": "UCUG1504",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6037",
+          "quota": 20,
+          "enrol": 0,
+          "avail": 20,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1200",
+              "end_time": "1450",
+              "room": "Rm 233, W1",
+              "instructor": "XING, Qingqing"
+            },
+            {
+              "day": 4,
+              "start_time": "1200",
+              "end_time": "1450",
+              "room": "Rm 233, W1",
+              "instructor": "XING, Qingqing"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "UCUG",
+      "catalog_number": "1504",
+      "course_title": "The Art of Public Speaking",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UCUG1506",
+      "sections": [
+        {
+          "course_code": "UCUG1506",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6036",
+          "quota": 20,
+          "enrol": 0,
+          "avail": 20,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 205, C7 Library",
+              "instructor": "FANG, Bo"
+            },
+            {
+              "day": 4,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 205, C7 Library",
+              "instructor": "FANG, Bo"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "UCUG",
+      "catalog_number": "1506",
+      "course_title": "Enjoyment of Classical Music",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UCUG1507",
+      "sections": [
+        {
+          "course_code": "UCUG1507",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6035",
+          "quota": 20,
+          "enrol": 0,
+          "avail": 20,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 201, W1",
+              "instructor": "ZHANG, Junjie"
+            },
+            {
+              "day": 3,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 201, W1",
+              "instructor": "ZHANG, Junjie"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "UCUG",
+      "catalog_number": "1507",
+      "course_title": "Figure Drawing in Motion",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UCUG1600",
+      "sections": [
+        {
+          "course_code": "UCUG1600",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6034",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 222, W1",
+              "instructor": "LUO, Moxuan & REN, ZHIJUN"
+            },
+            {
+              "day": 4,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 222, W1",
+              "instructor": "LUO, Moxuan & REN, ZHIJUN"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "UCUG",
+      "catalog_number": "1600",
+      "course_title": "Intercultural Communication",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UCUG1800",
+      "sections": [
+        {
+          "course_code": "UCUG1800",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6030",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 3,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 102, W1",
+              "instructor": "XU, Kewei"
+            },
+            {
+              "day": 5,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 102, W1",
+              "instructor": "XU, Kewei"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "UCUG",
+      "catalog_number": "1800",
+      "course_title": "Technology and Innovation: Social and Business Perspectives",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UCUG1807",
+      "sections": [
+        {
+          "course_code": "UCUG1807",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6052",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 3,
+              "start_time": "0900",
+              "end_time": "1120",
+              "room": "Rm 221, W1",
+              "instructor": "ZHANG, Yi"
+            },
+            {
+              "day": 5,
+              "start_time": "0900",
+              "end_time": "1120",
+              "room": "Rm 221, W1",
+              "instructor": "ZHANG, Yi"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "UCUG1807",
+          "section_type": "L",
+          "name": "L02",
+          "bundle": 2,
+          "semester_id": "2540",
+          "section_id": "6053",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1230",
+              "end_time": "1450",
+              "room": "Rm 202, E3",
+              "instructor": "LAN, Zhiyong"
+            },
+            {
+              "day": 4,
+              "start_time": "1230",
+              "end_time": "1450",
+              "room": "Rm 202, E3",
+              "instructor": "LAN, Zhiyong"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "UCUG1807",
+          "section_type": "T",
+          "name": "T01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6054",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 3,
+              "start_time": "1900",
+              "end_time": "1950",
+              "room": "Rm 221, W1",
+              "instructor": "ZHANG, Yi"
+            },
+            {
+              "day": 5,
+              "start_time": "1900",
+              "end_time": "1950",
+              "room": "Rm 221, W1",
+              "instructor": "ZHANG, Yi"
+            }
+          ],
+          "is_main": false,
+          "layer": 0
+        },
+        {
+          "course_code": "UCUG1807",
+          "section_type": "T",
+          "name": "T02",
+          "bundle": 2,
+          "semester_id": "2540",
+          "section_id": "6055",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1800",
+              "end_time": "1850",
+              "room": "Rm 202, E3",
+              "instructor": "LAN, Zhiyong"
+            },
+            {
+              "day": 4,
+              "start_time": "1800",
+              "end_time": "1850",
+              "room": "Rm 202, E3",
+              "instructor": "LAN, Zhiyong"
+            }
+          ],
+          "is_main": false,
+          "layer": 0
+        }
+      ],
+      "subject": "UCUG",
+      "catalog_number": "1807",
+      "course_title": "Thinking like an Economist I: Microeconomics",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": "[Matching between Lecture & Tutorial required]"
+    },
+    {
+      "course_code": "UCUG1900",
+      "sections": [
+        {
+          "course_code": "UCUG1900",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6029",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 222, W1",
+              "instructor": "HE, Qiao"
+            },
+            {
+              "day": 4,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 222, W1",
+              "instructor": "HE, Qiao"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "UCUG",
+      "catalog_number": "1900",
+      "course_title": "Chemistry in Everyday Life",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UCUG1907",
+      "sections": [
+        {
+          "course_code": "UCUG1907",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6028",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 202, E3",
+              "instructor": "ZHANG, Xuning"
+            },
+            {
+              "day": 3,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 202, E3",
+              "instructor": "ZHANG, Xuning"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "UCUG",
+      "catalog_number": "1907",
+      "course_title": "Design Thinking for Health Innovation",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UCUG2304",
+      "sections": [
+        {
+          "course_code": "UCUG2304",
+          "section_type": "T",
+          "name": "T01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6083",
+          "quota": 20,
+          "enrol": 0,
+          "avail": 20,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1430",
+              "end_time": "1620",
+              "room": "Rm 101, E4",
+              "instructor": "GUO, Jiao & ZHANG, Mei"
+            },
+            {
+              "day": 4,
+              "start_time": "1430",
+              "end_time": "1620",
+              "room": "Rm 101, E4",
+              "instructor": "GUO, Jiao & ZHANG, Mei"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "UCUG",
+      "catalog_number": "2304",
+      "course_title": "Undergraduate Teaching Opportunities Program",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UFUG1102",
+      "sections": [
+        {
+          "course_code": "UFUG1102",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6012",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 233, W1",
+              "instructor": "ZHANG, Chao"
+            },
+            {
+              "day": 4,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 233, W1",
+              "instructor": "ZHANG, Chao"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "UFUG",
+      "catalog_number": "1102",
+      "course_title": "Calculus I",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UFUG1103",
+      "sections": [
+        {
+          "course_code": "UFUG1103",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6016",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 233, W1",
+              "instructor": "RAO, Guang"
+            },
+            {
+              "day": 4,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 233, W1",
+              "instructor": "RAO, Guang"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "UFUG1103",
+          "section_type": "T",
+          "name": "T01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6017",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1900",
+              "end_time": "1950",
+              "room": "Rm 233, W1",
+              "instructor": "RAO, Guang"
+            },
+            {
+              "day": 4,
+              "start_time": "1900",
+              "end_time": "1950",
+              "room": "Rm 233, W1",
+              "instructor": "RAO, Guang"
+            }
+          ],
+          "is_main": false,
+          "layer": 1
+        }
+      ],
+      "subject": "UFUG",
+      "catalog_number": "1103",
+      "course_title": "Calculus II",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UFUG1301",
+      "sections": [
+        {
+          "course_code": "UFUG1301",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6020",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 202, E3",
+              "instructor": "HE, Donglin & HE, Quanfu"
+            },
+            {
+              "day": 3,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 202, E3",
+              "instructor": "HE, Donglin & HE, Quanfu"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "UFUG1301",
+          "section_type": "T",
+          "name": "T01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6021",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1800",
+              "end_time": "1850",
+              "room": "Rm 202, E3",
+              "instructor": "HE, Donglin & HE, Quanfu"
+            },
+            {
+              "day": 3,
+              "start_time": "1800",
+              "end_time": "1850",
+              "room": "Rm 202, E3",
+              "instructor": "HE, Donglin & HE, Quanfu"
+            }
+          ],
+          "is_main": false,
+          "layer": 1
+        },
+        {
+          "course_code": "UFUG1301",
+          "section_type": "LA",
+          "name": "LA01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6022",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Dalton Lab (E3-232B) & Mendeleev Lab (E3-232C)",
+              "instructor": "HE, Donglin & HE, Quanfu"
+            },
+            {
+              "day": 3,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Mendeleev Lab (E3-232C) & Dalton Lab (E3-232B)",
+              "instructor": "HE, Donglin & HE, Quanfu"
+            }
+          ],
+          "is_main": false,
+          "layer": 2
+        }
+      ],
+      "subject": "UFUG",
+      "catalog_number": "1301",
+      "course_title": "General Chemistry",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UFUG1401",
+      "sections": [
+        {
+          "course_code": "UFUG1401",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6025",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 3,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 233, W1",
+              "instructor": "CHU, Lingluo & LU, Hongyuan & TAO, Li"
+            },
+            {
+              "day": 5,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 233, W1",
+              "instructor": "CHU, Lingluo & LU, Hongyuan & TAO, Li"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "UFUG1401",
+          "section_type": "LA",
+          "name": "LA01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6026",
+          "quota": 24,
+          "enrol": 0,
+          "avail": 24,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 3,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Darwin Lab (E3-232E) & Li Shizhen Lab (E3-232D)",
+              "instructor": "CHU, Lingluo & LU, Hongyuan"
+            }
+          ],
+          "is_main": false,
+          "layer": 1
+        },
+        {
+          "course_code": "UFUG1401",
+          "section_type": "LA",
+          "name": "LA02",
+          "bundle": 2,
+          "semester_id": "2540",
+          "section_id": "6027",
+          "quota": 24,
+          "enrol": 0,
+          "avail": 24,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Darwin Lab (E3-232E) & Li Shizhen Lab (E3-232D)",
+              "instructor": "CHU, Lingluo & LU, Hongyuan"
+            }
+          ],
+          "is_main": false,
+          "layer": 1
+        }
+      ],
+      "subject": "UFUG",
+      "catalog_number": "1401",
+      "course_title": "General Biology I",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UFUG1501",
+      "sections": [
+        {
+          "course_code": "UFUG1501",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6063",
+          "quota": 28,
+          "enrol": 0,
+          "avail": 28,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1200",
+              "end_time": "1450",
+              "room": "Rm 102, W1",
+              "instructor": "LI, Yuheng"
+            },
+            {
+              "day": 3,
+              "start_time": "1200",
+              "end_time": "1450",
+              "room": "Rm 102, W1",
+              "instructor": "LI, Yuheng"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "UFUG1501",
+          "section_type": "T",
+          "name": "T01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6064",
+          "quota": 28,
+          "enrol": 0,
+          "avail": 28,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1900",
+              "end_time": "1950",
+              "room": "Rm 222, W1",
+              "instructor": "LI, Yuheng"
+            },
+            {
+              "day": 3,
+              "start_time": "1900",
+              "end_time": "1950",
+              "room": "Rm 222, W1",
+              "instructor": "LI, Yuheng"
+            }
+          ],
+          "is_main": false,
+          "layer": 1
+        },
+        {
+          "course_code": "UFUG1501",
+          "section_type": "LA",
+          "name": "LA01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6065",
+          "quota": 28,
+          "enrol": 0,
+          "avail": 28,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1300",
+              "end_time": "1450",
+              "room": "Phys Lab-Maxwell Lab (W2-223C) & Phys Lab-Fresnel Lab (W2-223B)",
+              "instructor": "LI, Yuheng"
+            },
+            {
+              "day": 3,
+              "start_time": "1300",
+              "end_time": "1450",
+              "room": "Phys Lab-Maxwell Lab (W2-223C)",
+              "instructor": "LI, Yuheng"
+            }
+          ],
+          "is_main": false,
+          "layer": 2
+        }
+      ],
+      "subject": "UFUG",
+      "catalog_number": "1501",
+      "course_title": "General Physics I",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UFUG1502",
+      "sections": [
+        {
+          "course_code": "UFUG1502",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6031",
+          "quota": 28,
+          "enrol": 0,
+          "avail": 28,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 202, E3",
+              "instructor": "QI, Jie"
+            },
+            {
+              "day": 4,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 202, E3",
+              "instructor": "QI, Jie"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "UFUG1502",
+          "section_type": "T",
+          "name": "T01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6032",
+          "quota": 28,
+          "enrol": 0,
+          "avail": 28,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 3,
+              "start_time": "1900",
+              "end_time": "1950",
+              "room": "Rm 202, E3",
+              "instructor": "QI, Jie"
+            },
+            {
+              "day": 5,
+              "start_time": "1900",
+              "end_time": "1950",
+              "room": "Rm 202, E3",
+              "instructor": "QI, Jie"
+            }
+          ],
+          "is_main": false,
+          "layer": 1
+        },
+        {
+          "course_code": "UFUG1502",
+          "section_type": "LA",
+          "name": "LA01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6033",
+          "quota": 28,
+          "enrol": 0,
+          "avail": 28,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1000",
+              "end_time": "1150",
+              "room": "Phys Lab-Maxwell Lab (W2-223C) & Phys Lab-Fresnel Lab (W2-223B)",
+              "instructor": "QI, Jie"
+            },
+            {
+              "day": 4,
+              "start_time": "1000",
+              "end_time": "1150",
+              "room": "Phys Lab-Maxwell Lab (W2-223C)",
+              "instructor": "QI, Jie"
+            }
+          ],
+          "is_main": false,
+          "layer": 2
+        }
+      ],
+      "subject": "UFUG",
+      "catalog_number": "1502",
+      "course_title": "General Physics II",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UFUG1601",
+      "sections": [
+        {
+          "course_code": "UFUG1601",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6039",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 222, W1",
+              "instructor": "CHEN, Yingcong"
+            },
+            {
+              "day": 5,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 222, W1",
+              "instructor": "CHEN, Yingcong"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "UFUG1601",
+          "section_type": "LA",
+          "name": "LA01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6040",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 3,
+              "start_time": "1400",
+              "end_time": "1450",
+              "room": "Von Neumann Lab (W2-224D)",
+              "instructor": "CHEN, Yingcong"
+            },
+            {
+              "day": 5,
+              "start_time": "1400",
+              "end_time": "1450",
+              "room": "Von Neumann Lab (W2-224D)",
+              "instructor": "CHEN, Yingcong"
+            }
+          ],
+          "is_main": false,
+          "layer": 1
+        }
+      ],
+      "subject": "UFUG",
+      "catalog_number": "1601",
+      "course_title": "Introduction to Computer Science",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UFUG1811",
+      "sections": [
+        {
+          "course_code": "UFUG1811",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6041",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 233, W1",
+              "instructor": "LI, Ran"
+            },
+            {
+              "day": 3,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 233, W1",
+              "instructor": "LI, Ran"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "UFUG1811",
+          "section_type": "T",
+          "name": "T01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6042",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1900",
+              "end_time": "1950",
+              "room": "Rm 202, E3",
+              "instructor": "LI, Ran"
+            },
+            {
+              "day": 4,
+              "start_time": "1900",
+              "end_time": "1950",
+              "room": "Rm 202, E3",
+              "instructor": "LI, Ran"
+            }
+          ],
+          "is_main": false,
+          "layer": 1
+        }
+      ],
+      "subject": "UFUG",
+      "catalog_number": "1811",
+      "course_title": "Quantitative Data Analysis for Social Research",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UFUG2103",
+      "sections": [
+        {
+          "course_code": "UFUG2103",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6045",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 202, W4",
+              "instructor": "HUANG, JUN BO & XIAO, Dianxun"
+            },
+            {
+              "day": 4,
+              "start_time": "1500",
+              "end_time": "1750",
+              "room": "Rm 202, W4",
+              "instructor": "HUANG, JUN BO & XIAO, Dianxun"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "UFUG2103",
+          "section_type": "T",
+          "name": "T01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6046",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1930",
+              "end_time": "2020",
+              "room": "Rm 202, W4",
+              "instructor": "HUANG, JUN BO & XIAO, Dianxun"
+            },
+            {
+              "day": 4,
+              "start_time": "1930",
+              "end_time": "2020",
+              "room": "Rm 202, W4",
+              "instructor": "HUANG, JUN BO & XIAO, Dianxun"
+            }
+          ],
+          "is_main": false,
+          "layer": 1
+        }
+      ],
+      "subject": "UFUG",
+      "catalog_number": "2103",
+      "course_title": "Linear Algebra",
+      "course_desc": "",
+      "credit": 3,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UFUG2601",
+      "sections": [
+        {
+          "course_code": "UFUG2601",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6047",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1200",
+              "end_time": "1450",
+              "room": "Rm 202, W4",
+              "instructor": "LI, Wenye"
+            },
+            {
+              "day": 4,
+              "start_time": "1200",
+              "end_time": "1450",
+              "room": "Rm 202, W4",
+              "instructor": "LI, Wenye"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "UFUG2601",
+          "section_type": "LA",
+          "name": "LA01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6048",
+          "quota": 30,
+          "enrol": 0,
+          "avail": 30,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 3,
+              "start_time": "1600",
+              "end_time": "1750",
+              "room": "Von Neumann Lab (W2-224D)",
+              "instructor": "LI, Wenye"
+            },
+            {
+              "day": 5,
+              "start_time": "1600",
+              "end_time": "1750",
+              "room": "Von Neumann Lab (W2-224D)",
+              "instructor": "LI, Wenye"
+            }
+          ],
+          "is_main": false,
+          "layer": 1
+        }
+      ],
+      "subject": "UFUG",
+      "catalog_number": "2601",
+      "course_title": "C++ Programming",
+      "course_desc": "",
+      "credit": 4,
+      "pg_course": false,
+      "vector": null,
+      "matching": ""
+    },
+    {
+      "course_code": "UGOD6000B",
+      "sections": [],
+      "subject": "UGOD",
+      "catalog_number": "6000B",
+      "course_title": "Independent Study",
+      "course_desc": "Independent study in a designated subject under direct guidance of a faculty member to provide students the advanced knowledge and research skill sets on urban governance and design related topics. Required readings, tutorial discussions, and submission of report(s) will be used for assessment. The course may be repeated for credit if different topics are studied.",
+      "credit": 1,
+      "pg_course": true,
+      "vector": "[1 credit]",
+      "matching": ""
+    },
+    {
+      "course_code": "UGOD6100G",
+      "sections": [
+        {
+          "course_code": "UGOD6100G",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6069",
+          "quota": 40,
+          "enrol": 0,
+          "avail": 40,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 2,
+              "start_time": "1330",
+              "end_time": "1620",
+              "room": "Rm 228, E1",
+              "instructor": "LU, Xiang"
+            },
+            {
+              "day": 5,
+              "start_time": "1330",
+              "end_time": "1620",
+              "room": "Rm 228, E1",
+              "instructor": "LU, Xiang"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "UGOD",
+      "catalog_number": "6100G",
+      "course_title": "Natural Language Processing for Social Science Research",
+      "course_desc": "This course introduces the principles and applications of Natural Language Processing (NLP) in social science research. It combines computational methods with theoretically grounded questions in sociology, political science, communication, and related fields. Students will learn to collect, process, and analyze large-scale textual data (e.g., news, social media, policy documents) to answer substantive social science questions.",
+      "credit": 3,
+      "pg_course": true,
+      "vector": "[3-0-0:3]",
+      "matching": ""
+    },
+    {
+      "course_code": "UGOD6100I",
+      "sections": [
+        {
+          "course_code": "UGOD6100I",
+          "section_type": "L",
+          "name": "L01",
+          "bundle": 1,
+          "semester_id": "2540",
+          "section_id": "6068",
+          "quota": 15,
+          "enrol": 0,
+          "avail": 15,
+          "wait": 0,
+          "lectures": [
+            {
+              "day": 1,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 201, W4",
+              "instructor": "JIANG, BIN"
+            },
+            {
+              "day": 2,
+              "start_time": "0900",
+              "end_time": "1150",
+              "room": "Rm 201, W4",
+              "instructor": "JIANG, BIN"
+            }
+          ],
+          "is_main": true,
+          "layer": 0
+        }
+      ],
+      "subject": "UGOD",
+      "catalog_number": "6100I",
+      "course_title": "Experiential Learning: âLiving Structure + AIâ Inspired Design",
+      "course_desc": "In this course, students explore architectural beauty through living structures and AI-driven design. Weekly sessions blend theory and practice, focusing on Christopher Alexanderâs living structure principles. Open to all disciplines, the course requires no prior experience. Participants engage in real projects and digital fabrication, enhancing creative and technical skills. The program emphasizes architecture's impact on well-being, culminating in a final presentation of innovative designs that harmonize structure and style.",
+      "credit": 3,
+      "pg_course": true,
+      "vector": "[3-0-0:3]",
+      "matching": ""
+    }
+  ]
+}

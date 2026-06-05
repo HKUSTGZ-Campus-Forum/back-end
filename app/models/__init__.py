@@ -23,4 +23,14 @@ from .project import Project
 from .contest import ContestInfo
 from .contest_submission import ContestSubmission
 from .contest_organizer import ContestOrganizer
-
+from .feedback import Feedback
+from .feedback_version import FeedbackVersion
+from .feedback_merge_request import FeedbackMergeRequest
+from .feedback_comment import FeedbackComment
+from .feedback_merge_comment import FeedbackMergeComment
+from .feedback_audit_event import FeedbackAuditEvent
+from .academic_map import CurriculumProgram, CurriculumRequirementGroup, UserAcademicProfile, UserCourseRecord
+from .scheduler_section import SchedulerSection
+from .scheduler_lecture import SchedulerLecture
+from .scheduler_map import SchedulerMapComponent, SchedulerMapLine
+from .scheduler_cart import SchedulerUserCourseCart, SchedulerUserBundleCart
