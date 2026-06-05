@@ -15,6 +15,7 @@ from app.models.scheduler_section import SchedulerSection
 from app.models.user import User
 from app.models.user_role import UserRole
 from app.scripts.import_scheduler_offerings import (
+    DEPLOY_SCHEDULER_OFFERING_UPDATE_MODE,
     OfferingValidationError,
     apply_offerings,
     build_import_plan,
@@ -138,7 +139,8 @@ def test_load_offerings_file_rejects_invalid_lecture_day(tmp_path):
 def test_bundled_scheduler_offering_updates_match_files():
     updates = bundled_scheduler_offering_updates()
 
-    assert [update.expected_semester_id for update in updates] == ["2510", "2540"]
+    assert DEPLOY_SCHEDULER_OFFERING_UPDATE_MODE == "apply"
+    assert [update.expected_semester_id for update in updates] == ["2510", "2530", "2540"]
     for update in updates:
         snapshot = load_offerings_file(update.file_path, update.expected_semester_id)
         assert snapshot.semester_id == update.expected_semester_id
