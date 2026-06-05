@@ -1,0 +1,2699 @@
+{
+  "metadata": {
+    "source": "CoursePlan.search/init/backup/dump_20251227_2.sql",
+    "components": 226,
+    "lines": 158
+  },
+  "components": [
+    {
+      "id": "ex_UFUG1302_UCUG1900",
+      "node_type": false,
+      "x_coordinate": 1076,
+      "y_coordinate": 1462,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1071_UCUG1074",
+      "node_type": false,
+      "x_coordinate": 898,
+      "y_coordinate": 672,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1900_UFUG1302",
+      "node_type": false,
+      "x_coordinate": 525,
+      "y_coordinate": 1680,
+      "category": 3
+    },
+    {
+      "id": "ex_AMAT4901_AMAT4095",
+      "node_type": true,
+      "x_coordinate": 5336,
+      "y_coordinate": 73,
+      "category": 3
+    },
+    {
+      "id": "ex_UFUG1301_UCUG1900",
+      "node_type": false,
+      "x_coordinate": 1076,
+      "y_coordinate": 1345,
+      "category": 3
+    },
+    {
+      "id": "(DLED3010&AMAT2250)",
+      "node_type": false,
+      "x_coordinate": 5051,
+      "y_coordinate": 40,
+      "category": 1
+    },
+    {
+      "id": "(DSAA2011|AIAA3111)",
+      "node_type": true,
+      "x_coordinate": 3251,
+      "y_coordinate": 1506,
+      "category": 1
+    },
+    {
+      "id": "(UFUG1502|UFUG1504)",
+      "node_type": true,
+      "x_coordinate": 2076,
+      "y_coordinate": 988,
+      "category": 1
+    },
+    {
+      "id": "((UFUG1103|UFUG1106)&(UFUG1502|UFUG1504)&AMAT2010)",
+      "node_type": false,
+      "x_coordinate": 3047,
+      "y_coordinate": 920,
+      "category": 1
+    },
+    {
+      "id": "(UFUG1301|UFUG1302)",
+      "node_type": true,
+      "x_coordinate": 1572,
+      "y_coordinate": 1422,
+      "category": 1
+    },
+    {
+      "id": "(UFUG2601|UFUG2602)",
+      "node_type": true,
+      "x_coordinate": 2100,
+      "y_coordinate": 1893,
+      "category": 1
+    },
+    {
+      "id": "(UFUG1103|UFUG1106)",
+      "node_type": true,
+      "x_coordinate": 2048,
+      "y_coordinate": 885,
+      "category": 1
+    },
+    {
+      "id": "(DSAA2011|DSAA2012|AIAA3111)",
+      "node_type": true,
+      "x_coordinate": 3725,
+      "y_coordinate": 1596,
+      "category": 1
+    },
+    {
+      "id": "(UCUG1050|UCUG1051)",
+      "node_type": true,
+      "x_coordinate": 511,
+      "y_coordinate": 282,
+      "category": 1
+    },
+    {
+      "id": "(UFUG2601|UFUG2602|DSAA1001)",
+      "node_type": true,
+      "x_coordinate": 2651,
+      "y_coordinate": 1807,
+      "category": 1
+    },
+    {
+      "id": "((UFUG1103|UFUG1106)&(UFUG1502|UFUG1504)&UFUG1301)",
+      "node_type": false,
+      "x_coordinate": 2152,
+      "y_coordinate": 942,
+      "category": 1
+    },
+    {
+      "id": "(DSAA1001|AIAA2205)",
+      "node_type": true,
+      "x_coordinate": 2651,
+      "y_coordinate": 1505,
+      "category": 1
+    },
+    {
+      "id": "(UFUG2103|UFUG2102)",
+      "node_type": true,
+      "x_coordinate": 2646,
+      "y_coordinate": 815,
+      "category": 1
+    },
+    {
+      "id": "((UFUG1103|UFUG1106)&(UFUG1502|UFUG1504))",
+      "node_type": false,
+      "x_coordinate": 2203,
+      "y_coordinate": 966,
+      "category": 1
+    },
+    {
+      "id": "((UFUG1501|UFUG1503)&(UFUG1102|UFUG1105))",
+      "node_type": false,
+      "x_coordinate": 1586,
+      "y_coordinate": 1005,
+      "category": 1
+    },
+    {
+      "id": "(UFUG1501|UFUG1503)",
+      "node_type": true,
+      "x_coordinate": 1515,
+      "y_coordinate": 1146,
+      "category": 1
+    },
+    {
+      "id": "(AMAT2040&AMAT3060)",
+      "node_type": false,
+      "x_coordinate": 4614,
+      "y_coordinate": 170,
+      "category": 1
+    },
+    {
+      "id": "SMMG4960",
+      "node_type": null,
+      "x_coordinate": 4163,
+      "y_coordinate": 1152,
+      "category": 0
+    },
+    {
+      "id": "(DLED3010|AMAT2250)",
+      "node_type": true,
+      "x_coordinate": 5049,
+      "y_coordinate": 111,
+      "category": 1
+    },
+    {
+      "id": "((DSAA2011|DSAA2012|AIAA3111)&UFUG2103&UFUG2104)",
+      "node_type": false,
+      "x_coordinate": 3763,
+      "y_coordinate": 1356,
+      "category": 1
+    },
+    {
+      "id": "(UCUG1052|UCUG1053)",
+      "node_type": true,
+      "x_coordinate": 1103,
+      "y_coordinate": 372,
+      "category": 1
+    },
+    {
+      "id": "((UFUG1103|UFUG1106)&UFUG2101&UFUG2103)",
+      "node_type": false,
+      "x_coordinate": 2633,
+      "y_coordinate": 906,
+      "category": 1
+    },
+    {
+      "id": "(UFUG2102|UFUG2103|UFUG2104)",
+      "node_type": true,
+      "x_coordinate": 2690,
+      "y_coordinate": 763,
+      "category": 1
+    },
+    {
+      "id": "UFUG1106",
+      "node_type": null,
+      "x_coordinate": 1601,
+      "y_coordinate": 825,
+      "category": 0
+    },
+    {
+      "id": "AIAA3111",
+      "node_type": null,
+      "x_coordinate": 2736,
+      "y_coordinate": 1689,
+      "category": 0
+    },
+    {
+      "id": "(UFUG1303&(UFUG1103|UFUG1106))",
+      "node_type": false,
+      "x_coordinate": 2281,
+      "y_coordinate": 1005,
+      "category": 1
+    },
+    {
+      "id": "(UFUG1102|UFUG1105)",
+      "node_type": true,
+      "x_coordinate": 1526,
+      "y_coordinate": 748,
+      "category": 1
+    },
+    {
+      "id": "UCUG1501",
+      "node_type": null,
+      "x_coordinate": 559,
+      "y_coordinate": 863,
+      "category": 0
+    },
+    {
+      "id": "DSAA4591",
+      "node_type": null,
+      "x_coordinate": 4153,
+      "y_coordinate": 1457,
+      "category": 0
+    },
+    {
+      "id": "AMAT3060",
+      "node_type": null,
+      "x_coordinate": 4139,
+      "y_coordinate": 179,
+      "category": 0
+    },
+    {
+      "id": "UCUG1053",
+      "node_type": null,
+      "x_coordinate": 574,
+      "y_coordinate": 504,
+      "category": 0
+    },
+    {
+      "id": "UCUG1052S",
+      "node_type": null,
+      "x_coordinate": 573,
+      "y_coordinate": 420,
+      "category": 0
+    },
+    {
+      "id": "UCUG1502",
+      "node_type": null,
+      "x_coordinate": 94,
+      "y_coordinate": 953,
+      "category": 0
+    },
+    {
+      "id": "AMAT2030",
+      "node_type": null,
+      "x_coordinate": 3631,
+      "y_coordinate": 148,
+      "category": 0
+    },
+    {
+      "id": "AMAT1510",
+      "node_type": null,
+      "x_coordinate": 2573,
+      "y_coordinate": 343,
+      "category": 0
+    },
+    {
+      "id": "DSAA2088",
+      "node_type": null,
+      "x_coordinate": 3780,
+      "y_coordinate": 1326,
+      "category": 0
+    },
+    {
+      "id": "AMAT3350",
+      "node_type": null,
+      "x_coordinate": 4132,
+      "y_coordinate": 638,
+      "category": 0
+    },
+    {
+      "id": "UFUG2105",
+      "node_type": null,
+      "x_coordinate": 2643,
+      "y_coordinate": 677,
+      "category": 0
+    },
+    {
+      "id": "AMAT4095",
+      "node_type": null,
+      "x_coordinate": 5118,
+      "y_coordinate": 110,
+      "category": 0
+    },
+    {
+      "id": "UFUG2602",
+      "node_type": null,
+      "x_coordinate": 1597,
+      "y_coordinate": 1889,
+      "category": 0
+    },
+    {
+      "id": "UCUG1071",
+      "node_type": null,
+      "x_coordinate": 554,
+      "y_coordinate": 611,
+      "category": 0
+    },
+    {
+      "id": "UFUG1602",
+      "node_type": null,
+      "x_coordinate": 1071,
+      "y_coordinate": 2023,
+      "category": 0
+    },
+    {
+      "id": "SMMG3820",
+      "node_type": null,
+      "x_coordinate": 3228,
+      "y_coordinate": 1064,
+      "category": 0
+    },
+    {
+      "id": "DLED4020",
+      "node_type": null,
+      "x_coordinate": 1772,
+      "y_coordinate": 284,
+      "category": 0
+    },
+    {
+      "id": "UCUG1073",
+      "node_type": null,
+      "x_coordinate": 87,
+      "y_coordinate": 767,
+      "category": 0
+    },
+    {
+      "id": "ex_UCUG1071_UCUG1073",
+      "node_type": false,
+      "x_coordinate": 553,
+      "y_coordinate": 627,
+      "category": 3
+    },
+    {
+      "id": "AMAT4901",
+      "node_type": null,
+      "x_coordinate": 5109,
+      "y_coordinate": 11,
+      "category": 0
+    },
+    {
+      "id": "UCUG1600",
+      "node_type": null,
+      "x_coordinate": 98,
+      "y_coordinate": 1272,
+      "category": 0
+    },
+    {
+      "id": "AMAT3520",
+      "node_type": null,
+      "x_coordinate": 4138,
+      "y_coordinate": 537,
+      "category": 0
+    },
+    {
+      "id": "AMAT2450",
+      "node_type": null,
+      "x_coordinate": 3633,
+      "y_coordinate": 423,
+      "category": 0
+    },
+    {
+      "id": "SMMG4901",
+      "node_type": null,
+      "x_coordinate": 4163,
+      "y_coordinate": 1038,
+      "category": 0
+    },
+    {
+      "id": "AMAT3820",
+      "node_type": null,
+      "x_coordinate": 3171,
+      "y_coordinate": 530,
+      "category": 0
+    },
+    {
+      "id": "SMMG3010",
+      "node_type": null,
+      "x_coordinate": 2273,
+      "y_coordinate": 1114,
+      "category": 0
+    },
+    {
+      "id": "DLED4010",
+      "node_type": null,
+      "x_coordinate": 1774,
+      "y_coordinate": 190,
+      "category": 0
+    },
+    {
+      "id": "UCUG1500",
+      "node_type": null,
+      "x_coordinate": 94,
+      "y_coordinate": 866,
+      "category": 0
+    },
+    {
+      "id": "UCUG1807",
+      "node_type": null,
+      "x_coordinate": 99,
+      "y_coordinate": 1568,
+      "category": 0
+    },
+    {
+      "id": "UCUG1503",
+      "node_type": null,
+      "x_coordinate": 558,
+      "y_coordinate": 956,
+      "category": 0
+    },
+    {
+      "id": "UFUG1301",
+      "node_type": null,
+      "x_coordinate": 1076,
+      "y_coordinate": 1341,
+      "category": 0
+    },
+    {
+      "id": "UFUG1103",
+      "node_type": null,
+      "x_coordinate": 1604,
+      "y_coordinate": 718,
+      "category": 0
+    },
+    {
+      "id": "UCUG1000",
+      "node_type": null,
+      "x_coordinate": 160,
+      "y_coordinate": 49,
+      "category": 0
+    },
+    {
+      "id": "UFUG1501",
+      "node_type": null,
+      "x_coordinate": 1070,
+      "y_coordinate": 1054,
+      "category": 0
+    },
+    {
+      "id": "UCUG1074",
+      "node_type": null,
+      "x_coordinate": 554,
+      "y_coordinate": 768,
+      "category": 0
+    },
+    {
+      "id": "UCUG3801",
+      "node_type": null,
+      "x_coordinate": 102,
+      "y_coordinate": 1983,
+      "category": 0
+    },
+    {
+      "id": "UFUG1701",
+      "node_type": null,
+      "x_coordinate": 1538,
+      "y_coordinate": 2212,
+      "category": 0
+    },
+    {
+      "id": "DLED4040",
+      "node_type": null,
+      "x_coordinate": 1777,
+      "y_coordinate": 503,
+      "category": 0
+    },
+    {
+      "id": "UCUG1050",
+      "node_type": null,
+      "x_coordinate": 25,
+      "y_coordinate": 212,
+      "category": 0
+    },
+    {
+      "id": "UFUG1303",
+      "node_type": null,
+      "x_coordinate": 1602,
+      "y_coordinate": 1459,
+      "category": 0
+    },
+    {
+      "id": "SMMG3040",
+      "node_type": null,
+      "x_coordinate": 2744,
+      "y_coordinate": 1026,
+      "category": 0
+    },
+    {
+      "id": "AMAT2050",
+      "node_type": null,
+      "x_coordinate": 3633,
+      "y_coordinate": 573,
+      "category": 0
+    },
+    {
+      "id": "AMAT2010",
+      "node_type": null,
+      "x_coordinate": 2574,
+      "y_coordinate": 475,
+      "category": 0
+    },
+    {
+      "id": "UFUG1302",
+      "node_type": null,
+      "x_coordinate": 1075,
+      "y_coordinate": 1459,
+      "category": 0
+    },
+    {
+      "id": "DLED3020",
+      "node_type": null,
+      "x_coordinate": 1242,
+      "y_coordinate": 284,
+      "category": 0
+    },
+    {
+      "id": "DSAA1085",
+      "node_type": null,
+      "x_coordinate": 2753,
+      "y_coordinate": 1311,
+      "category": 0
+    },
+    {
+      "id": "UCUG1702",
+      "node_type": null,
+      "x_coordinate": 94,
+      "y_coordinate": 1362,
+      "category": 0
+    },
+    {
+      "id": "UCUG2603",
+      "node_type": null,
+      "x_coordinate": 554,
+      "y_coordinate": 1892,
+      "category": 0
+    },
+    {
+      "id": "AMAT3590",
+      "node_type": null,
+      "x_coordinate": 3165,
+      "y_coordinate": 414,
+      "category": 0
+    },
+    {
+      "id": "UFUG2104",
+      "node_type": null,
+      "x_coordinate": 1606,
+      "y_coordinate": 601,
+      "category": 0
+    },
+    {
+      "id": "AMAT4560",
+      "node_type": null,
+      "x_coordinate": 4639,
+      "y_coordinate": 140,
+      "category": 0
+    },
+    {
+      "id": "AMAT2150",
+      "node_type": null,
+      "x_coordinate": 3166,
+      "y_coordinate": 653,
+      "category": 0
+    },
+    {
+      "id": "DSAA1001",
+      "node_type": null,
+      "x_coordinate": 2167,
+      "y_coordinate": 1371,
+      "category": 0
+    },
+    {
+      "id": "UCUG1072",
+      "node_type": null,
+      "x_coordinate": 316,
+      "y_coordinate": 691,
+      "category": 0
+    },
+    {
+      "id": "UFUG1811",
+      "node_type": null,
+      "x_coordinate": 1541,
+      "y_coordinate": 2122,
+      "category": 0
+    },
+    {
+      "id": "UFUG1801",
+      "node_type": null,
+      "x_coordinate": 1066,
+      "y_coordinate": 2153,
+      "category": 0
+    },
+    {
+      "id": "AIAA3102",
+      "node_type": null,
+      "x_coordinate": 2175,
+      "y_coordinate": 1727,
+      "category": 0
+    },
+    {
+      "id": "AMAT2040",
+      "node_type": null,
+      "x_coordinate": 4138,
+      "y_coordinate": 100,
+      "category": 0
+    },
+    {
+      "id": "AMAT2250",
+      "node_type": null,
+      "x_coordinate": 3632,
+      "y_coordinate": 654,
+      "category": 0
+    },
+    {
+      "id": "AMAT2320",
+      "node_type": null,
+      "x_coordinate": 3633,
+      "y_coordinate": 239,
+      "category": 0
+    },
+    {
+      "id": "AMAT1010",
+      "node_type": null,
+      "x_coordinate": 2572,
+      "y_coordinate": 209,
+      "category": 0
+    },
+    {
+      "id": "UCUG1070",
+      "node_type": null,
+      "x_coordinate": 80,
+      "y_coordinate": 608,
+      "category": 0
+    },
+    {
+      "id": "AIAA2711",
+      "node_type": null,
+      "x_coordinate": 2180,
+      "y_coordinate": 1817,
+      "category": 0
+    },
+    {
+      "id": "DLED4030",
+      "node_type": null,
+      "x_coordinate": 1773,
+      "y_coordinate": 399,
+      "category": 0
+    },
+    {
+      "id": "UFUG2103",
+      "node_type": null,
+      "x_coordinate": 2110,
+      "y_coordinate": 813,
+      "category": 0
+    },
+    {
+      "id": "UFUG1402",
+      "node_type": null,
+      "x_coordinate": 1589,
+      "y_coordinate": 1650,
+      "category": 0
+    },
+    {
+      "id": "SMMG3000",
+      "node_type": null,
+      "x_coordinate": 2272,
+      "y_coordinate": 1020,
+      "category": 0
+    },
+    {
+      "id": "UCUG1907",
+      "node_type": null,
+      "x_coordinate": 562,
+      "y_coordinate": 1763,
+      "category": 0
+    },
+    {
+      "id": "SMMG4030",
+      "node_type": null,
+      "x_coordinate": 3678,
+      "y_coordinate": 1103,
+      "category": 0
+    },
+    {
+      "id": "UFUG1601",
+      "node_type": null,
+      "x_coordinate": 1073,
+      "y_coordinate": 1796,
+      "category": 0
+    },
+    {
+      "id": "UCUG1052",
+      "node_type": null,
+      "x_coordinate": 571,
+      "y_coordinate": 252,
+      "category": 0
+    },
+    {
+      "id": "AMAT4580",
+      "node_type": null,
+      "x_coordinate": 5113,
+      "y_coordinate": 298,
+      "category": 0
+    },
+    {
+      "id": "ex_UCUG1053_UCUG1052A",
+      "node_type": true,
+      "x_coordinate": 827,
+      "y_coordinate": 503,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1052S_UCUG1053",
+      "node_type": true,
+      "x_coordinate": 905,
+      "y_coordinate": 480,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1053_UCUG1052I",
+      "node_type": true,
+      "x_coordinate": 661,
+      "y_coordinate": 502,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1074_UCUG1071",
+      "node_type": false,
+      "x_coordinate": 898,
+      "y_coordinate": 767,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1072_UCUG1071",
+      "node_type": false,
+      "x_coordinate": 540,
+      "y_coordinate": 689,
+      "category": 3
+    },
+    {
+      "id": "ex_SMMG4901_SMMG4960",
+      "node_type": true,
+      "x_coordinate": 4372,
+      "y_coordinate": 1100,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1051_UCUG1050",
+      "node_type": true,
+      "x_coordinate": 224,
+      "y_coordinate": 362,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1900_UFUG1301",
+      "node_type": false,
+      "x_coordinate": 525,
+      "y_coordinate": 1681,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1052_UCUG1053",
+      "node_type": false,
+      "x_coordinate": 742,
+      "y_coordinate": 311,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1053_UCUG1052S",
+      "node_type": true,
+      "x_coordinate": 905,
+      "y_coordinate": 502,
+      "category": 3
+    },
+    {
+      "id": "ex_UFUG1801_UCUG1807",
+      "node_type": false,
+      "x_coordinate": 1065,
+      "y_coordinate": 2185,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1074_UCUG1073",
+      "node_type": false,
+      "x_coordinate": 554,
+      "y_coordinate": 800,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1073_UCUG1074",
+      "node_type": false,
+      "x_coordinate": 508,
+      "y_coordinate": 800,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1807_UFUG1801",
+      "node_type": false,
+      "x_coordinate": 305,
+      "y_coordinate": 1629,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1050_UCUG1051",
+      "node_type": true,
+      "x_coordinate": 225,
+      "y_coordinate": 273,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1053_UCUG1052",
+      "node_type": false,
+      "x_coordinate": 742,
+      "y_coordinate": 503,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1072_UCUG1074",
+      "node_type": false,
+      "x_coordinate": 735,
+      "y_coordinate": 725,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1052A_UCUG1053",
+      "node_type": true,
+      "x_coordinate": 826,
+      "y_coordinate": 392,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1073_UCUG1071",
+      "node_type": false,
+      "x_coordinate": 507,
+      "y_coordinate": 778,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1071_UCUG1072",
+      "node_type": false,
+      "x_coordinate": 553,
+      "y_coordinate": 648,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1074_UCUG1072",
+      "node_type": false,
+      "x_coordinate": 777,
+      "y_coordinate": 768,
+      "category": 3
+    },
+    {
+      "id": "ex_UCUG1052I_UCUG1053",
+      "node_type": true,
+      "x_coordinate": 660,
+      "y_coordinate": 213,
+      "category": 3
+    },
+    {
+      "id": "SMMG3810",
+      "node_type": null,
+      "x_coordinate": 2745,
+      "y_coordinate": 1195,
+      "category": 0
+    },
+    {
+      "id": "AMAT4810",
+      "node_type": null,
+      "x_coordinate": 5112,
+      "y_coordinate": 445,
+      "category": 0
+    },
+    {
+      "id": "AMAT3530",
+      "node_type": null,
+      "x_coordinate": 4623,
+      "y_coordinate": 366,
+      "category": 0
+    },
+    {
+      "id": "AMAT3360",
+      "node_type": null,
+      "x_coordinate": 4142,
+      "y_coordinate": 381,
+      "category": 0
+    },
+    {
+      "id": "UCUG1506",
+      "node_type": null,
+      "x_coordinate": 95,
+      "y_coordinate": 1151,
+      "category": 0
+    },
+    {
+      "id": "DSAA2043",
+      "node_type": null,
+      "x_coordinate": 2166,
+      "y_coordinate": 1459,
+      "category": 0
+    },
+    {
+      "id": "UCUG1001",
+      "node_type": null,
+      "x_coordinate": 883,
+      "y_coordinate": 52,
+      "category": 0
+    },
+    {
+      "id": "UFUG1102",
+      "node_type": null,
+      "x_coordinate": 1057,
+      "y_coordinate": 664,
+      "category": 0
+    },
+    {
+      "id": "UCUG1900",
+      "node_type": null,
+      "x_coordinate": 104,
+      "y_coordinate": 1669,
+      "category": 0
+    },
+    {
+      "id": "UCUG1052I",
+      "node_type": null,
+      "x_coordinate": 575,
+      "y_coordinate": 153,
+      "category": 0
+    },
+    {
+      "id": "ex_UFUG1105_UFUG1102",
+      "node_type": true,
+      "x_coordinate": 1274,
+      "y_coordinate": 766,
+      "category": 3
+    },
+    {
+      "id": "ex_UFUG1303_UFUG1301",
+      "node_type": true,
+      "x_coordinate": 1632,
+      "y_coordinate": 1457,
+      "category": 3
+    },
+    {
+      "id": "ex_UFUG1106_UFUG1103",
+      "node_type": true,
+      "x_coordinate": 1816,
+      "y_coordinate": 823,
+      "category": 3
+    },
+    {
+      "id": "ex_UFUG1102_UFUG1105",
+      "node_type": true,
+      "x_coordinate": 1274,
+      "y_coordinate": 725,
+      "category": 3
+    },
+    {
+      "id": "ex_UFUG1301_UFUG1303",
+      "node_type": true,
+      "x_coordinate": 1499,
+      "y_coordinate": 1389,
+      "category": 3
+    },
+    {
+      "id": "ex_UFUG1302_UFUG1301",
+      "node_type": true,
+      "x_coordinate": 1296,
+      "y_coordinate": 1455,
+      "category": 3
+    },
+    {
+      "id": "ex_UFUG1501_UFUG1503",
+      "node_type": true,
+      "x_coordinate": 1284,
+      "y_coordinate": 1114,
+      "category": 3
+    },
+    {
+      "id": "ex_UFUG1103_UFUG1106",
+      "node_type": true,
+      "x_coordinate": 1816,
+      "y_coordinate": 780,
+      "category": 3
+    },
+    {
+      "id": "ex_UFUG1301_UFUG1302",
+      "node_type": true,
+      "x_coordinate": 1296,
+      "y_coordinate": 1405,
+      "category": 3
+    },
+    {
+      "id": "ex_UFUG1503_UFUG1501",
+      "node_type": true,
+      "x_coordinate": 1285,
+      "y_coordinate": 1170,
+      "category": 3
+    },
+    {
+      "id": "ex_UFUG2102_UFUG2103",
+      "node_type": true,
+      "x_coordinate": 2315,
+      "y_coordinate": 795,
+      "category": 3
+    },
+    {
+      "id": "ex_UFUG1504_UFUG1502",
+      "node_type": true,
+      "x_coordinate": 1811,
+      "y_coordinate": 1174,
+      "category": 3
+    },
+    {
+      "id": "ex_UFUG2103_UFUG2102",
+      "node_type": true,
+      "x_coordinate": 2315,
+      "y_coordinate": 810,
+      "category": 3
+    },
+    {
+      "id": "ex_UFUG1502_UFUG1504",
+      "node_type": true,
+      "x_coordinate": 1811,
+      "y_coordinate": 1138,
+      "category": 3
+    },
+    {
+      "id": "AIAA1010",
+      "node_type": null,
+      "x_coordinate": 2164,
+      "y_coordinate": 1571,
+      "category": 0
+    },
+    {
+      "id": "UFUG1503",
+      "node_type": null,
+      "x_coordinate": 1071,
+      "y_coordinate": 1172,
+      "category": 0
+    },
+    {
+      "id": "ex_SMMG3000_SMMG3010",
+      "node_type": true,
+      "x_coordinate": 2487,
+      "y_coordinate": 1080,
+      "category": 3
+    },
+    {
+      "id": "UCUG1051",
+      "node_type": null,
+      "x_coordinate": 26,
+      "y_coordinate": 364,
+      "category": 0
+    },
+    {
+      "id": "DSAA2031",
+      "node_type": null,
+      "x_coordinate": 2753,
+      "y_coordinate": 1415,
+      "category": 0
+    },
+    {
+      "id": "UFUG1403",
+      "node_type": null,
+      "x_coordinate": 1074,
+      "y_coordinate": 1681,
+      "category": 0
+    },
+    {
+      "id": "co_SMMG4960_(SMMG4901|SMMG4960)",
+      "node_type": null,
+      "x_coordinate": 4589,
+      "y_coordinate": 1181,
+      "category": 2
+    },
+    {
+      "id": "co_AIAA4490_DLED4020[2]",
+      "node_type": null,
+      "x_coordinate": 3649,
+      "y_coordinate": 1764,
+      "category": 2
+    },
+    {
+      "id": "co_AMAT4901_(DLED4010[2]&AMAT2450)",
+      "node_type": null,
+      "x_coordinate": 5200,
+      "y_coordinate": 172,
+      "category": 2
+    },
+    {
+      "id": "co_DLED4010[2]_(DLED4010[2]&AMAT2450)",
+      "node_type": null,
+      "x_coordinate": 5235,
+      "y_coordinate": 750,
+      "category": 2
+    },
+    {
+      "id": "co_DSAA4591_(AIAA4490|DSAA4591)",
+      "node_type": null,
+      "x_coordinate": 4526,
+      "y_coordinate": 1518,
+      "category": 2
+    },
+    {
+      "id": "co_DSAA4591_DLED4020[2]",
+      "node_type": null,
+      "x_coordinate": 4575,
+      "y_coordinate": 1468,
+      "category": 2
+    },
+    {
+      "id": "(DLED4010[2]&AMAT2450)",
+      "node_type": false,
+      "x_coordinate": 5091,
+      "y_coordinate": 566,
+      "category": 2
+    },
+    {
+      "id": "(DLED4010[2]|AMAT2450)",
+      "node_type": true,
+      "x_coordinate": 5297,
+      "y_coordinate": 534,
+      "category": 2
+    },
+    {
+      "id": "co_DLED4020[2]_AIAA4490",
+      "node_type": null,
+      "x_coordinate": 5251,
+      "y_coordinate": 1588,
+      "category": 2
+    },
+    {
+      "id": "co_AMAT2450_(DLED4010[2]&AMAT2450)",
+      "node_type": null,
+      "x_coordinate": 4006,
+      "y_coordinate": 484,
+      "category": 2
+    },
+    {
+      "id": "co_AMAT4095_(DLED4010[2]|AMAT2450)",
+      "node_type": null,
+      "x_coordinate": 5296,
+      "y_coordinate": 173,
+      "category": 2
+    },
+    {
+      "id": "(AMAT4901|AMAT4095)",
+      "node_type": true,
+      "x_coordinate": 5489,
+      "y_coordinate": 552,
+      "category": 2
+    },
+    {
+      "id": "co_DLED4040[2]_SMMG4901",
+      "node_type": null,
+      "x_coordinate": 5245,
+      "y_coordinate": 1054,
+      "category": 2
+    },
+    {
+      "id": "co_DLED4010[2]_(DLED4010[2]|AMAT2450)",
+      "node_type": null,
+      "x_coordinate": 5296,
+      "y_coordinate": 720,
+      "category": 2
+    },
+    {
+      "id": "co_SMMG4901_(SMMG4901|SMMG4960)",
+      "node_type": null,
+      "x_coordinate": 4588,
+      "y_coordinate": 1077,
+      "category": 2
+    },
+    {
+      "id": "co_AMAT2040_AMAT2450",
+      "node_type": null,
+      "x_coordinate": 4137,
+      "y_coordinate": 143,
+      "category": 2
+    },
+    {
+      "id": "co_DLED4010[2]_(AMAT4901|AMAT4095)",
+      "node_type": null,
+      "x_coordinate": 5511,
+      "y_coordinate": 717,
+      "category": 2
+    },
+    {
+      "id": "co_AMAT4095_(AMAT4901|AMAT4095)",
+      "node_type": null,
+      "x_coordinate": 5389,
+      "y_coordinate": 172,
+      "category": 2
+    },
+    {
+      "id": "co_AMAT4901_(AMAT4901|AMAT4095)",
+      "node_type": null,
+      "x_coordinate": 5468,
+      "y_coordinate": 74,
+      "category": 2
+    },
+    {
+      "id": "co_DLED4020[2]_DSAA4591",
+      "node_type": null,
+      "x_coordinate": 5251,
+      "y_coordinate": 1588,
+      "category": 2
+    },
+    {
+      "id": "(AIAA4490|DSAA4591)",
+      "node_type": true,
+      "x_coordinate": 4594,
+      "y_coordinate": 1611,
+      "category": 2
+    },
+    {
+      "id": "co_AIAA4490_(AIAA4490|DSAA4591)",
+      "node_type": null,
+      "x_coordinate": 3649,
+      "y_coordinate": 1783,
+      "category": 2
+    },
+    {
+      "id": "co_AMAT2450_AMAT2040",
+      "node_type": null,
+      "x_coordinate": 4054,
+      "y_coordinate": 439,
+      "category": 2
+    },
+    {
+      "id": "(SMMG4901|SMMG4960)",
+      "node_type": true,
+      "x_coordinate": 4813,
+      "y_coordinate": 1110,
+      "category": 2
+    },
+    {
+      "id": "co_AMAT2450_(DLED4010[2]|AMAT2450)",
+      "node_type": null,
+      "x_coordinate": 4055,
+      "y_coordinate": 459,
+      "category": 2
+    },
+    {
+      "id": "co_DLED4020[2]_(AIAA4490|DSAA4591)",
+      "node_type": null,
+      "x_coordinate": 5249,
+      "y_coordinate": 1610,
+      "category": 2
+    },
+    {
+      "id": "co_SMMG4901_DLED4040[2]",
+      "node_type": null,
+      "x_coordinate": 4587,
+      "y_coordinate": 1055,
+      "category": 2
+    },
+    {
+      "id": "co_DLED4040[2]_(SMMG4901|SMMG4960)",
+      "node_type": null,
+      "x_coordinate": 5246,
+      "y_coordinate": 1082,
+      "category": 2
+    },
+    {
+      "id": "DLED3010",
+      "node_type": null,
+      "x_coordinate": 1242,
+      "y_coordinate": 164,
+      "category": 0
+    },
+    {
+      "id": "AMAT4540",
+      "node_type": null,
+      "x_coordinate": 4623,
+      "y_coordinate": 476,
+      "category": 0
+    },
+    {
+      "id": "DLED4010[2]",
+      "node_type": null,
+      "x_coordinate": 5237,
+      "y_coordinate": 721,
+      "category": 0
+    },
+    {
+      "id": "DLED4020[2]",
+      "node_type": null,
+      "x_coordinate": 5252,
+      "y_coordinate": 1569,
+      "category": 0
+    },
+    {
+      "id": "DLED4030[2]",
+      "node_type": null,
+      "x_coordinate": 5271,
+      "y_coordinate": 1957,
+      "category": 0
+    },
+    {
+      "id": "UFUG2102",
+      "node_type": null,
+      "x_coordinate": 2106,
+      "y_coordinate": 733,
+      "category": 0
+    },
+    {
+      "id": "DLED4040[2]",
+      "node_type": null,
+      "x_coordinate": 5246,
+      "y_coordinate": 1035,
+      "category": 0
+    },
+    {
+      "id": "ex_AMAT4095_AMAT4901",
+      "node_type": true,
+      "x_coordinate": 5336,
+      "y_coordinate": 108,
+      "category": 3
+    },
+    {
+      "id": "AMAT2020",
+      "node_type": null,
+      "x_coordinate": 3166,
+      "y_coordinate": 252,
+      "category": 0
+    },
+    {
+      "id": "AIAA2205",
+      "node_type": null,
+      "x_coordinate": 2169,
+      "y_coordinate": 1653,
+      "category": 0
+    },
+    {
+      "id": "UFUG2101",
+      "node_type": null,
+      "x_coordinate": 2107,
+      "y_coordinate": 651,
+      "category": 0
+    },
+    {
+      "id": "UCUG1052A",
+      "node_type": null,
+      "x_coordinate": 574,
+      "y_coordinate": 332,
+      "category": 0
+    },
+    {
+      "id": "AMAT4570",
+      "node_type": null,
+      "x_coordinate": 4623,
+      "y_coordinate": 638,
+      "category": 0
+    },
+    {
+      "id": "DLED3030",
+      "node_type": null,
+      "x_coordinate": 1247,
+      "y_coordinate": 399,
+      "category": 0
+    },
+    {
+      "id": "UCUG1903",
+      "node_type": null,
+      "x_coordinate": 557,
+      "y_coordinate": 1671,
+      "category": 0
+    },
+    {
+      "id": "UCUG1505",
+      "node_type": null,
+      "x_coordinate": 557,
+      "y_coordinate": 1064,
+      "category": 0
+    },
+    {
+      "id": "SMMG4020",
+      "node_type": null,
+      "x_coordinate": 3683,
+      "y_coordinate": 1025,
+      "category": 0
+    },
+    {
+      "id": "DLED3040",
+      "node_type": null,
+      "x_coordinate": 1246,
+      "y_coordinate": 502,
+      "category": 0
+    },
+    {
+      "id": "UCUG1905",
+      "node_type": null,
+      "x_coordinate": 101,
+      "y_coordinate": 1763,
+      "category": 0
+    },
+    {
+      "id": "ex_SMMG3010_SMMG3000",
+      "node_type": true,
+      "x_coordinate": 2487,
+      "y_coordinate": 1113,
+      "category": 3
+    },
+    {
+      "id": "DSAA2011",
+      "node_type": null,
+      "x_coordinate": 2755,
+      "y_coordinate": 1529,
+      "category": 0
+    },
+    {
+      "id": "AIAA4490",
+      "node_type": null,
+      "x_coordinate": 3229,
+      "y_coordinate": 1747,
+      "category": 0
+    },
+    {
+      "id": "SMMG3050",
+      "node_type": null,
+      "x_coordinate": 2743,
+      "y_coordinate": 1110,
+      "category": 0
+    },
+    {
+      "id": "UCUG1603",
+      "node_type": null,
+      "x_coordinate": 552,
+      "y_coordinate": 1266,
+      "category": 0
+    },
+    {
+      "id": "ex_SMMG4960_SMMG4901",
+      "node_type": true,
+      "x_coordinate": 4373,
+      "y_coordinate": 1148,
+      "category": 3
+    },
+    {
+      "id": "UCUG2500",
+      "node_type": null,
+      "x_coordinate": 103,
+      "y_coordinate": 1887,
+      "category": 0
+    },
+    {
+      "id": "AMAT2380",
+      "node_type": null,
+      "x_coordinate": 3631,
+      "y_coordinate": 344,
+      "category": 0
+    },
+    {
+      "id": "SMMG3020",
+      "node_type": null,
+      "x_coordinate": 2269,
+      "y_coordinate": 1235,
+      "category": 0
+    },
+    {
+      "id": "UCUG1800",
+      "node_type": null,
+      "x_coordinate": 96,
+      "y_coordinate": 1472,
+      "category": 0
+    },
+    {
+      "id": "DSAA2012",
+      "node_type": null,
+      "x_coordinate": 3269,
+      "y_coordinate": 1474,
+      "category": 0
+    },
+    {
+      "id": "UCUG1504",
+      "node_type": null,
+      "x_coordinate": 91,
+      "y_coordinate": 1060,
+      "category": 0
+    },
+    {
+      "id": "UFUG1401",
+      "node_type": null,
+      "x_coordinate": 1073,
+      "y_coordinate": 1605,
+      "category": 0
+    },
+    {
+      "id": "UFUG2601",
+      "node_type": null,
+      "x_coordinate": 1069,
+      "y_coordinate": 1938,
+      "category": 0
+    },
+    {
+      "id": "AIAA2290",
+      "node_type": null,
+      "x_coordinate": 2730,
+      "y_coordinate": 1772,
+      "category": 0
+    },
+    {
+      "id": "DSAA2044",
+      "node_type": null,
+      "x_coordinate": 3239,
+      "y_coordinate": 1366,
+      "category": 0
+    },
+    {
+      "id": "UFUG1105",
+      "node_type": null,
+      "x_coordinate": 1059,
+      "y_coordinate": 770,
+      "category": 0
+    },
+    {
+      "id": "AIAA3201",
+      "node_type": null,
+      "x_coordinate": 2732,
+      "y_coordinate": 1862,
+      "category": 0
+    },
+    {
+      "id": "SMMG4010",
+      "node_type": null,
+      "x_coordinate": 3241,
+      "y_coordinate": 1188,
+      "category": 0
+    },
+    {
+      "id": "UFUG1502",
+      "node_type": null,
+      "x_coordinate": 1603,
+      "y_coordinate": 1078,
+      "category": 0
+    },
+    {
+      "id": "UCUG1804",
+      "node_type": null,
+      "x_coordinate": 548,
+      "y_coordinate": 1472,
+      "category": 0
+    },
+    {
+      "id": "UFUG2106",
+      "node_type": null,
+      "x_coordinate": 1595,
+      "y_coordinate": 1797,
+      "category": 0
+    },
+    {
+      "id": "UFUG1504",
+      "node_type": null,
+      "x_coordinate": 1601,
+      "y_coordinate": 1175,
+      "category": 0
+    }
+  ],
+  "lines": [
+    {
+      "start_id": "UFUG2104",
+      "end_id": "((DSAA2011|DSAA2012|AIAA3111)&UFUG2103&UFUG2104)",
+      "line_type": false,
+      "x_coordinate": 2170,
+      "category": 1
+    },
+    {
+      "start_id": "AMAT3060",
+      "end_id": "(AMAT2040&AMAT3060)",
+      "line_type": false,
+      "x_coordinate": 4585,
+      "category": 1
+    },
+    {
+      "start_id": "AMAT2010",
+      "end_id": "AMAT3820",
+      "line_type": null,
+      "x_coordinate": 3059,
+      "category": 1
+    },
+    {
+      "start_id": "ex_SMMG4901_SMMG4960",
+      "end_id": "ex_SMMG4960_SMMG4901",
+      "line_type": true,
+      "x_coordinate": 4372,
+      "category": 3
+    },
+    {
+      "start_id": "ex_UFUG2102_UFUG2103",
+      "end_id": "ex_UFUG2103_UFUG2102",
+      "line_type": true,
+      "x_coordinate": 2315,
+      "category": 3
+    },
+    {
+      "start_id": "DSAA1001",
+      "end_id": "(UFUG2601|UFUG2602|DSAA1001)",
+      "line_type": true,
+      "x_coordinate": 2639,
+      "category": 1
+    },
+    {
+      "start_id": "ex_UFUG1501_UFUG1503",
+      "end_id": "ex_UFUG1503_UFUG1501",
+      "line_type": true,
+      "x_coordinate": 1285,
+      "category": 3
+    },
+    {
+      "start_id": "DSAA2043",
+      "end_id": "DSAA2031",
+      "line_type": null,
+      "x_coordinate": 2652,
+      "category": 1
+    },
+    {
+      "start_id": "(DSAA2011|DSAA2012|AIAA3111)",
+      "end_id": "((DSAA2011|DSAA2012|AIAA3111)&UFUG2103&UFUG2104)",
+      "line_type": false,
+      "x_coordinate": 3739,
+      "category": 1
+    },
+    {
+      "start_id": "ex_UCUG1052A_UCUG1053",
+      "end_id": "ex_UCUG1053_UCUG1052A",
+      "line_type": true,
+      "x_coordinate": 827,
+      "category": 3
+    },
+    {
+      "start_id": "((UFUG1103|UFUG1106)&(UFUG1502|UFUG1504)&UFUG1301)",
+      "end_id": "AMAT4540",
+      "line_type": null,
+      "x_coordinate": 3137,
+      "category": 1
+    },
+    {
+      "start_id": "(UCUG1052|UCUG1053)",
+      "end_id": "DLED3020",
+      "line_type": null,
+      "x_coordinate": 1164,
+      "category": 1
+    },
+    {
+      "start_id": "DSAA2011",
+      "end_id": "(DSAA2011|DSAA2012|AIAA3111)",
+      "line_type": true,
+      "x_coordinate": 3209,
+      "category": 1
+    },
+    {
+      "start_id": "(DLED3010|AMAT2250)",
+      "end_id": "AMAT4095",
+      "line_type": null,
+      "x_coordinate": 5090,
+      "category": 1
+    },
+    {
+      "start_id": "ex_UCUG1807_UFUG1801",
+      "end_id": "ex_UFUG1801_UCUG1807",
+      "line_type": false,
+      "x_coordinate": 305,
+      "category": 3
+    },
+    {
+      "start_id": "ex_UCUG1052_UCUG1053",
+      "end_id": "ex_UCUG1053_UCUG1052",
+      "line_type": false,
+      "x_coordinate": 742,
+      "category": 3
+    },
+    {
+      "start_id": "DSAA1085",
+      "end_id": "SMMG4010",
+      "line_type": null,
+      "x_coordinate": 3223,
+      "category": 1
+    },
+    {
+      "start_id": "ex_UCUG1900_UFUG1301",
+      "end_id": "ex_UFUG1301_UCUG1900",
+      "line_type": false,
+      "x_coordinate": 525,
+      "category": 3
+    },
+    {
+      "start_id": "(AMAT4901|AMAT4095)",
+      "end_id": "co_DLED4010[2]_(AMAT4901|AMAT4095)",
+      "line_type": null,
+      "x_coordinate": 5511,
+      "category": 2
+    },
+    {
+      "start_id": "(UFUG2601|UFUG2602)",
+      "end_id": "AIAA2205",
+      "line_type": null,
+      "x_coordinate": 2136,
+      "category": 1
+    },
+    {
+      "start_id": "UCUG1051",
+      "end_id": "UCUG1052S",
+      "line_type": null,
+      "x_coordinate": 505,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG2103",
+      "end_id": "((UFUG1103|UFUG1106)&UFUG2101&UFUG2103)",
+      "line_type": false,
+      "x_coordinate": 2593,
+      "category": 1
+    },
+    {
+      "start_id": "co_AMAT2450_(DLED4010[2]|AMAT2450)",
+      "end_id": "(DLED4010[2]|AMAT2450)",
+      "line_type": true,
+      "x_coordinate": 5085,
+      "category": 2
+    },
+    {
+      "start_id": "ex_UCUG1071_UCUG1072",
+      "end_id": "ex_UCUG1072_UCUG1071",
+      "line_type": false,
+      "x_coordinate": 540,
+      "category": 3
+    },
+    {
+      "start_id": "ex_UCUG1071_UCUG1073",
+      "end_id": "ex_UCUG1073_UCUG1071",
+      "line_type": false,
+      "x_coordinate": 507,
+      "category": 3
+    },
+    {
+      "start_id": "co_AIAA4490_(AIAA4490|DSAA4591)",
+      "end_id": "(AIAA4490|DSAA4591)",
+      "line_type": true,
+      "x_coordinate": 4526,
+      "category": 2
+    },
+    {
+      "start_id": "(UFUG1103|UFUG1106)",
+      "end_id": "((UFUG1103|UFUG1106)&(UFUG1502|UFUG1504))",
+      "line_type": false,
+      "x_coordinate": 2189,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG2602",
+      "end_id": "(UFUG2601|UFUG2602)",
+      "line_type": true,
+      "x_coordinate": 2057,
+      "category": 1
+    },
+    {
+      "start_id": "(AIAA4490|DSAA4591)",
+      "end_id": "co_DLED4020[2]_(AIAA4490|DSAA4591)",
+      "line_type": null,
+      "x_coordinate": 4882,
+      "category": 2
+    },
+    {
+      "start_id": "co_AMAT4095_(AMAT4901|AMAT4095)",
+      "end_id": "(AMAT4901|AMAT4095)",
+      "line_type": true,
+      "x_coordinate": 5389,
+      "category": 2
+    },
+    {
+      "start_id": "ex_SMMG3000_SMMG3010",
+      "end_id": "ex_SMMG3010_SMMG3000",
+      "line_type": true,
+      "x_coordinate": 2487,
+      "category": 3
+    },
+    {
+      "start_id": "UFUG1102",
+      "end_id": "(UFUG1102|UFUG1105)",
+      "line_type": true,
+      "x_coordinate": 1502,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG2101",
+      "end_id": "((UFUG1103|UFUG1106)&UFUG2101&UFUG2103)",
+      "line_type": false,
+      "x_coordinate": 2578,
+      "category": 1
+    },
+    {
+      "start_id": "ex_AMAT4095_AMAT4901",
+      "end_id": "ex_AMAT4901_AMAT4095",
+      "line_type": true,
+      "x_coordinate": 5336,
+      "category": 3
+    },
+    {
+      "start_id": "(UFUG1103|UFUG1106)",
+      "end_id": "((UFUG1103|UFUG1106)&(UFUG1502|UFUG1504)&AMAT2010)",
+      "line_type": false,
+      "x_coordinate": 2229,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1501|UFUG1503)",
+      "end_id": "((UFUG1501|UFUG1503)&(UFUG1102|UFUG1105))",
+      "line_type": false,
+      "x_coordinate": 1546,
+      "category": 1
+    },
+    {
+      "start_id": "ex_UFUG1103_UFUG1106",
+      "end_id": "ex_UFUG1106_UFUG1103",
+      "line_type": true,
+      "x_coordinate": 1816,
+      "category": 3
+    },
+    {
+      "start_id": "ex_UCUG1900_UFUG1302",
+      "end_id": "ex_UFUG1302_UCUG1900",
+      "line_type": false,
+      "x_coordinate": 525,
+      "category": 3
+    },
+    {
+      "start_id": "ex_UCUG1052S_UCUG1053",
+      "end_id": "ex_UCUG1053_UCUG1052S",
+      "line_type": true,
+      "x_coordinate": 905,
+      "category": 3
+    },
+    {
+      "start_id": "ex_UFUG1102_UFUG1105",
+      "end_id": "ex_UFUG1105_UFUG1102",
+      "line_type": true,
+      "x_coordinate": 1274,
+      "category": 3
+    },
+    {
+      "start_id": "ex_UFUG1502_UFUG1504",
+      "end_id": "ex_UFUG1504_UFUG1502",
+      "line_type": true,
+      "x_coordinate": 1811,
+      "category": 3
+    },
+    {
+      "start_id": "UFUG1301",
+      "end_id": "((UFUG1103|UFUG1106)&(UFUG1502|UFUG1504)&UFUG1301)",
+      "line_type": false,
+      "x_coordinate": 1998,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1103|UFUG1106)",
+      "end_id": "AMAT2380",
+      "line_type": null,
+      "x_coordinate": 3097,
+      "category": 1
+    },
+    {
+      "start_id": "ex_UCUG1073_UCUG1074",
+      "end_id": "ex_UCUG1074_UCUG1073",
+      "line_type": false,
+      "x_coordinate": 508,
+      "category": 3
+    },
+    {
+      "start_id": "ex_UCUG1052I_UCUG1053",
+      "end_id": "ex_UCUG1053_UCUG1052I",
+      "line_type": true,
+      "x_coordinate": 661,
+      "category": 3
+    },
+    {
+      "start_id": "ex_UFUG1301_UFUG1303",
+      "end_id": "ex_UFUG1303_UFUG1301",
+      "line_type": true,
+      "x_coordinate": 1632,
+      "category": 3
+    },
+    {
+      "start_id": "ex_UCUG1072_UCUG1074",
+      "end_id": "ex_UCUG1074_UCUG1072",
+      "line_type": false,
+      "x_coordinate": 777,
+      "category": 3
+    },
+    {
+      "start_id": "ex_UFUG1301_UFUG1302",
+      "end_id": "ex_UFUG1302_UFUG1301",
+      "line_type": true,
+      "x_coordinate": 1296,
+      "category": 3
+    },
+    {
+      "start_id": "ex_UCUG1071_UCUG1074",
+      "end_id": "ex_UCUG1074_UCUG1071",
+      "line_type": false,
+      "x_coordinate": 898,
+      "category": 3
+    },
+    {
+      "start_id": "ex_UCUG1050_UCUG1051",
+      "end_id": "ex_UCUG1051_UCUG1050",
+      "line_type": true,
+      "x_coordinate": 224,
+      "category": 3
+    },
+    {
+      "start_id": "(UFUG1103|UFUG1106)",
+      "end_id": "((UFUG1103|UFUG1106)&UFUG2101&UFUG2103)",
+      "line_type": false,
+      "x_coordinate": 2296,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG1502",
+      "end_id": "(UFUG1502|UFUG1504)",
+      "line_type": true,
+      "x_coordinate": 2062,
+      "category": 1
+    },
+    {
+      "start_id": "AIAA3111",
+      "end_id": "(DSAA2011|DSAA2012|AIAA3111)",
+      "line_type": true,
+      "x_coordinate": 3488,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG1303",
+      "end_id": "(UFUG1303&(UFUG1103|UFUG1106))",
+      "line_type": false,
+      "x_coordinate": 2075,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG1301",
+      "end_id": "(UFUG1301|UFUG1302)",
+      "line_type": true,
+      "x_coordinate": 1534,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG1106",
+      "end_id": "(UFUG1103|UFUG1106)",
+      "line_type": true,
+      "x_coordinate": 2035,
+      "category": 1
+    },
+    {
+      "start_id": "DSAA2011",
+      "end_id": "(DSAA2011|AIAA3111)",
+      "line_type": true,
+      "x_coordinate": 3208,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1501|UFUG1503)",
+      "end_id": "UFUG1502",
+      "line_type": null,
+      "x_coordinate": 1567,
+      "category": 1
+    },
+    {
+      "start_id": "DLED4040",
+      "end_id": "SMMG4960",
+      "line_type": null,
+      "x_coordinate": 2212,
+      "category": 1
+    },
+    {
+      "start_id": "AMAT2010",
+      "end_id": "AMAT3590",
+      "line_type": null,
+      "x_coordinate": 3038,
+      "category": 1
+    },
+    {
+      "start_id": "(DSAA1001|AIAA2205)",
+      "end_id": "DSAA2011",
+      "line_type": null,
+      "x_coordinate": 2672,
+      "category": 1
+    },
+    {
+      "start_id": "(DLED3010&AMAT2250)",
+      "end_id": "AMAT4901",
+      "line_type": null,
+      "x_coordinate": 5088,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG1504",
+      "end_id": "AMAT4580",
+      "line_type": null,
+      "x_coordinate": 2256,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG2102",
+      "end_id": "(UFUG2102|UFUG2103|UFUG2104)",
+      "line_type": true,
+      "x_coordinate": 2582,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1501|UFUG1503)",
+      "end_id": "SMMG3810",
+      "line_type": null,
+      "x_coordinate": 1525,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG2601|UFUG2602)",
+      "end_id": "AIAA3201",
+      "line_type": null,
+      "x_coordinate": 2197,
+      "category": 1
+    },
+    {
+      "start_id": "(DLED4010[2]|AMAT2450)",
+      "end_id": "co_AMAT4095_(DLED4010[2]|AMAT2450)",
+      "line_type": null,
+      "x_coordinate": 5296,
+      "category": 2
+    },
+    {
+      "start_id": "co_AMAT2040_AMAT2450",
+      "end_id": "co_AMAT2450_AMAT2040",
+      "line_type": null,
+      "x_coordinate": 4128,
+      "category": 2
+    },
+    {
+      "start_id": "co_DLED4020[2]_AIAA4490",
+      "end_id": "co_AIAA4490_DLED4020[2]",
+      "line_type": null,
+      "x_coordinate": 4712,
+      "category": 2
+    },
+    {
+      "start_id": "(DLED4010[2]&AMAT2450)",
+      "end_id": "co_AMAT4901_(DLED4010[2]&AMAT2450)",
+      "line_type": null,
+      "x_coordinate": 5200,
+      "category": 2
+    },
+    {
+      "start_id": "co_DLED4010[2]_(DLED4010[2]|AMAT2450)",
+      "end_id": "(DLED4010[2]|AMAT2450)",
+      "line_type": true,
+      "x_coordinate": 5296,
+      "category": 2
+    },
+    {
+      "start_id": "co_DLED4010[2]_(DLED4010[2]&AMAT2450)",
+      "end_id": "(DLED4010[2]&AMAT2450)",
+      "line_type": false,
+      "x_coordinate": 5130,
+      "category": 2
+    },
+    {
+      "start_id": "co_SMMG4960_(SMMG4901|SMMG4960)",
+      "end_id": "(SMMG4901|SMMG4960)",
+      "line_type": true,
+      "x_coordinate": 4763,
+      "category": 2
+    },
+    {
+      "start_id": "co_AMAT2450_(DLED4010[2]&AMAT2450)",
+      "end_id": "(DLED4010[2]&AMAT2450)",
+      "line_type": false,
+      "x_coordinate": 4006,
+      "category": 2
+    },
+    {
+      "start_id": "co_SMMG4901_(SMMG4901|SMMG4960)",
+      "end_id": "(SMMG4901|SMMG4960)",
+      "line_type": true,
+      "x_coordinate": 4764,
+      "category": 2
+    },
+    {
+      "start_id": "DLED3010",
+      "end_id": "(DLED3010&AMAT2250)",
+      "line_type": false,
+      "x_coordinate": 1719,
+      "category": 1
+    },
+    {
+      "start_id": "(UCUG1052|UCUG1053)",
+      "end_id": "DLED3010",
+      "line_type": null,
+      "x_coordinate": 1164,
+      "category": 1
+    },
+    {
+      "start_id": "DLED3030",
+      "end_id": "DLED4030",
+      "line_type": null,
+      "x_coordinate": 1690,
+      "category": 1
+    },
+    {
+      "start_id": "SMMG3810",
+      "end_id": "SMMG3820",
+      "line_type": null,
+      "x_coordinate": 3184,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1301|UFUG1302)",
+      "end_id": "AMAT2030",
+      "line_type": null,
+      "x_coordinate": 1940,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG2103",
+      "end_id": "((DSAA2011|DSAA2012|AIAA3111)&UFUG2103&UFUG2104)",
+      "line_type": false,
+      "x_coordinate": 2620,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG1504",
+      "end_id": "(UFUG1502|UFUG1504)",
+      "line_type": true,
+      "x_coordinate": 2062,
+      "category": 1
+    },
+    {
+      "start_id": "AMAT2010",
+      "end_id": "((UFUG1103|UFUG1106)&(UFUG1502|UFUG1504)&AMAT2010)",
+      "line_type": false,
+      "x_coordinate": 3020,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG2601|UFUG2602)",
+      "end_id": "AIAA3102",
+      "line_type": null,
+      "x_coordinate": 2153,
+      "category": 1
+    },
+    {
+      "start_id": "DSAA1001",
+      "end_id": "(DSAA1001|AIAA2205)",
+      "line_type": true,
+      "x_coordinate": 2601,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG2104",
+      "end_id": "(UFUG2102|UFUG2103|UFUG2104)",
+      "line_type": true,
+      "x_coordinate": 2607,
+      "category": 1
+    },
+    {
+      "start_id": "AMAT2250",
+      "end_id": "(DLED3010|AMAT2250)",
+      "line_type": true,
+      "x_coordinate": 4077,
+      "category": 1
+    },
+    {
+      "start_id": "(DSAA1001|AIAA2205)",
+      "end_id": "DSAA2044",
+      "line_type": null,
+      "x_coordinate": 2672,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1102|UFUG1105)",
+      "end_id": "((UFUG1501|UFUG1503)&(UFUG1102|UFUG1105))",
+      "line_type": false,
+      "x_coordinate": 1586,
+      "category": 1
+    },
+    {
+      "start_id": "(UCUG1052|UCUG1053)",
+      "end_id": "DLED3030",
+      "line_type": null,
+      "x_coordinate": 1164,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG2103|UFUG2102)",
+      "end_id": "DSAA1085",
+      "line_type": null,
+      "x_coordinate": 2658,
+      "category": 1
+    },
+    {
+      "start_id": "DLED3040",
+      "end_id": "DLED4040",
+      "line_type": null,
+      "x_coordinate": 1689,
+      "category": 1
+    },
+    {
+      "start_id": "DSAA2012",
+      "end_id": "(DSAA2011|DSAA2012|AIAA3111)",
+      "line_type": true,
+      "x_coordinate": 3714,
+      "category": 1
+    },
+    {
+      "start_id": "UCUG1051",
+      "end_id": "(UCUG1050|UCUG1051)",
+      "line_type": true,
+      "x_coordinate": 474,
+      "category": 1
+    },
+    {
+      "start_id": "AMAT2150",
+      "end_id": "AMAT2250",
+      "line_type": null,
+      "x_coordinate": 3608,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG2102|UFUG2103|UFUG2104)",
+      "end_id": "SMMG3050",
+      "line_type": null,
+      "x_coordinate": 2721,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG2103",
+      "end_id": "(UFUG2103|UFUG2102)",
+      "line_type": true,
+      "x_coordinate": 2560,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG1601",
+      "end_id": "UFUG2106",
+      "line_type": null,
+      "x_coordinate": 1557,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1303&(UFUG1103|UFUG1106))",
+      "end_id": "AMAT2040",
+      "line_type": null,
+      "x_coordinate": 2961,
+      "category": 1
+    },
+    {
+      "start_id": "((DSAA2011|DSAA2012|AIAA3111)&UFUG2103&UFUG2104)",
+      "end_id": "DSAA2088",
+      "line_type": null,
+      "x_coordinate": 3780,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1501|UFUG1503)",
+      "end_id": "SMMG4020",
+      "line_type": null,
+      "x_coordinate": 1525,
+      "category": 1
+    },
+    {
+      "start_id": "(DSAA2011|AIAA3111)",
+      "end_id": "DSAA2012",
+      "line_type": null,
+      "x_coordinate": 3269,
+      "category": 1
+    },
+    {
+      "start_id": "AMAT3350",
+      "end_id": "AMAT4570",
+      "line_type": null,
+      "x_coordinate": 4590,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG2102",
+      "end_id": "(UFUG2103|UFUG2102)",
+      "line_type": true,
+      "x_coordinate": 2560,
+      "category": 1
+    },
+    {
+      "start_id": "AMAT2040",
+      "end_id": "(AMAT2040&AMAT3060)",
+      "line_type": false,
+      "x_coordinate": 4585,
+      "category": 1
+    },
+    {
+      "start_id": "(AMAT2040&AMAT3060)",
+      "end_id": "AMAT4560",
+      "line_type": null,
+      "x_coordinate": 4614,
+      "category": 1
+    },
+    {
+      "start_id": "AIAA3111",
+      "end_id": "(DSAA2011|AIAA3111)",
+      "line_type": true,
+      "x_coordinate": 3232,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1102|UFUG1105)",
+      "end_id": "UFUG1103",
+      "line_type": null,
+      "x_coordinate": 1563,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG2103",
+      "end_id": "AMAT1510",
+      "line_type": null,
+      "x_coordinate": 2545,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG1501",
+      "end_id": "(UFUG1501|UFUG1503)",
+      "line_type": true,
+      "x_coordinate": 1504,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1103|UFUG1106)",
+      "end_id": "UFUG2103",
+      "line_type": null,
+      "x_coordinate": 2100,
+      "category": 1
+    },
+    {
+      "start_id": "(DSAA2011|DSAA2012|AIAA3111)",
+      "end_id": "DSAA4591",
+      "line_type": null,
+      "x_coordinate": 3800,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG1302",
+      "end_id": "(UFUG1301|UFUG1302)",
+      "line_type": true,
+      "x_coordinate": 1535,
+      "category": 1
+    },
+    {
+      "start_id": "UCUG1052",
+      "end_id": "(UCUG1052|UCUG1053)",
+      "line_type": true,
+      "x_coordinate": 1041,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG1401",
+      "end_id": "UFUG1402",
+      "line_type": null,
+      "x_coordinate": 1553,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1103|UFUG1106)",
+      "end_id": "((UFUG1103|UFUG1106)&(UFUG1502|UFUG1504)&UFUG1301)",
+      "line_type": false,
+      "x_coordinate": 2128,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG2601|UFUG2602|DSAA1001)",
+      "end_id": "AIAA3111",
+      "line_type": null,
+      "x_coordinate": 2682,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG2103",
+      "end_id": "(UFUG2102|UFUG2103|UFUG2104)",
+      "line_type": true,
+      "x_coordinate": 2606,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG2602",
+      "end_id": "(UFUG2601|UFUG2602|DSAA1001)",
+      "line_type": true,
+      "x_coordinate": 2034,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1502|UFUG1504)",
+      "end_id": "((UFUG1103|UFUG1106)&(UFUG1502|UFUG1504))",
+      "line_type": false,
+      "x_coordinate": 2150,
+      "category": 1
+    },
+    {
+      "start_id": "(SMMG4901|SMMG4960)",
+      "end_id": "co_DLED4040[2]_(SMMG4901|SMMG4960)",
+      "line_type": null,
+      "x_coordinate": 4868,
+      "category": 2
+    },
+    {
+      "start_id": "co_AMAT4901_(AMAT4901|AMAT4095)",
+      "end_id": "(AMAT4901|AMAT4095)",
+      "line_type": true,
+      "x_coordinate": 5468,
+      "category": 2
+    },
+    {
+      "start_id": "co_DLED4020[2]_DSAA4591",
+      "end_id": "co_DSAA4591_DLED4020[2]",
+      "line_type": null,
+      "x_coordinate": 4712,
+      "category": 2
+    },
+    {
+      "start_id": "co_DSAA4591_(AIAA4490|DSAA4591)",
+      "end_id": "(AIAA4490|DSAA4591)",
+      "line_type": true,
+      "x_coordinate": 4526,
+      "category": 2
+    },
+    {
+      "start_id": "co_DLED4040[2]_SMMG4901",
+      "end_id": "co_SMMG4901_DLED4040[2]",
+      "line_type": null,
+      "x_coordinate": 4732,
+      "category": 2
+    },
+    {
+      "start_id": "UCUG1050",
+      "end_id": "UCUG1052I",
+      "line_type": null,
+      "x_coordinate": 510,
+      "category": 1
+    },
+    {
+      "start_id": "AMAT2250",
+      "end_id": "(DLED3010&AMAT2250)",
+      "line_type": false,
+      "x_coordinate": 4102,
+      "category": 1
+    },
+    {
+      "start_id": "((UFUG1103|UFUG1106)&UFUG2101&UFUG2103)",
+      "end_id": "UFUG2105",
+      "line_type": null,
+      "x_coordinate": 2633,
+      "category": 1
+    },
+    {
+      "start_id": "UCUG1053",
+      "end_id": "(UCUG1052|UCUG1053)",
+      "line_type": true,
+      "x_coordinate": 1041,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1502|UFUG1504)",
+      "end_id": "((UFUG1103|UFUG1106)&(UFUG1502|UFUG1504)&AMAT2010)",
+      "line_type": false,
+      "x_coordinate": 2228,
+      "category": 1
+    },
+    {
+      "start_id": "(UCUG1050|UCUG1051)",
+      "end_id": "UCUG1052",
+      "line_type": null,
+      "x_coordinate": 545,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1103|UFUG1106)",
+      "end_id": "UFUG2101",
+      "line_type": null,
+      "x_coordinate": 2074,
+      "category": 1
+    },
+    {
+      "start_id": "DLED3020",
+      "end_id": "DLED4020",
+      "line_type": null,
+      "x_coordinate": 1686,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG1302",
+      "end_id": "UFUG1303",
+      "line_type": null,
+      "x_coordinate": 1560,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1502|UFUG1504)",
+      "end_id": "((UFUG1103|UFUG1106)&(UFUG1502|UFUG1504)&UFUG1301)",
+      "line_type": false,
+      "x_coordinate": 2128,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1103|UFUG1106)",
+      "end_id": "UFUG2102",
+      "line_type": null,
+      "x_coordinate": 2086,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG1503",
+      "end_id": "(UFUG1501|UFUG1503)",
+      "line_type": true,
+      "x_coordinate": 1504,
+      "category": 1
+    },
+    {
+      "start_id": "DLED3010",
+      "end_id": "(DLED3010|AMAT2250)",
+      "line_type": true,
+      "x_coordinate": 1747,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1103|UFUG1106)",
+      "end_id": "AIAA2711",
+      "line_type": null,
+      "x_coordinate": 2048,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG1105",
+      "end_id": "(UFUG1102|UFUG1105)",
+      "line_type": true,
+      "x_coordinate": 1503,
+      "category": 1
+    },
+    {
+      "start_id": "((UFUG1103|UFUG1106)&(UFUG1502|UFUG1504))",
+      "end_id": "AMAT2020",
+      "line_type": null,
+      "x_coordinate": 2350,
+      "category": 1
+    },
+    {
+      "start_id": "UCUG1051",
+      "end_id": "UCUG1052A",
+      "line_type": null,
+      "x_coordinate": 505,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1102|UFUG1105)",
+      "end_id": "UFUG2104",
+      "line_type": null,
+      "x_coordinate": 1578,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG2601",
+      "end_id": "(UFUG2601|UFUG2602)",
+      "line_type": true,
+      "x_coordinate": 2078,
+      "category": 1
+    },
+    {
+      "start_id": "((UFUG1103|UFUG1106)&(UFUG1502|UFUG1504)&AMAT2010)",
+      "end_id": "AMAT2150",
+      "line_type": null,
+      "x_coordinate": 3117,
+      "category": 1
+    },
+    {
+      "start_id": "DLED3010",
+      "end_id": "DLED4010",
+      "line_type": null,
+      "x_coordinate": 1685,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG1105",
+      "end_id": "UFUG1106",
+      "line_type": null,
+      "x_coordinate": 1549,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1502|UFUG1504)",
+      "end_id": "AMAT2050",
+      "line_type": null,
+      "x_coordinate": 2695,
+      "category": 1
+    },
+    {
+      "start_id": "UCUG1050",
+      "end_id": "(UCUG1050|UCUG1051)",
+      "line_type": true,
+      "x_coordinate": 474,
+      "category": 1
+    },
+    {
+      "start_id": "AIAA2205",
+      "end_id": "(DSAA1001|AIAA2205)",
+      "line_type": true,
+      "x_coordinate": 2603,
+      "category": 1
+    },
+    {
+      "start_id": "DSAA1085",
+      "end_id": "SMMG4030",
+      "line_type": null,
+      "x_coordinate": 3203,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG1103|UFUG1106)",
+      "end_id": "(UFUG1303&(UFUG1103|UFUG1106))",
+      "line_type": false,
+      "x_coordinate": 2114,
+      "category": 1
+    },
+    {
+      "start_id": "(UCUG1052|UCUG1053)",
+      "end_id": "DLED3040",
+      "line_type": null,
+      "x_coordinate": 1164,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG1103",
+      "end_id": "(UFUG1103|UFUG1106)",
+      "line_type": true,
+      "x_coordinate": 2035,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG2601",
+      "end_id": "(UFUG2601|UFUG2602|DSAA1001)",
+      "line_type": true,
+      "x_coordinate": 2169,
+      "category": 1
+    },
+    {
+      "start_id": "(UFUG2601|UFUG2602)",
+      "end_id": "DSAA2043",
+      "line_type": null,
+      "x_coordinate": 2118,
+      "category": 1
+    },
+    {
+      "start_id": "((UFUG1501|UFUG1503)&(UFUG1102|UFUG1105))",
+      "end_id": "UFUG1504",
+      "line_type": null,
+      "x_coordinate": 1586,
+      "category": 1
+    },
+    {
+      "start_id": "UFUG1601",
+      "end_id": "UFUG2602",
+      "line_type": null,
+      "x_coordinate": 1555,
+      "category": 1
+    }
+  ]
+}
