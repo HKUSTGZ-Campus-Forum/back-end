@@ -1,15 +1,44 @@
 # app/config.py
 import os
+import re
 from datetime import timedelta
 from dotenv import load_dotenv
+from sqlalchemy.engine import make_url
 
 # Load .env from the root project directory
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, '..', '.env'))
 
+
+def normalize_database_config(database_url):
+    """Return a SQLAlchemy URI and engine options for DATABASE_URL."""
+    if database_url.startswith('postgres://'):
+        database_url = 'postgresql://' + database_url[len('postgres://'):]
+
+    url = make_url(database_url)
+    query = dict(url.query)
+    schema = query.pop('schema', None)
+    engine_options = {}
+
+    if schema is not None:
+        if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*(,[A-Za-z_][A-Za-z0-9_]*)*', schema):
+            raise ValueError('invalid database schema name')
+        url = url.set(query=query)
+        if url.get_backend_name() == 'postgresql':
+            engine_options['connect_args'] = {'options': f'-csearch_path={schema}'}
+
+    return url.render_as_string(hide_password=False), engine_options
+
+
+_database_uri, _database_engine_options = normalize_database_config(
+    os.getenv('DATABASE_URL', 'postgres:///app.db')
+)
+
+
 class Config:
     SECRET_KEY = os.getenv('SECRET_KEY', 'your_default_secret_key')
-    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'postgres:///app.db')
+    SQLALCHEMY_DATABASE_URI = _database_uri
+    SQLALCHEMY_ENGINE_OPTIONS = _database_engine_options
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # JWT Configuration

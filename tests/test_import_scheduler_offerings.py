@@ -18,6 +18,8 @@ from app.scripts.import_scheduler_offerings import (
     OfferingValidationError,
     apply_offerings,
     build_import_plan,
+    bundled_scheduler_offering_updates,
+    create_import_app,
     file_sha256,
     load_offerings_file,
     run_deploy_scheduler_offering_update,
@@ -112,12 +114,35 @@ def test_load_offerings_file_validates_and_normalizes(tmp_path):
     assert snapshot.courses[0].sections[0].lectures[0].start_time == 900
 
 
+def test_create_import_app_maps_schema_query_to_postgres_search_path():
+    flask_app = create_import_app(
+        "postgresql://user:pass@localhost/course_scheduler?schema=public"
+    )
+
+    assert flask_app.config["SQLALCHEMY_DATABASE_URI"] == (
+        "postgresql://user:pass@localhost/course_scheduler"
+    )
+    assert flask_app.config["SQLALCHEMY_ENGINE_OPTIONS"]["connect_args"]["options"] == (
+        "-csearch_path=public"
+    )
+
+
 def test_load_offerings_file_rejects_invalid_lecture_day(tmp_path):
     data = payload()
     data["courses"][0]["sections"][0]["lectures"][0]["day"] = 8
 
     with pytest.raises(OfferingValidationError, match="expected 1-7"):
         load_offerings_file(write_payload(tmp_path, data))
+
+
+def test_bundled_scheduler_offering_updates_match_files():
+    updates = bundled_scheduler_offering_updates()
+
+    assert [update.expected_semester_id for update in updates] == ["2510", "2540"]
+    for update in updates:
+        snapshot = load_offerings_file(update.file_path, update.expected_semester_id)
+        assert snapshot.semester_id == update.expected_semester_id
+        assert file_sha256(update.file_path) == update.expected_sha256
 
 
 def test_build_plan_and_apply_replace_only_target_semester(app, tmp_path):

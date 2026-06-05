@@ -2,6 +2,7 @@ from flask import Flask
 from sqlalchemy import inspect, text
 
 import app as app_package
+from app.config import normalize_database_config
 from app.extensions import db
 
 
@@ -59,3 +60,12 @@ def test_auto_init_scheduler_support_upgrades_legacy_schema_idempotently():
 
         assert SCHEDULER_COURSE_COLUMNS.issubset(course_columns)
         assert SCHEDULER_TABLES.issubset(set(inspector.get_table_names()))
+
+
+def test_database_url_schema_query_maps_to_postgres_search_path():
+    uri, engine_options = normalize_database_config(
+        "postgresql://user:pass@localhost/course_scheduler?schema=public"
+    )
+
+    assert uri == "postgresql://user:pass@localhost/course_scheduler"
+    assert engine_options["connect_args"]["options"] == "-csearch_path=public"

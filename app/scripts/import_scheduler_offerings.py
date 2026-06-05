@@ -27,7 +27,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.config import Config
+from app.config import Config, normalize_database_config
 from app.extensions import db
 from app.models.course import Course
 from app.models.scheduler_cart import SchedulerUserCourseCart
@@ -39,8 +39,14 @@ logger = logging.getLogger(__name__)
 
 SEMESTER_RE = re.compile(r"^\d{4}$")
 COURSE_CODE_RE = re.compile(r"^[A-Z0-9]{4,16}$")
+BUNDLED_SCHEDULER_OFFERINGS_DIR = (
+    Path(__file__).resolve().parents[1] / "data" / "scheduler_offerings"
+)
+BUNDLED_25_26_FALL_OFFERINGS_FILE = BUNDLED_SCHEDULER_OFFERINGS_DIR / "25-26fall.json"
+BUNDLED_25_26_FALL_SEMESTER_ID = "2510"
+BUNDLED_25_26_FALL_SHA256 = "507853bd299c25dc9e34e6f67ebd926ea86feda095d5571493eb776d36d3bb9e"
 BUNDLED_25_26_SUMMER_OFFERINGS_FILE = (
-    Path(__file__).resolve().parents[1] / "data" / "scheduler_offerings" / "25-26summer.json"
+    BUNDLED_SCHEDULER_OFFERINGS_DIR / "25-26summer.json"
 )
 BUNDLED_25_26_SUMMER_SEMESTER_ID = "2540"
 BUNDLED_25_26_SUMMER_SHA256 = "608eefa7520497ace53a1e6f5275ca81e99b1c7d5523ee977801da0df07e2c23"
@@ -132,6 +138,15 @@ class DeployOfferingResult:
     message: str
     import_hash: str | None
     plan: ImportPlan | None = None
+
+
+@dataclass(frozen=True)
+class BundledOfferingUpdate:
+    label: str
+    mode: str
+    file_path: Path
+    expected_semester_id: str
+    expected_sha256: str
 
 
 def _field(data: dict[str, Any], name: str, context: str) -> Any:
@@ -663,15 +678,50 @@ def run_bundled_25_26_summer_deploy_update(
     )
 
 
+def bundled_scheduler_offering_updates(
+    mode: str = DEPLOY_SCHEDULER_OFFERING_UPDATE_MODE,
+) -> list[BundledOfferingUpdate]:
+    return [
+        BundledOfferingUpdate(
+            label="25-26 fall",
+            mode=mode,
+            file_path=BUNDLED_25_26_FALL_OFFERINGS_FILE,
+            expected_semester_id=BUNDLED_25_26_FALL_SEMESTER_ID,
+            expected_sha256=BUNDLED_25_26_FALL_SHA256,
+        ),
+        BundledOfferingUpdate(
+            label="25-26 summer",
+            mode=mode,
+            file_path=BUNDLED_25_26_SUMMER_OFFERINGS_FILE,
+            expected_semester_id=BUNDLED_25_26_SUMMER_SEMESTER_ID,
+            expected_sha256=BUNDLED_25_26_SUMMER_SHA256,
+        ),
+    ]
+
+
+def run_bundled_scheduler_offering_updates(
+    mode: str = DEPLOY_SCHEDULER_OFFERING_UPDATE_MODE,
+) -> list[tuple[BundledOfferingUpdate, DeployOfferingResult]]:
+    results = []
+    for update in bundled_scheduler_offering_updates(mode):
+        result = run_deploy_scheduler_offering_update(
+            mode=update.mode,
+            file_path=update.file_path,
+            expected_semester_id=update.expected_semester_id,
+            expected_sha256=update.expected_sha256,
+        )
+        results.append((update, result))
+    return results
+
+
 def create_import_app(database_url: str | None = None) -> Flask:
     app = Flask(__name__)
     app.config.from_object(Config)
     app.config["ENABLE_BACKGROUND_TASKS"] = False
     if database_url:
-        app.config["SQLALCHEMY_DATABASE_URI"] = database_url
-    database_url = app.config.get("SQLALCHEMY_DATABASE_URI")
-    if isinstance(database_url, str) and database_url.startswith("postgres://"):
-        app.config["SQLALCHEMY_DATABASE_URI"] = "postgresql://" + database_url[len("postgres://"):]
+        normalized_uri, engine_options = normalize_database_config(database_url)
+        app.config["SQLALCHEMY_DATABASE_URI"] = normalized_uri
+        app.config["SQLALCHEMY_ENGINE_OPTIONS"] = engine_options
     db.init_app(app)
     return app
 

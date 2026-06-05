@@ -50,7 +50,7 @@ def create_app(config_class=Config):
     # 25-26 春课表补丁：推迟到「首次 HTTP 请求」再跑，避免进程启动时数据库尚未就绪导致
     # 静默失败；幂等，多 worker 各执行一次可接受。
     _register_deferred_course_offerings_adjustments(app)
-    _register_deferred_25_26_summer_scheduler_import(app)
+    _register_deferred_scheduler_offering_imports(app)
 
     return app
 
@@ -435,11 +435,12 @@ def _register_deferred_course_offerings_adjustments(app: Flask):
                     )
 
 
-def _log_scheduler_import_result(result):
+def _log_scheduler_import_result(label, result):
     plan = result.plan
     if plan is None:
         logger.info(
-            "25-26 summer scheduler offering deploy update: status=%s mode=%s message=%s hash=%s",
+            "%s scheduler offering deploy update: status=%s mode=%s message=%s hash=%s",
+            label,
             result.status,
             result.mode,
             result.message,
@@ -448,10 +449,11 @@ def _log_scheduler_import_result(result):
         return
 
     logger.info(
-        "25-26 summer scheduler offering deploy update: "
+        "%s scheduler offering deploy update: "
         "status=%s mode=%s semester=%s courses=%s sections=%s lectures=%s "
         "zero_section_courses=%s replace_sections=%s replace_lectures=%s "
         "stale_cart_refs=%s hash=%s message=%s",
+        label,
         result.status,
         result.mode,
         plan.semester_id,
@@ -467,17 +469,19 @@ def _log_scheduler_import_result(result):
     )
     if plan.zero_section_courses:
         logger.info(
-            "25-26 summer scheduler zero-section course codes: %s",
+            "%s scheduler zero-section course codes: %s",
+            label,
             ", ".join(plan.zero_section_courses),
         )
     if plan.stale_cart_references:
         logger.warning(
-            "25-26 summer scheduler stale cart course codes after import: %s",
+            "%s scheduler stale cart course codes after import: %s",
+            label,
             ", ".join(plan.stale_cart_references),
         )
 
 
-def _register_deferred_25_26_summer_scheduler_import(app: Flask):
+def _register_deferred_scheduler_offering_imports(app: Flask):
     if app.config.get("TESTING"):
         return
 
@@ -486,7 +490,7 @@ def _register_deferred_25_26_summer_scheduler_import(app: Flask):
     max_failures = 30
 
     @app.before_request
-    def _run_25_26_summer_scheduler_import_once():
+    def _run_scheduler_offering_imports_once():
         if state["done"]:
             return
         with lock:
@@ -494,25 +498,25 @@ def _register_deferred_25_26_summer_scheduler_import(app: Flask):
                 return
             try:
                 from app.scripts.import_scheduler_offerings import (
-                    run_bundled_25_26_summer_deploy_update,
+                    run_bundled_scheduler_offering_updates,
                 )
 
-                result = run_bundled_25_26_summer_deploy_update()
-                _log_scheduler_import_result(result)
+                for update, result in run_bundled_scheduler_offering_updates():
+                    _log_scheduler_import_result(update.label, result)
                 state["done"] = True
                 state["failures"] = 0
             except Exception:
                 db.session.rollback()
                 state["failures"] += 1
                 logger.exception(
-                    "25-26 summer scheduler offering deploy update failed (attempt %s/%s)",
+                    "Scheduler offering deploy update failed (attempt %s/%s)",
                     state["failures"],
                     max_failures,
                 )
                 if state["failures"] >= max_failures:
                     state["done"] = True
                     logger.error(
-                        "Giving up 25-26 summer scheduler offering deploy update after %s failures; "
+                        "Giving up scheduler offering deploy update after %s failures; "
                         "check DB connectivity and logs.",
                         max_failures,
                     )
