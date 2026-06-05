@@ -15,15 +15,24 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column("courses", sa.Column("subject", sa.String(length=4), nullable=True))
-    op.add_column("courses", sa.Column("catalog_number", sa.String(length=16), nullable=True))
-    op.add_column("courses", sa.Column("course_title_abbr", sa.String(length=48), nullable=True))
-    op.add_column("courses", sa.Column("pre_requirement", sa.Text(), nullable=True))
-    op.add_column("courses", sa.Column("co_requirement", sa.Text(), nullable=True))
-    op.add_column("courses", sa.Column("exclusion", sa.Text(), nullable=True))
-    op.add_column("courses", sa.Column("pg_course", sa.Boolean(), nullable=True, server_default=sa.text("false")))
-    op.add_column("courses", sa.Column("klms_course", sa.Boolean(), nullable=True, server_default=sa.text("false")))
-    op.add_column("courses", sa.Column("vector", sa.String(length=16), nullable=True))
+    existing = {
+        column["name"]
+        for column in sa.inspect(op.get_bind()).get_columns("courses")
+    }
+    columns = [
+        sa.Column("subject", sa.String(length=4), nullable=True),
+        sa.Column("catalog_number", sa.String(length=16), nullable=True),
+        sa.Column("course_title_abbr", sa.String(length=48), nullable=True),
+        sa.Column("pre_requirement", sa.Text(), nullable=True),
+        sa.Column("co_requirement", sa.Text(), nullable=True),
+        sa.Column("exclusion", sa.Text(), nullable=True),
+        sa.Column("pg_course", sa.Boolean(), nullable=True, server_default=sa.text("false")),
+        sa.Column("klms_course", sa.Boolean(), nullable=True, server_default=sa.text("false")),
+        sa.Column("vector", sa.String(length=16), nullable=True),
+    ]
+    for column in columns:
+        if column.name not in existing:
+            op.add_column("courses", column)
 
 
 def downgrade():
