@@ -270,9 +270,12 @@ def test_record_update_and_delete_keep_domain_tables_in_sync(client, app):
         course = Course.query.filter_by(code="AIAA1010").one()
         attempt = UserCourseAttempt.query.filter_by(user_id=user_id, course_id=course.id).one()
         state = UserCourseState.query.filter_by(user_id=user_id, course_id=course.id).one()
+        record = UserCourseRecord.query.filter_by(id=record_id).one()
         assert attempt.status == "in_progress"
         assert attempt.grade_letter is None
         assert state.status == "in_progress"
+        assert record.keep_grade is False
+        assert record.grade is None
 
     grade_response = client.put(
         f"/academic-map/records/{record_id}",

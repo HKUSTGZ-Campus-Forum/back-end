@@ -325,6 +325,9 @@ def update_record(record_id):
     data = request.get_json() or {}
     if data.get("status") in VALID_STATUSES:
         record.status = data["status"]
+        if record.status != UserCourseRecord.STATUS_COMPLETED:
+            record.keep_grade = False
+            record.grade = None
     if "term_label" in data:
         record.term_label = data["term_label"]
     if "term_code" in data:

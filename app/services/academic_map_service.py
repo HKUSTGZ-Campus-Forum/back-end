@@ -241,7 +241,7 @@ def _attach_legacy_record_handles(
             record.term_label = legacy.term_label
         if record.term_code is None:
             record.term_code = legacy.term_code
-        if record.grade is None and legacy.keep_grade:
+        if record.status == UserCourseRecord.STATUS_COMPLETED and record.grade is None and legacy.keep_grade:
             record.grade = legacy.grade
             record.keep_grade = bool(legacy.grade)
 
