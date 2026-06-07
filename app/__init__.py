@@ -3,6 +3,8 @@ import threading
 from datetime import datetime, timezone
 from flask import Flask
 from flask import current_app
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
 from .config import Config
 from .extensions import db, jwt, migrate, cache#, limiter
 from .routes import register_blueprints
@@ -11,9 +13,15 @@ from app.tasks.sts_pool import init_pool_maintenance
 logger = logging.getLogger(__name__)
 
 
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_for_sqlite(type_, compiler, **kw):
+    return "JSON"
+
+
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
+    _normalize_sqlite_engine_options(app)
 
     # Initialize extensions
     db.init_app(app)
@@ -36,18 +44,19 @@ def create_app(config_class=Config):
     init_pool_maintenance(app)
 
     # 启动时自动初始化比赛数据（幂等操作，重复执行安全）
-    with app.app_context():
-        _auto_init_feedback_support()
-        _auto_init_admin_support()
-        _auto_init_academic_map_support()
-        _auto_init_scheduler_support()
-        _auto_init_course_domain_support()
-        _auto_sync_course_catalog()
-        _auto_sync_academic_curriculum()
-        _auto_migrate_gugu_reply_columns()
-        _auto_init_contest()
-        _ensure_mount_admin_role()
-        _seed_dev_feedback()
+    if app.config.get('AUTO_INIT_ON_STARTUP', True):
+        with app.app_context():
+            _auto_init_feedback_support()
+            _auto_init_admin_support()
+            _auto_init_academic_map_support()
+            _auto_init_scheduler_support()
+            _auto_init_course_domain_support()
+            _auto_sync_course_catalog()
+            _auto_sync_academic_curriculum()
+            _auto_migrate_gugu_reply_columns()
+            _auto_init_contest()
+            _ensure_mount_admin_role()
+            _seed_dev_feedback()
 
     # 25-26 春课表补丁：推迟到「首次 HTTP 请求」再跑，避免进程启动时数据库尚未就绪导致
     # 静默失败；幂等，多 worker 各执行一次可接受。
@@ -55,6 +64,24 @@ def create_app(config_class=Config):
     _register_deferred_scheduler_offering_imports(app)
 
     return app
+
+
+def _normalize_sqlite_engine_options(app):
+    """Drop PostgreSQL-only connection options when tests override the URI to SQLite."""
+    database_uri = app.config.get('SQLALCHEMY_DATABASE_URI') or ''
+    if not database_uri.startswith('sqlite'):
+        return
+
+    engine_options = dict(app.config.get('SQLALCHEMY_ENGINE_OPTIONS') or {})
+    connect_args = dict(engine_options.get('connect_args') or {})
+    connect_args.pop('options', None)
+
+    if connect_args:
+        engine_options['connect_args'] = connect_args
+    else:
+        engine_options.pop('connect_args', None)
+
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = engine_options
 
 
 def _auto_init_feedback_support():

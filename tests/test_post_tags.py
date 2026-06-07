@@ -15,6 +15,15 @@ from app.routes.post import (
 )
 
 
+class TestConfig:
+    TESTING = True
+    SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+    SQLALCHEMY_ENGINE_OPTIONS = {}
+    JWT_SECRET_KEY = "test-secret"
+    CACHE_TYPE = "SimpleCache"
+    AUTO_INIT_ON_STARTUP = False
+
+
 def test_normalize_post_tags_trims_collapses_spaces_and_dedupes():
     assert normalize_post_tags([
         " instant-discussion ",
@@ -52,10 +61,7 @@ def test_serialize_post_tag_returns_frontend_friendly_fields():
 
 @pytest.fixture
 def client():
-    app = create_app()
-    app.config["TESTING"] = True
-    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///:memory:"
-    app.config["JWT_SECRET_KEY"] = "test-secret"
+    app = create_app(TestConfig)
 
     with app.test_client() as client:
         with app.app_context():
@@ -114,6 +120,7 @@ def test_get_posts_supports_all_tag_match_and_exclude_tags(client):
             "discussion-post",
             ["AIAA2205", "25-26Fall"],
         )
+        discussion_post_id = discussion_post.id
         _create_post_with_tags(
             "partial-match-post",
             ["AIAA2205"],
@@ -131,4 +138,4 @@ def test_get_posts_supports_all_tag_match_and_exclude_tags(client):
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["total_count"] == 1
-    assert payload["posts"][0]["id"] == discussion_post.id
+    assert payload["posts"][0]["id"] == discussion_post_id

@@ -8,32 +8,45 @@ import unittest
 import json
 from app import create_app
 from app.extensions import db
-from app.models import User, GuguMessage
+from app.models import User, UserRole, GuguMessage
 from flask_jwt_extended import create_access_token
+
+
+class TestConfig:
+    TESTING = True
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
+    SQLALCHEMY_ENGINE_OPTIONS = {}
+    JWT_SECRET_KEY = 'test-secret'
+    CACHE_TYPE = 'SimpleCache'
+    AUTO_INIT_ON_STARTUP = False
+
 
 class TestGuguAPI(unittest.TestCase):
     
     def setUp(self):
         """测试前准备"""
-        self.app = create_app()
-        self.app.config['TESTING'] = True
-        self.app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
+        self.app = create_app(TestConfig)
         self.client = self.app.test_client()
         
         with self.app.app_context():
             db.create_all()
+
+            user_role = UserRole(name=UserRole.USER)
+            db.session.add(user_role)
+            db.session.flush()
             
             # 创建测试用户
             self.test_user = User(
                 username='testuser',
                 email='test@example.com',
-                password_hash='hashed_password'
+                password_hash='hashed_password',
+                role_id=user_role.id
             )
             db.session.add(self.test_user)
             db.session.commit()
             
             # 生成访问令牌
-            self.access_token = create_access_token(identity=self.test_user.id)
+            self.access_token = create_access_token(identity=str(self.test_user.id))
     
     def tearDown(self):
         """测试后清理"""
@@ -44,7 +57,7 @@ class TestGuguAPI(unittest.TestCase):
     def test_get_messages_empty(self):
         """测试获取空消息列表"""
         with self.app.app_context():
-            response = self.client.get('/api/gugu/messages')
+            response = self.client.get('/gugu/messages')
             self.assertEqual(response.status_code, 200)
             
             data = json.loads(response.data)
@@ -59,7 +72,7 @@ class TestGuguAPI(unittest.TestCase):
             m2 = GuguMessage.create_message(content='mid', author_id=self.test_user.id)
             m3 = GuguMessage.create_message(content='new', author_id=self.test_user.id)
 
-            r1 = self.client.get('/api/gugu/messages?limit=2')
+            r1 = self.client.get('/gugu/messages?limit=2')
             self.assertEqual(r1.status_code, 200)
             d1 = json.loads(r1.data)
             self.assertTrue(d1['success'])
@@ -67,7 +80,7 @@ class TestGuguAPI(unittest.TestCase):
             self.assertTrue(d1['has_more'])
 
             oldest_id = d1['messages'][-1]['id']
-            r2 = self.client.get(f'/api/gugu/messages?limit=2&before_id={oldest_id}')
+            r2 = self.client.get(f'/gugu/messages?limit=2&before_id={oldest_id}')
             self.assertEqual(r2.status_code, 200)
             d2 = json.loads(r2.data)
             self.assertEqual([m['content'] for m in d2['messages']], ['old'])
@@ -80,7 +93,7 @@ class TestGuguAPI(unittest.TestCase):
         """无效 before_id 返回空列表"""
         with self.app.app_context():
             GuguMessage.create_message(content='x', author_id=self.test_user.id)
-            r = self.client.get('/api/gugu/messages?limit=10&before_id=99999')
+            r = self.client.get('/gugu/messages?limit=10&before_id=99999')
             self.assertEqual(r.status_code, 200)
             d = json.loads(r.data)
             self.assertEqual(d['messages'], [])
@@ -88,7 +101,7 @@ class TestGuguAPI(unittest.TestCase):
     
     def test_send_message_without_auth(self):
         """测试未认证用户发送消息"""
-        response = self.client.post('/api/gugu/messages', 
+        response = self.client.post('/gugu/messages', 
                                    json={'content': 'Hello World'})
         self.assertEqual(response.status_code, 401)
     
@@ -96,7 +109,7 @@ class TestGuguAPI(unittest.TestCase):
         """测试认证用户发送消息"""
         with self.app.app_context():
             headers = {'Authorization': f'Bearer {self.access_token}'}
-            response = self.client.post('/api/gugu/messages',
+            response = self.client.post('/gugu/messages',
                                        json={'content': 'Hello World'},
                                        headers=headers)
             self.assertEqual(response.status_code, 201)
@@ -114,7 +127,7 @@ class TestGuguAPI(unittest.TestCase):
             )
 
             headers = {'Authorization': f'Bearer {self.access_token}'}
-            response = self.client.post('/api/gugu/messages',
+            response = self.client.post('/gugu/messages',
                                        json={
                                            'content': 'Reply message',
                                            'reply_to_message_id': parent.id
@@ -132,7 +145,7 @@ class TestGuguAPI(unittest.TestCase):
         """测试回复不存在的消息"""
         with self.app.app_context():
             headers = {'Authorization': f'Bearer {self.access_token}'}
-            response = self.client.post('/api/gugu/messages',
+            response = self.client.post('/gugu/messages',
                                        json={
                                            'content': 'Reply message',
                                            'reply_to_message_id': 99999
@@ -144,7 +157,7 @@ class TestGuguAPI(unittest.TestCase):
         """测试发送空消息"""
         with self.app.app_context():
             headers = {'Authorization': f'Bearer {self.access_token}'}
-            response = self.client.post('/api/gugu/messages',
+            response = self.client.post('/gugu/messages',
                                        json={'content': ''},
                                        headers=headers)
             self.assertEqual(response.status_code, 400)
@@ -154,7 +167,7 @@ class TestGuguAPI(unittest.TestCase):
         with self.app.app_context():
             headers = {'Authorization': f'Bearer {self.access_token}'}
             long_content = 'x' * 1001  # 超过1000字符限制
-            response = self.client.post('/api/gugu/messages',
+            response = self.client.post('/gugu/messages',
                                        json={'content': long_content},
                                        headers=headers)
             self.assertEqual(response.status_code, 400)
@@ -168,7 +181,7 @@ class TestGuguAPI(unittest.TestCase):
                 author_id=self.test_user.id
             )
             
-            response = self.client.get('/api/gugu/recent')
+            response = self.client.get('/gugu/recent')
             self.assertEqual(response.status_code, 200)
             
             data = json.loads(response.data)
@@ -179,7 +192,7 @@ class TestGuguAPI(unittest.TestCase):
     def test_get_chat_stats(self):
         """测试获取聊天统计"""
         with self.app.app_context():
-            response = self.client.get('/api/gugu/stats')
+            response = self.client.get('/gugu/stats')
             self.assertEqual(response.status_code, 200)
             
             data = json.loads(response.data)

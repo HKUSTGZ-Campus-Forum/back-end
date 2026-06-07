@@ -11,12 +11,18 @@ from app.models.user_role import UserRole
 from app.scripts.adjust_aiaa_25_26_spring import apply_aiaa_25_26_spring_adjustments
 
 
+class TestConfig:
+    TESTING = True
+    SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+    SQLALCHEMY_ENGINE_OPTIONS = {}
+    JWT_SECRET_KEY = "test-secret"
+    CACHE_TYPE = "SimpleCache"
+    AUTO_INIT_ON_STARTUP = False
+
+
 @pytest.fixture
 def app():
-    app = create_app()
-    app.config["TESTING"] = True
-    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///:memory:"
-    app.config["JWT_SECRET_KEY"] = "test-secret"
+    app = create_app(TestConfig)
 
     with app.app_context():
         db.create_all()

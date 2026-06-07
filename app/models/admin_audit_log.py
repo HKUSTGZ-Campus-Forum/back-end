@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+from sqlalchemy import JSON
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.extensions import db
@@ -15,7 +16,7 @@ class AdminAuditLog(db.Model):
     target_id = db.Column(db.Integer, nullable=True, index=True)
     target_label = db.Column(db.String(255), nullable=True)
     note = db.Column(db.Text, nullable=True)
-    metadata_json = db.Column("metadata", JSONB, default=dict, nullable=False)
+    metadata_json = db.Column("metadata", JSON().with_variant(JSONB, "postgresql"), default=dict, nullable=False)
     created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
 
     actor = db.relationship("User", foreign_keys=[actor_user_id])
@@ -38,4 +39,3 @@ class AdminAuditLog(db.Model):
             "metadata": self.metadata_json or {},
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
-
