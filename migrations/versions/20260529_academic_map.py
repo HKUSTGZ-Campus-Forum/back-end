@@ -20,6 +20,15 @@ def _json_type():
 
 
 def upgrade():
+    academic_map_tables = {
+        "curriculum_programs",
+        "curriculum_requirement_groups",
+        "user_academic_profiles",
+        "user_course_records",
+    }
+    if academic_map_tables.issubset(set(sa.inspect(op.get_bind()).get_table_names())):
+        return
+
     op.create_table(
         "curriculum_programs",
         sa.Column("id", sa.Integer(), nullable=False),

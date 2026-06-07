@@ -15,15 +15,24 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column("courses", sa.Column("subject", sa.String(length=4), nullable=True))
-    op.add_column("courses", sa.Column("catalog_number", sa.String(length=16), nullable=True))
-    op.add_column("courses", sa.Column("course_title_abbr", sa.String(length=48), nullable=True))
-    op.add_column("courses", sa.Column("pre_requirement", sa.Text(), nullable=True))
-    op.add_column("courses", sa.Column("co_requirement", sa.Text(), nullable=True))
-    op.add_column("courses", sa.Column("exclusion", sa.Text(), nullable=True))
-    op.add_column("courses", sa.Column("pg_course", sa.Boolean(), nullable=True, server_default=sa.text("false")))
-    op.add_column("courses", sa.Column("klms_course", sa.Boolean(), nullable=True, server_default=sa.text("false")))
-    op.add_column("courses", sa.Column("vector", sa.String(length=16), nullable=True))
+    existing_course_columns = {
+        column["name"]
+        for column in sa.inspect(op.get_bind()).get_columns("courses")
+    }
+    scheduler_columns = [
+        ("subject", sa.Column("subject", sa.String(length=4), nullable=True)),
+        ("catalog_number", sa.Column("catalog_number", sa.String(length=16), nullable=True)),
+        ("course_title_abbr", sa.Column("course_title_abbr", sa.String(length=48), nullable=True)),
+        ("pre_requirement", sa.Column("pre_requirement", sa.Text(), nullable=True)),
+        ("co_requirement", sa.Column("co_requirement", sa.Text(), nullable=True)),
+        ("exclusion", sa.Column("exclusion", sa.Text(), nullable=True)),
+        ("pg_course", sa.Column("pg_course", sa.Boolean(), nullable=True, server_default=sa.text("false"))),
+        ("klms_course", sa.Column("klms_course", sa.Boolean(), nullable=True, server_default=sa.text("false"))),
+        ("vector", sa.Column("vector", sa.String(length=16), nullable=True)),
+    ]
+    for column_name, column in scheduler_columns:
+        if column_name not in existing_course_columns:
+            op.add_column("courses", column)
 
 
 def downgrade():

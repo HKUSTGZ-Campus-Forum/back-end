@@ -15,6 +15,17 @@ depends_on = None
 
 
 def upgrade():
+    scheduler_tables = {
+        "scheduler_sections",
+        "scheduler_lectures",
+        "scheduler_map_components",
+        "scheduler_map_lines",
+        "scheduler_user_course_carts",
+        "scheduler_user_bundle_carts",
+    }
+    if scheduler_tables.issubset(set(sa.inspect(op.get_bind()).get_table_names())):
+        return
+
     # scheduler_sections
     op.create_table(
         "scheduler_sections",

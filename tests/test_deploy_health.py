@@ -41,6 +41,19 @@ def test_course_domain_migration_is_safe_for_auto_initialized_dev_tables():
     assert "_has_unique_constraint_or_index" in migration_text
 
 
+def test_auto_initialized_migrations_are_idempotent():
+    guarded_migrations = [
+        ("20260529_academic_map.py", "academic_map_tables.issubset"),
+        ("20260531_add_scheduler_fields.py", "existing_course_columns"),
+        ("20260531_add_scheduler_section_lecture_map_cart.py", "scheduler_tables.issubset"),
+        ("20260607_course_domain_redesign.py", "domain_tables.issubset"),
+    ]
+
+    for filename, guard_text in guarded_migrations:
+        migration_text = (ROOT / "migrations" / "versions" / filename).read_text(encoding="utf-8")
+        assert guard_text in migration_text
+
+
 def test_deploy_workflows_fail_on_migration_errors_and_use_committed_revisions():
     workflow_paths = [
         ROOT / ".github" / "workflows" / "deploy.yml",
