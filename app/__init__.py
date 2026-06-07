@@ -40,6 +40,7 @@ def create_app(config_class=Config):
         _auto_init_feedback_support()
         _auto_init_academic_map_support()
         _auto_init_scheduler_support()
+        _auto_init_course_domain_support()
         _auto_sync_course_catalog()
         _auto_sync_academic_curriculum()
         _auto_migrate_gugu_reply_columns()
@@ -162,6 +163,62 @@ def _auto_init_scheduler_support():
             SchedulerMapLine.__table__,
             SchedulerUserCourseCart.__table__,
             SchedulerUserBundleCart.__table__,
+        ],
+        checkfirst=True,
+    )
+
+
+def _auto_init_course_domain_support():
+    """Ensure the redesigned course domain tables exist when migrations are skipped."""
+    from sqlalchemy import inspect, text
+    from app.models.course import Course
+    from app.models.course_domain import (
+        CourseCatalogVersion,
+        CourseCatalogRequirement,
+        CourseRequirementEdge,
+        CourseOffering,
+        CourseSection,
+        CourseMeeting,
+        UserCourseState,
+        UserCourseAttempt,
+        UserOfferingCart,
+        UserSectionSelection,
+        CoursePostOfferingTarget,
+    )
+
+    db.metadata.create_all(bind=db.engine, tables=[Course.__table__], checkfirst=True)
+
+    existing = {column['name'] for column in inspect(db.engine).get_columns('courses')}
+    canonical_columns = {
+        'normalized_code': 'VARCHAR(32)',
+        'display_code': 'VARCHAR(32)',
+        'canonical_title': 'VARCHAR(255)',
+    }
+    with db.engine.begin() as conn:
+        for column_name, column_type in canonical_columns.items():
+            if column_name in existing:
+                continue
+            if db.engine.dialect.name == 'postgresql':
+                conn.execute(text(
+                    f'ALTER TABLE courses ADD COLUMN IF NOT EXISTS {column_name} {column_type}'
+                ))
+            else:
+                conn.execute(text(f'ALTER TABLE courses ADD COLUMN {column_name} {column_type}'))
+
+    db.metadata.create_all(
+        bind=db.engine,
+        tables=[
+            CourseCatalogVersion.__table__,
+            CourseCatalogRequirement.__table__,
+            CourseRequirementEdge.__table__,
+            CourseOffering.__table__,
+            CourseSection.__table__,
+            CourseMeeting.__table__,
+            UserCourseAttempt.__table__,
+            UserCourseState.__table__,
+            UserOfferingCart.__table__,
+            UserSectionSelection.__table__,
+            CoursePostOfferingTarget.__table__,
         ],
         checkfirst=True,
     )
