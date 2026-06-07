@@ -1,7 +1,7 @@
 """add redesigned course domain tables
 
 Revision ID: 20260607_course_domain
-Revises: 20260531_add_scheduler_section_lecture_map_cart
+Revises: 20260531_scheduler_map_cart
 Create Date: 2026-06-07
 """
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision = "20260607_course_domain"
-down_revision = "20260531_add_scheduler_section_lecture_map_cart"
+down_revision = "20260531_scheduler_map_cart"
 branch_labels = None
 depends_on = None
 

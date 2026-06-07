@@ -32,6 +32,19 @@ def test_alembic_revision_chain_references_existing_revisions():
     assert missing == []
 
 
+def test_alembic_revision_ids_fit_existing_version_table_width():
+    revision_files = sorted((ROOT / "migrations" / "versions").glob("*.py"))
+    too_long = []
+
+    for path in revision_files:
+        text = path.read_text(encoding="utf-8")
+        revision_match = re.search(r'^revision\s*=\s*["\']([^"\']+)["\']', text, re.MULTILINE)
+        if revision_match and len(revision_match.group(1)) > 32:
+            too_long.append((path.name, revision_match.group(1)))
+
+    assert too_long == []
+
+
 def test_course_domain_migration_is_safe_for_auto_initialized_dev_tables():
     migration_path = ROOT / "migrations" / "versions" / "20260607_course_domain_redesign.py"
     migration_text = migration_path.read_text(encoding="utf-8")

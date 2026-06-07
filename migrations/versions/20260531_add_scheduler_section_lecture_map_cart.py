@@ -1,6 +1,6 @@
 """add scheduler section, lecture, map, and cart tables
 
-Revision ID: 20260531_add_scheduler_section_lecture_map_cart
+Revision ID: 20260531_scheduler_map_cart
 Revises: 20260531_add_scheduler_fields
 Create Date: 2026-05-31
 """
@@ -8,7 +8,7 @@ Create Date: 2026-05-31
 from alembic import op
 import sqlalchemy as sa
 
-revision = "20260531_add_scheduler_section_lecture_map_cart"
+revision = "20260531_scheduler_map_cart"
 down_revision = "20260531_add_scheduler_fields"
 branch_labels = None
 depends_on = None
