@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from app.models.course import Course
+from app.models.course_domain import CourseMeeting, CourseOffering, CourseSection
 from app.models.scheduler_lecture import SchedulerLecture
 from app.models.scheduler_section import SchedulerSection
 from app.models.tag import Tag, TagType
@@ -19,6 +20,7 @@ from sqlalchemy import func, desc, asc
 from functools import wraps
 import bleach
 import re
+from app.services.course_domain import current_catalog_version
 
 bp = Blueprint('course', __name__, url_prefix='/courses')
 COURSE_REVIEW_TAG = "course-review"
@@ -64,12 +66,17 @@ def _course_has_scheduler_metadata(course):
 
 
 def _course_has_scheduler_sections(course):
-    return SchedulerSection.query.filter_by(course_id=course.id).first() is not None
+    return (
+        CourseOffering.query.filter_by(course_id=course.id).first() is not None
+        or SchedulerSection.query.filter_by(course_id=course.id).first() is not None
+    )
 
 
 def _rank_course_identifier_candidate(course, compact):
     code = str(course.code or "").upper()
+    normalized = str(course.normalized_code or "").upper()
     return (
+        normalized == compact,
         code == compact,
         _course_has_scheduler_sections(course),
         _course_has_scheduler_metadata(course),
@@ -84,6 +91,14 @@ def _find_course_by_identifier(identifier):
     if raw.isdigit():
         return Course.query.filter_by(id=int(raw), is_deleted=False).first()
     compact = _compact_course_code(raw)
+
+    normalized_match = Course.query.filter(
+        Course.normalized_code == compact,
+        Course.is_deleted == False,
+    ).first()
+    if normalized_match:
+        return normalized_match
+
     candidates = Course.query.filter(
         func.upper(func.replace(Course.code, " ", "")) == compact,
         Course.is_deleted == False,
@@ -103,6 +118,14 @@ def _scheduler_semester_id(year, semester_code):
     if not suffix:
         return None
     return f"{int(year) % 100:02d}{suffix}"
+
+
+def _version_value(version, field_name, fallback):
+    if version is not None:
+        value = getattr(version, field_name)
+        if value is not None:
+            return value
+    return fallback
 
 def admin_required(fn):
     """Decorator to ensure the user has admin privileges"""
@@ -157,6 +180,21 @@ def _get_course_semester_entries(course, language='zh'):
         if key not in semester_entries:
             semester_entries[key] = _build_semester_info(year, semester_code, language)
 
+    offering_semester_ids = (
+        db.session.query(CourseOffering.semester_id)
+        .filter_by(course_id=course.id)
+        .distinct()
+        .all()
+    )
+    for (semester_id,) in offering_semester_ids:
+        parsed = _parse_scheduler_semester_id(semester_id)
+        if not parsed:
+            continue
+        year, semester_code = parsed
+        key = f"{year}{semester_code}"
+        if key not in semester_entries:
+            semester_entries[key] = _build_semester_info(year, semester_code, language)
+
     sorted_codes = sort_semesters(list(semester_entries.keys()))
     return [semester_entries[code] for code in sorted_codes if code in semester_entries]
 
@@ -164,6 +202,31 @@ def _get_course_semester_entries(course, language='zh'):
 def _scheduler_offering_summary(course, semester_id):
     if not semester_id:
         return {"section_count": 0, "instructors": []}
+
+    offering = CourseOffering.query.filter_by(course_id=course.id, semester_id=semester_id).first()
+    if offering:
+        sections = (
+            CourseSection.query
+            .filter_by(offering_id=offering.id)
+            .order_by(CourseSection.layer, CourseSection.bundle, CourseSection.source_section_id)
+            .all()
+        )
+        instructors = []
+        for section in sections:
+            meetings = (
+                CourseMeeting.query
+                .filter_by(section_id=section.id)
+                .order_by(CourseMeeting.day, CourseMeeting.start_time, CourseMeeting.end_time, CourseMeeting.id)
+                .all()
+            )
+            for meeting in meetings:
+                if meeting.instructor_text and meeting.instructor_text not in instructors:
+                    instructors.append(meeting.instructor_text)
+        return {
+            "section_count": len(sections),
+            "instructors": instructors,
+        }
+
     sections = SchedulerSection.query.filter_by(course_id=course.id, semester_id=semester_id).all()
     instructors = []
     for section in sections:
@@ -417,23 +480,24 @@ def get_course_overview(code):
         record = strongest_record_for_course(records, course.code)
         academic_record = record.to_dict(include_grade=True) if record else None
 
-    compact_code = _compact_course_code(course.code)
+    version = current_catalog_version(course)
+    compact_code = _compact_course_code(course.normalized_code or course.code)
     return jsonify({
         "course": {
             "id": course.id,
             "code": compact_code,
-            "display_code": _display_course_code(course.code),
-            "title": course.name,
-            "credits": course.credits,
-            "description": course.description,
+            "display_code": course.display_code or _display_course_code(course.code),
+            "title": _version_value(version, "title", course.canonical_title or course.name),
+            "credits": _version_value(version, "credits", course.credits),
+            "description": _version_value(version, "description", course.description),
             "subject": course.subject,
             "catalog_number": course.catalog_number,
-            "course_title_abbr": course.course_title_abbr,
-            "pre_requirement": course.pre_requirement,
-            "co_requirement": course.co_requirement,
-            "exclusion": course.exclusion,
-            "pg_course": course.pg_course,
-            "klms_course": course.klms_course,
+            "course_title_abbr": _version_value(version, "title_abbr", course.course_title_abbr),
+            "pre_requirement": _version_value(version, "pre_requirement_raw", course.pre_requirement),
+            "co_requirement": _version_value(version, "co_requirement_raw", course.co_requirement),
+            "exclusion": _version_value(version, "exclusion_raw", course.exclusion),
+            "pg_course": _version_value(version, "pg_course", course.pg_course),
+            "klms_course": _version_value(version, "klms_course", course.klms_course),
             "is_active": course.is_active,
         },
         "offerings": _serialize_course_overview_offerings(course, language),

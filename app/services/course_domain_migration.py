@@ -377,7 +377,15 @@ def migrate_offerings(*, apply: bool) -> MigrationSummary:
             db.session.add(offering)
             db.session.flush()
         elif apply:
-            CourseMeeting.query.join(CourseSection).filter(CourseSection.offering_id == offering.id).delete(synchronize_session=False)
+            section_ids = [
+                section_id for (section_id,) in (
+                    db.session.query(CourseSection.id)
+                    .filter_by(offering_id=offering.id)
+                    .all()
+                )
+            ]
+            if section_ids:
+                CourseMeeting.query.filter(CourseMeeting.section_id.in_(section_ids)).delete(synchronize_session=False)
             CourseSection.query.filter_by(offering_id=offering.id).delete(synchronize_session=False)
 
         if not apply:
