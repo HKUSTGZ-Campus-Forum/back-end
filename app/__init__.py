@@ -38,6 +38,7 @@ def create_app(config_class=Config):
     # 启动时自动初始化比赛数据（幂等操作，重复执行安全）
     with app.app_context():
         _auto_init_feedback_support()
+        _auto_init_admin_support()
         _auto_init_academic_map_support()
         _auto_init_scheduler_support()
         _auto_init_course_domain_support()
@@ -91,6 +92,17 @@ def _auto_init_feedback_support():
                 conn.commit()
     except Exception:
         db.session.rollback()
+
+
+def _auto_init_admin_support():
+    """Ensure admin console audit tables exist when migrations are skipped."""
+    from app.models.admin_audit_log import AdminAuditLog
+
+    db.metadata.create_all(
+        bind=db.engine,
+        tables=[AdminAuditLog.__table__],
+        checkfirst=True,
+    )
 
 
 def _auto_init_academic_map_support():
