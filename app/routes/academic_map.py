@@ -81,8 +81,15 @@ def _sync_domain_record(user_id: int, matched_course, row: dict, status: str, *,
     if matched_course is None:
         return
 
-    if status == UserCourseRecord.STATUS_PLANNED:
+    if status in {UserCourseRecord.STATUS_PLANNED, UserCourseRecord.STATUS_INTERESTED}:
         _upsert_course_state(user_id, matched_course.id, "interested", "import")
+        return
+
+    if status == UserCourseRecord.STATUS_NOT_INTERESTED:
+        UserCourseAttempt.query.filter_by(user_id=user_id, course_id=matched_course.id).delete(synchronize_session=False)
+        state = UserCourseState.query.filter_by(user_id=user_id, course_id=matched_course.id).first()
+        if state is not None:
+            db.session.delete(state)
         return
 
     if status not in {UserCourseRecord.STATUS_COMPLETED, UserCourseRecord.STATUS_IN_PROGRESS}:
@@ -111,7 +118,7 @@ def _sync_domain_record(user_id: int, matched_course, row: dict, status: str, *,
     attempt.status = attempt_status
     attempt.term_label = row.get("term_label")
     attempt.raw_payload = row
-    if keep_grades and row.get("grade"):
+    if attempt_status == "completed" and keep_grades and row.get("grade"):
         attempt.grade_letter = row.get("grade")
         attempt.grade_points = grade_points_for_letter(row.get("grade"))
     else:
@@ -119,6 +126,55 @@ def _sync_domain_record(user_id: int, matched_course, row: dict, status: str, *,
         attempt.grade_points = None
     db.session.flush()
     _upsert_derived_course_state(user_id, matched_course.id)
+
+
+def _row_from_record(record: UserCourseRecord) -> dict:
+    return {
+        "course_code": record.course_code,
+        "matched_course_code": record.course_code,
+        "course_title": record.course_title,
+        "term_label": record.term_label,
+        "term_code": record.term_code,
+        "units": float(record.units) if record.units is not None else None,
+        "status": record.status,
+        "grade": record.grade,
+    }
+
+
+def _delete_domain_record_for_legacy_record(user_id: int, record: UserCourseRecord) -> None:
+    matched_course = find_course_by_normalized_code(record.course_code)
+    if matched_course is None:
+        return
+
+    semester_id = record.term_code or _semester_id_from_term_label(record.term_label)
+    offering = find_offering(matched_course, semester_id) if semester_id else None
+    if offering is not None:
+        UserCourseAttempt.query.filter_by(
+            user_id=user_id,
+            course_id=matched_course.id,
+            offering_id=offering.id,
+        ).delete(synchronize_session=False)
+
+    remaining_legacy_records = UserCourseRecord.query.filter(
+        UserCourseRecord.user_id == user_id,
+        UserCourseRecord.id != record.id,
+    ).all()
+    has_remaining_same_course = any(
+        _compact_course_code(item.course_code) == _compact_course_code(record.course_code)
+        for item in remaining_legacy_records
+    )
+    remaining_attempt_count = UserCourseAttempt.query.filter_by(
+        user_id=user_id,
+        course_id=matched_course.id,
+    ).count()
+
+    if has_remaining_same_course or remaining_attempt_count:
+        _upsert_derived_course_state(user_id, matched_course.id)
+        return
+
+    state = UserCourseState.query.filter_by(user_id=user_id, course_id=matched_course.id).first()
+    if state is not None:
+        db.session.delete(state)
 
 
 @bp.route("/profile", methods=["GET"])
@@ -271,15 +327,22 @@ def update_record(record_id):
         record.status = data["status"]
     if "term_label" in data:
         record.term_label = data["term_label"]
+    if "term_code" in data:
+        record.term_code = data["term_code"]
     if "units" in data:
         record.units = Decimal(str(data["units"])) if data["units"] is not None else None
-    if "grade" in data:
-        record.grade = data["grade"] if record.keep_grade else None
     if "keep_grade" in data:
         record.keep_grade = bool(data["keep_grade"])
         if not record.keep_grade:
             record.grade = None
+    if "grade" in data:
+        record.grade = data["grade"] if record.keep_grade else None
     record.needs_review = bool(data.get("needs_review", record.needs_review))
+    matched_course = find_course_by_normalized_code(record.course_code)
+    if matched_course is not None:
+        record.course_id = matched_course.id
+        record.course_code = matched_course.code
+        _sync_domain_record(user_id, matched_course, _row_from_record(record), record.status, keep_grades=record.keep_grade)
     db.session.commit()
     return jsonify({"record": record.to_dict(include_grade=True)}), 200
 
@@ -289,6 +352,7 @@ def update_record(record_id):
 def delete_record(record_id):
     user_id = _current_user_id()
     record = UserCourseRecord.query.filter_by(id=record_id, user_id=user_id).first_or_404()
+    _delete_domain_record_for_legacy_record(user_id, record)
     db.session.delete(record)
     db.session.commit()
     return "", 204

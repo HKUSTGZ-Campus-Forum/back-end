@@ -65,8 +65,11 @@ class DomainCourseRecordAdapter:
         keep_grade: bool,
         created_at,
         updated_at,
+        record_id: int | None = None,
+        domain_state_id: int | None = None,
+        domain_attempt_id: int | None = None,
     ):
-        self.id = None
+        self.id = record_id
         self.user_id = user_id
         self.course_id = course_id
         self.course_code = course_code
@@ -79,10 +82,14 @@ class DomainCourseRecordAdapter:
         self.keep_grade = keep_grade
         self.created_at = created_at
         self.updated_at = updated_at
+        self.domain_state_id = domain_state_id
+        self.domain_attempt_id = domain_attempt_id
 
     def to_dict(self, include_grade=False):
         data = {
             "id": self.id,
+            "domain_state_id": self.domain_state_id,
+            "domain_attempt_id": self.domain_attempt_id,
             "user_id": self.user_id,
             "course_id": self.course_id,
             "course_code": self.course_code,
@@ -189,6 +196,56 @@ def _record_by_code(records: list) -> dict[str, UserCourseRecord]:
     return {_normalized_code(record.course_code): record for record in records}
 
 
+def _strongest_legacy_records_by_code(records: list[UserCourseRecord]) -> dict[str, UserCourseRecord]:
+    by_code: dict[str, UserCourseRecord] = {}
+    for record in records:
+        code = _normalized_code(record.course_code)
+        if not code:
+            continue
+        rank = (
+            STATUS_RANK.get(record.status, 9),
+            0 if record.keep_grade else 1,
+            0 if record.term_code else 1,
+            -(record.updated_at.timestamp() if record.updated_at else 0),
+            record.id,
+        )
+        existing = by_code.get(code)
+        if existing is None:
+            by_code[code] = record
+            continue
+        existing_rank = (
+            STATUS_RANK.get(existing.status, 9),
+            0 if existing.keep_grade else 1,
+            0 if existing.term_code else 1,
+            -(existing.updated_at.timestamp() if existing.updated_at else 0),
+            existing.id,
+        )
+        if rank < existing_rank:
+            by_code[code] = record
+    return by_code
+
+
+def _attach_legacy_record_handles(
+    domain_records: list[DomainCourseRecordAdapter],
+    legacy_records: list[UserCourseRecord],
+) -> None:
+    legacy_by_code = _strongest_legacy_records_by_code(legacy_records)
+    for record in domain_records:
+        legacy = legacy_by_code.get(_normalized_code(record.course_code))
+        if legacy is None:
+            continue
+        record.id = legacy.id
+        record.needs_review = legacy.needs_review
+        record.review_reason = legacy.review_reason
+        if record.term_label is None:
+            record.term_label = legacy.term_label
+        if record.term_code is None:
+            record.term_code = legacy.term_code
+        if record.grade is None and legacy.keep_grade:
+            record.grade = legacy.grade
+            record.keep_grade = bool(legacy.grade)
+
+
 def strongest_record_for_course(records: list[UserCourseRecord], course_code: str) -> UserCourseRecord | None:
     normalized = _normalized_code(course_code)
     matches = [record for record in records if _normalized_code(record.course_code) == normalized]
@@ -247,6 +304,8 @@ def _record_from_domain_state(state: UserCourseState) -> DomainCourseRecordAdapt
         keep_grade=bool(grade),
         created_at=state.created_at,
         updated_at=state.updated_at,
+        domain_state_id=state.id,
+        domain_attempt_id=attempt.id if attempt else None,
     )
 
 
@@ -278,6 +337,7 @@ def _record_from_domain_attempts(user_id: int, course_id: int, attempts: list[Us
         keep_grade=bool(grade),
         created_at=attempt.created_at,
         updated_at=attempt.updated_at,
+        domain_attempt_id=attempt.id,
     )
 
 
@@ -677,7 +737,16 @@ def _build_prerequisite_metrics(records: list[UserCourseRecord]) -> dict:
 
 def build_academic_map_summary(user_id: int) -> dict:
     profile = UserAcademicProfile.get_or_create_for_user(user_id)
-    records = _domain_records_for_user(user_id)
+    legacy_records = UserCourseRecord.query.filter_by(user_id=user_id).all()
+    domain_records = _domain_records_for_user(user_id)
+    _attach_legacy_record_handles(domain_records, legacy_records)
+    domain_codes = {_normalized_code(record.course_code) for record in domain_records}
+    unresolved_legacy_records = [
+        record
+        for record in legacy_records
+        if _normalized_code(record.course_code) not in domain_codes
+    ]
+    records = _dedupe_records(domain_records + unresolved_legacy_records)
     programs = _programs_for_profile(profile)
     primary_program = programs[0] if programs else None
 

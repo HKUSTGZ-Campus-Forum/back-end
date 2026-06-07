@@ -9,6 +9,7 @@ from app.extensions import db
 from app.models.academic_map import UserAcademicProfile, UserCourseRecord
 from app.models.course import Course
 from app.models.course_domain import CourseOffering, UserCourseAttempt, UserCourseState
+from app.services.course_catalog_matcher import find_course_by_normalized_code
 from app.models.user import User
 from app.models.user_role import UserRole
 
@@ -72,6 +73,27 @@ def seed_offering(course, semester_id):
     db.session.add(offering)
     db.session.flush()
     return offering
+
+
+def test_catalog_matcher_prefers_canonical_domain_course_over_legacy_duplicate(app):
+    with app.app_context():
+        legacy = Course(code="DUPL 1001", name="Legacy Duplicate", credits=3)
+        canonical = Course(
+            code="DUPL1001",
+            normalized_code="DUPL1001",
+            display_code="DUPL 1001",
+            name="Canonical Duplicate",
+            credits=3,
+        )
+        db.session.add_all([legacy, canonical])
+        db.session.flush()
+        seed_offering(canonical, "2530")
+        canonical_id = canonical.id
+        db.session.commit()
+
+        matched = find_course_by_normalized_code("DUPL 1001")
+
+    assert matched.id == canonical_id
 
 
 def test_update_profile_and_get_summary(client, app):
@@ -169,6 +191,110 @@ def test_import_matches_course_catalog_by_normalized_code(client, app):
         assert attempt.offering.semester_id == "2410"
         state = UserCourseState.query.filter_by(user_id=user_id, course_id=course.id).one()
         assert state.status == "completed"
+
+    summary_response = client.get("/academic-map/summary", headers=headers)
+    assert summary_response.status_code == 200
+    summary_records = summary_response.get_json()["records"]
+    assert len(summary_records) == 1
+    assert summary_records[0]["course_code"] == "AIAA1010"
+    assert summary_records[0]["status"] == "completed"
+    assert summary_records[0]["domain_state_id"] is not None
+    assert summary_records[0]["domain_attempt_id"] is not None
+
+
+def test_import_with_unresolved_offering_stays_visible_as_raw_record(client, app):
+    _user_id, headers = create_user_and_headers(app, "import_missing_offering_user")
+    with app.app_context():
+        course = Course.query.filter_by(code="AIAA1010").one()
+        assert CourseOffering.query.filter_by(course_id=course.id, semester_id="2410").count() == 0
+
+    row = {
+        "course_code": "AIAA1010",
+        "matched_course_code": "AIAA1010",
+        "course_title": "Academic Orientation for AI Students",
+        "term_label": "2024-25 Fall",
+        "term_code": "2410",
+        "units": 1,
+        "status": "completed",
+        "grade": "P",
+    }
+    save_response = client.post(
+        "/academic-map/records/bulk",
+        json={"keep_grades": True, "records": [row]},
+        headers=headers,
+    )
+    assert save_response.status_code == 200
+
+    summary_response = client.get("/academic-map/summary", headers=headers)
+
+    assert summary_response.status_code == 200
+    records = summary_response.get_json()["records"]
+    assert len(records) == 1
+    assert records[0]["course_code"] == "AIAA1010"
+    assert records[0]["term_code"] == "2410"
+    assert records[0]["import_source"] == UserCourseRecord.SOURCE_PASTE
+
+
+def test_record_update_and_delete_keep_domain_tables_in_sync(client, app):
+    user_id, headers = create_user_and_headers(app, "record_sync_user")
+    with app.app_context():
+        course = Course.query.filter_by(code="AIAA1010").one()
+        seed_offering(course, "2410")
+        db.session.commit()
+
+    row = {
+        "course_code": "AIAA1010",
+        "matched_course_code": "AIAA1010",
+        "course_title": "Academic Orientation for AI Students",
+        "term_label": "2024-25 Fall",
+        "term_code": "2410",
+        "units": 1,
+        "status": "completed",
+        "grade": "A",
+    }
+    save_response = client.post(
+        "/academic-map/records/bulk",
+        json={"keep_grades": True, "records": [row]},
+        headers=headers,
+    )
+    assert save_response.status_code == 200
+    record_id = save_response.get_json()["records"][0]["id"]
+
+    update_response = client.put(
+        f"/academic-map/records/{record_id}",
+        json={"status": "in_progress"},
+        headers=headers,
+    )
+    assert update_response.status_code == 200
+    with app.app_context():
+        course = Course.query.filter_by(code="AIAA1010").one()
+        attempt = UserCourseAttempt.query.filter_by(user_id=user_id, course_id=course.id).one()
+        state = UserCourseState.query.filter_by(user_id=user_id, course_id=course.id).one()
+        assert attempt.status == "in_progress"
+        assert attempt.grade_letter is None
+        assert state.status == "in_progress"
+
+    grade_response = client.put(
+        f"/academic-map/records/{record_id}",
+        json={"status": "completed", "keep_grade": True, "grade": "B+"},
+        headers=headers,
+    )
+    assert grade_response.status_code == 200
+    with app.app_context():
+        course = Course.query.filter_by(code="AIAA1010").one()
+        attempt = UserCourseAttempt.query.filter_by(user_id=user_id, course_id=course.id).one()
+        state = UserCourseState.query.filter_by(user_id=user_id, course_id=course.id).one()
+        assert attempt.status == "completed"
+        assert attempt.grade_letter == "B+"
+        assert state.status == "completed"
+        assert str(state.best_grade_points) in {"3.30", "3.3"}
+
+    delete_response = client.delete(f"/academic-map/records/{record_id}", headers=headers)
+    assert delete_response.status_code == 204
+    with app.app_context():
+        course = Course.query.filter_by(code="AIAA1010").one()
+        assert UserCourseAttempt.query.filter_by(user_id=user_id, course_id=course.id).count() == 0
+        assert UserCourseState.query.filter_by(user_id=user_id, course_id=course.id).count() == 0
 
 
 def test_import_can_match_catalog_from_title_when_code_is_missing(client, app):
