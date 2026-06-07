@@ -677,8 +677,7 @@ def _build_prerequisite_metrics(records: list[UserCourseRecord]) -> dict:
 
 def build_academic_map_summary(user_id: int) -> dict:
     profile = UserAcademicProfile.get_or_create_for_user(user_id)
-    legacy_records = UserCourseRecord.query.filter_by(user_id=user_id).order_by(UserCourseRecord.created_at.asc()).all()
-    records = _dedupe_records(legacy_records + _domain_records_for_user(user_id))
+    records = _domain_records_for_user(user_id)
     programs = _programs_for_profile(profile)
     primary_program = programs[0] if programs else None
 

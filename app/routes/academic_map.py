@@ -7,7 +7,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from app.extensions import db
 from app.models.academic_map import UserAcademicProfile, UserCourseRecord
 from app.models.course_domain import UserCourseAttempt, UserCourseState
-from app.services.academic_map_service import build_academic_map_summary
+from app.services.academic_map_service import build_academic_map_summary, _record_from_domain_state
 from app.services.academic_major_metadata import normalize_target_majors
 from app.services.course_catalog_matcher import enrich_import_row_with_catalog, find_course_by_normalized_code
 from app.services.course_domain import derive_user_course_state, find_offering, grade_points_for_letter
@@ -162,46 +162,23 @@ def mark_course_interested(course_code):
         return jsonify({"error": "Course code is required."}), 400
 
     matched_course = find_course_by_normalized_code(normalized_code)
-    resolved_code = matched_course.code if matched_course else normalized_code
-    matching_records = [
-        record
-        for record in UserCourseRecord.query.filter_by(user_id=user_id).all()
-        if _compact_course_code(record.course_code) == normalized_code
-    ]
+    if matched_course is None:
+        return jsonify({"error": "Course not found."}), 404
 
-    strong_record = next((record for record in matching_records if record.status in STRONG_STATUSES), None)
-    if strong_record:
-        return jsonify({"error": "Course already has a stronger academic status.", "record": strong_record.to_dict()}), 409
+    state_data = derive_user_course_state(user_id, matched_course.id)
+    if state_data["status"] in {"completed", "in_progress"}:
+        state = UserCourseState.query.filter_by(user_id=user_id, course_id=matched_course.id).first()
+        record = _record_from_domain_state(state) if state else None
+        return jsonify({
+            "error": "Course already has a stronger academic status.",
+            "record": record.to_dict(include_grade=True) if record else None,
+        }), 409
 
-    interested_record = next(
-        (record for record in matching_records if record.status == UserCourseRecord.STATUS_INTERESTED),
-        None,
-    )
-    if interested_record:
-        return jsonify({"record": interested_record.to_dict(include_grade=True)}), 200
-
-    raw_payload = request.get_json() or {}
-    units = raw_payload.get("units")
-    resolved_units = units if units is not None else (matched_course.credits if matched_course else None)
-    record = UserCourseRecord(
-        user_id=user_id,
-        course_id=matched_course.id if matched_course else None,
-        course_code=resolved_code,
-        course_title=matched_course.name if matched_course else clean_copied_status_text(raw_payload.get("course_title")),
-        term_label=None,
-        term_code=None,
-        units=Decimal(str(resolved_units)) if resolved_units is not None else None,
-        status=UserCourseRecord.STATUS_INTERESTED,
-        import_source=UserCourseRecord.SOURCE_MANUAL,
-        needs_review=matched_course is None,
-        review_reason=None if matched_course else "Course was not matched in the course database.",
-        raw_payload=raw_payload,
-    )
-    db.session.add(record)
-    if matched_course is not None:
-        _upsert_course_state(user_id, matched_course.id, "interested", "manual")
+    state = _upsert_course_state(user_id, matched_course.id, "interested", "manual")
+    db.session.flush()
+    record = _record_from_domain_state(state)
     db.session.commit()
-    return jsonify({"record": record.to_dict(include_grade=True)}), 200
+    return jsonify({"record": record.to_dict(include_grade=True) if record else None}), 200
 
 
 @bp.route("/courses/<course_code>/interest", methods=["DELETE"])
@@ -213,12 +190,7 @@ def cancel_course_interested(course_code):
         return jsonify({"deleted": 0}), 200
 
     deleted = 0
-    records = UserCourseRecord.query.filter_by(user_id=user_id, status=UserCourseRecord.STATUS_INTERESTED).all()
     matched_course = find_course_by_normalized_code(normalized_code)
-    for record in records:
-        if _compact_course_code(record.course_code) == normalized_code:
-            db.session.delete(record)
-            deleted += 1
     if matched_course is not None:
         state = UserCourseState.query.filter_by(
             user_id=user_id,
@@ -227,6 +199,13 @@ def cancel_course_interested(course_code):
         ).first()
         if state is not None:
             db.session.delete(state)
+            deleted += 1
+
+    records = UserCourseRecord.query.filter_by(user_id=user_id, status=UserCourseRecord.STATUS_INTERESTED).all()
+    for record in records:
+        if _compact_course_code(record.course_code) == normalized_code:
+            db.session.delete(record)
+            deleted += 1
 
     db.session.commit()
     return jsonify({"deleted": deleted}), 200

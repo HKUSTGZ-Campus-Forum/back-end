@@ -200,7 +200,22 @@ def get_posts():
             if tag_match not in {'any', 'all'}:
                 return jsonify({"error": "Invalid tag_match. Use 'any' or 'all'."}), 400
 
-            if tag_match == 'all':
+            review_offering = None
+            if tag_match == 'all' and SYSTEM_REVIEW_TAG in tag_names:
+                review_offering, review_error = _resolve_review_offering(tag_names)
+                if review_error:
+                    return jsonify({
+                        "error": "Review offering target could not be resolved",
+                        "code": "course_offering_not_resolved",
+                        "message": review_error,
+                    }), 400
+
+            if review_offering is not None:
+                query = query.join(CoursePostOfferingTarget).filter(
+                    CoursePostOfferingTarget.course_offering_id == review_offering.id
+                )
+                query = query.filter(Post.tags.any(Tag.name == SYSTEM_REVIEW_TAG))
+            elif tag_match == 'all':
                 for tag_name in tag_names:
                     query = query.filter(Post.tags.any(Tag.name == tag_name))
             else:

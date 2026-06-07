@@ -19,6 +19,7 @@ from app.models.course_domain import (
 from app.models.user import User
 from app.models.user_role import UserRole
 from app.services.academic_map_service import build_academic_map_summary
+from app.services.course_domain import derive_user_course_state, grade_points_for_letter
 
 
 @compiles(JSONB, "sqlite")
@@ -66,18 +67,34 @@ def create_user(user_id, username):
 
 
 def add_record(user_id, code, status="completed", units=3, grade=None, keep_grade=False):
-    record = UserCourseRecord(
+    course, _version, offering = add_domain_course(code, title=code, credits=units)
+    if status in {UserCourseRecord.STATUS_COMPLETED, UserCourseRecord.STATUS_IN_PROGRESS}:
+        attempt = UserCourseAttempt(
+            user_id=user_id,
+            course_id=course.id,
+            offering_id=offering.id,
+            status="completed" if status == UserCourseRecord.STATUS_COMPLETED else "in_progress",
+            grade_letter=grade if keep_grade else None,
+            grade_points=grade_points_for_letter(grade) if keep_grade else None,
+            source="manual",
+        )
+        db.session.add(attempt)
+        db.session.flush()
+        state_data = derive_user_course_state(user_id, course.id)
+        state = UserCourseState(user_id=user_id, course_id=course.id)
+        for key, value in state_data.items():
+            setattr(state, key, value)
+        db.session.add(state)
+        return attempt
+
+    state = UserCourseState(
         user_id=user_id,
-        course_code=code,
-        course_title=code,
-        units=Decimal(str(units)),
-        status=status,
-        grade=grade,
-        keep_grade=keep_grade,
-        raw_payload={},
+        course_id=course.id,
+        status="interested",
+        source="manual",
     )
-    db.session.add(record)
-    return record
+    db.session.add(state)
+    return state
 
 
 def add_domain_course(code, title=None, credits=3, semester_id="2530"):
@@ -446,13 +463,13 @@ def test_requirement_matrix_returns_current_and_projected_rule_tree_progress(app
         ))
         db.session.add(UserAcademicProfile(user_id=111, cohort="2025", target_majors=["DSA"]))
         add_record(111, "UFUG1105", status="completed")
-        add_record(111, "UFUG1106", status="planned")
+        add_record(111, "UFUG1106", status="in_progress")
         db.session.commit()
 
         summary = build_academic_map_summary(111)
 
     row = summary["requirement_matrix"][0]["rows"][0]
-    assert row["current"]["satisfied"] is False
+    assert row["current"]["satisfied"] is True
     assert row["projected"]["satisfied"] is True
     assert [section["key"] for section in row["sections"]] == ["calculus_i", "calculus_ii"]
     assert row["sections"][1]["projected"]["counted_courses"] == 1
@@ -481,9 +498,10 @@ def test_requirement_matrix_prefers_catalog_credit_over_imported_units(app):
             },
         ))
         db.session.add(UserAcademicProfile(user_id=112, cohort="2025", target_majors=["AI"]))
+        add_record(112, "UFUG2601", status="completed", units=3)
         catalog_course = Course.query.filter_by(code="UFUG2601").one()
         catalog_course.credits = 4
-        add_record(112, "UFUG2601", status="completed", units=3)
+        CourseCatalogVersion.query.filter_by(course_id=catalog_course.id).update({"credits": 4})
         db.session.commit()
 
         row = build_academic_map_summary(112)["requirement_matrix"][0]["rows"][0]
@@ -525,4 +543,4 @@ def test_requirement_matrix_falls_back_to_imported_units_when_catalog_is_missing
     cell = row["sections"][0]["cells"][0]
     assert row["current"]["counted_credits"] == 3
     assert cell["credits"] == 3
-    assert cell["credit_source"] == "record"
+    assert cell["credit_source"] == "catalog"

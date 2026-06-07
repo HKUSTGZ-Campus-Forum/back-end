@@ -226,16 +226,23 @@ def test_mark_course_interested_does_not_overwrite_completed_record(client, app)
     user_id, headers = create_user_and_headers(app, "completed_interest_user")
     with app.app_context():
         course = Course.query.filter_by(code="AIAA2205").one()
-        db.session.add(
-            UserCourseRecord(
-                user_id=user_id,
-                course_id=course.id,
-                course_code=course.code,
-                course_title=course.name,
-                status=UserCourseRecord.STATUS_COMPLETED,
-                term_label="2024-25 Fall",
-            )
+        offering = seed_offering(course, "2410")
+        attempt = UserCourseAttempt(
+            user_id=user_id,
+            course_id=course.id,
+            offering_id=offering.id,
+            status="completed",
+            source="manual",
         )
+        db.session.add(attempt)
+        db.session.flush()
+        db.session.add(UserCourseState(
+            user_id=user_id,
+            course_id=course.id,
+            status="completed",
+            best_attempt_id=attempt.id,
+            source="derived",
+        ))
         db.session.commit()
 
     response = client.put("/academic-map/courses/AIAA2205/interest", json={}, headers=headers)
@@ -243,7 +250,7 @@ def test_mark_course_interested_does_not_overwrite_completed_record(client, app)
     assert response.status_code == 409
     record = response.get_json()["record"]
     assert record["status"] == "completed"
-    assert record["term_label"] == "2024-25 Fall"
+    assert record["term_code"] == "2410"
 
 
 def test_cancel_course_interested_deletes_only_interested_record(client, app):
@@ -278,7 +285,7 @@ def test_cancel_course_interested_deletes_only_interested_record(client, app):
     response = client.delete("/academic-map/courses/AIAA2205/interest", headers=headers)
 
     assert response.status_code == 200
-    assert response.get_json()["deleted"] == 1
+    assert response.get_json()["deleted"] == 2
     with app.app_context():
         assert UserCourseRecord.query.filter_by(user_id=user_id, course_code="AIAA2205").count() == 0
         assert UserCourseRecord.query.filter_by(user_id=user_id, course_code="AIAA1010").count() == 1

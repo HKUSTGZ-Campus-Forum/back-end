@@ -6,9 +6,8 @@ from sqlalchemy.ext.compiler import compiles
 from app import create_app
 from app.config import Config
 from app.extensions import db
-from app.models.academic_map import UserCourseRecord
 from app.models.course import Course
-from app.models.scheduler_lecture import SchedulerLecture
+from app.models.course_domain import CourseMeeting, CourseOffering, CourseSection, UserCourseState
 from app.models.scheduler_section import SchedulerSection
 from app.models.user import User
 from app.models.user_role import UserRole
@@ -63,11 +62,20 @@ def seed_course(app):
         )
         db.session.add(course)
         db.session.flush()
-        course.create_semester_tag("2025spring")
-        section = SchedulerSection(
-            semester_id="2530",
-            section_id="TEST2205-L01",
+        offering = CourseOffering(
             course_id=course.id,
+            semester_id="2530",
+            offering_code=course.code,
+            title_snapshot=course.name,
+            credits_snapshot=course.credits,
+            source="test",
+            status="offered",
+        )
+        db.session.add(offering)
+        db.session.flush()
+        section = CourseSection(
+            offering_id=offering.id,
+            source_section_id="TEST2205-L01",
             name="L01",
             bundle=1,
             layer=0,
@@ -75,14 +83,15 @@ def seed_course(app):
             section_type="L",
             is_main=True,
         )
-        lecture = SchedulerLecture(
-            semester_id="2530",
-            section_id="TEST2205-L01",
+        db.session.add(section)
+        db.session.flush()
+        lecture = CourseMeeting(
+            section_id=section.id,
             day=1,
             start_time=900,
             end_time=1030,
             room="Room 101",
-            instructor="Dr. AI",
+            instructor_text="Dr. AI",
         )
         db.session.add_all([section, lecture])
         db.session.commit()
@@ -105,13 +114,11 @@ def create_user_and_headers(app, course_id):
         user.password_hash = "test-password-hash"
         db.session.add(user)
         db.session.flush()
-        db.session.add(UserCourseRecord(
+        db.session.add(UserCourseState(
             user_id=user.id,
             course_id=course_id,
-            course_code="TEST2205",
-            course_title="Introduction to AI",
-            status=UserCourseRecord.STATUS_INTERESTED,
-            units=3,
+            status="interested",
+            source="manual",
         ))
         db.session.commit()
         token = create_access_token(identity=str(user.id))
@@ -135,6 +142,36 @@ def test_get_course_overview_by_compact_code(client, app):
     assert data["offerings"][0]["scheduler_semester_id"] == "2530"
     assert data["offerings"][0]["section_count"] == 1
     assert data["offerings"][0]["instructors"] == ["Dr. AI"]
+
+
+def test_course_overview_does_not_expose_legacy_scheduler_only_offerings(client, app):
+    with app.app_context():
+        course = Course(
+            code="OLD1001",
+            name="Legacy Only",
+            credits=3,
+            is_active=True,
+        )
+        db.session.add(course)
+        db.session.flush()
+        course.create_semester_tag("2025spring")
+        db.session.add(SchedulerSection(
+            semester_id="2530",
+            section_id="OLD1001-L01",
+            course_id=course.id,
+            name="L01",
+            bundle=1,
+            layer=0,
+            quota=60,
+            section_type="L",
+            is_main=True,
+        ))
+        db.session.commit()
+
+    response = client.get("/courses/by-code/OLD1001/overview")
+
+    assert response.status_code == 200
+    assert response.get_json()["offerings"] == []
 
 
 def test_course_overview_prefers_scheduler_course_when_compact_codes_duplicate(client, app):
@@ -162,39 +199,47 @@ def test_course_overview_prefers_scheduler_course_when_compact_codes_duplicate(c
         )
         db.session.add(scheduler_course)
         db.session.flush()
-        db.session.add_all([
-            SchedulerSection(
-                semester_id="2530",
-                section_id="DUPL2205-L01",
-                course_id=scheduler_course.id,
-                name="L01",
-                bundle=1,
-                layer=0,
-                quota=60,
-                section_type="L",
-                is_main=True,
-            ),
-            SchedulerSection(
-                semester_id="2530",
-                section_id="DUPL2205-T01",
-                course_id=scheduler_course.id,
-                name="T01",
-                bundle=1,
-                layer=1,
-                quota=30,
-                section_type="T",
-                is_main=False,
-            ),
-            SchedulerLecture(
-                semester_id="2530",
-                section_id="DUPL2205-L01",
-                day=1,
-                start_time=900,
-                end_time=1030,
-                room="Room 101",
-                instructor="Dr. Scheduler",
-            ),
-        ])
+        offering = CourseOffering(
+            course_id=scheduler_course.id,
+            semester_id="2530",
+            offering_code=scheduler_course.code,
+            title_snapshot=scheduler_course.name,
+            credits_snapshot=scheduler_course.credits,
+            source="test",
+            status="offered",
+        )
+        db.session.add(offering)
+        db.session.flush()
+        lecture = CourseSection(
+            offering_id=offering.id,
+            source_section_id="DUPL2205-L01",
+            name="L01",
+            bundle=1,
+            layer=0,
+            quota=60,
+            section_type="L",
+            is_main=True,
+        )
+        tutorial = CourseSection(
+            offering_id=offering.id,
+            source_section_id="DUPL2205-T01",
+            name="T01",
+            bundle=1,
+            layer=1,
+            quota=30,
+            section_type="T",
+            is_main=False,
+        )
+        db.session.add_all([lecture, tutorial])
+        db.session.flush()
+        db.session.add(CourseMeeting(
+            section_id=lecture.id,
+            day=1,
+            start_time=900,
+            end_time=1030,
+            room="Room 101",
+            instructor_text="Dr. Scheduler",
+        ))
         scheduler_course_id = scheduler_course.id
         db.session.commit()
 
