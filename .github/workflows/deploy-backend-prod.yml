@@ -68,7 +68,7 @@ jobs:
           sudo -u postgres pg_dump prod_unikorn > /data/prod_unikorn/db_backup_$(date +%Y%m%d_%H%M%S).sql || echo "Backup skipped - database may not exist yet"
           
           echo "performing database migrations..."
-          flask db upgrade
+          flask db upgrade heads
           echo "database migrations completed."
           
           echo "initializing database with predefined data..."

@@ -32,7 +32,7 @@ jobs:
           echo "python packages installed."
 
           echo "performing database migrations..."
-          flask db upgrade
+          flask db upgrade heads
           echo "database migrations completed."
           
           echo "initializing database with predefined data..."

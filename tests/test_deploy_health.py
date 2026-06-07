@@ -50,7 +50,7 @@ def test_deploy_workflows_fail_on_migration_errors_and_use_committed_revisions()
     for path in workflow_paths:
         deploy_workflow = path.read_text(encoding="utf-8")
         assert "set -e" in deploy_workflow
-        assert "flask db upgrade" in deploy_workflow
+        assert "flask db upgrade heads" in deploy_workflow
         assert "flask db migrate" not in deploy_workflow
 
 
