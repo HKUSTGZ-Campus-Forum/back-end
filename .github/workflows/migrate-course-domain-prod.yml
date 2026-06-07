@@ -1,0 +1,57 @@
+name: Migrate Course Domain on Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run mode"
+        required: true
+        default: "dry-run"
+        type: choice
+        options:
+          - dry-run
+          - apply
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+    - name: Run production course domain migration via SSH
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.PROD_SSH_HOST }}
+        username: ${{ secrets.PROD_SSH_USER }}
+        key: ${{ secrets.PROD_SSH_KEY }}
+        script: |
+          set -e
+
+          cd /data/prod_unikorn/back-end/
+          git fetch origin production
+          git checkout production
+          git pull --ff-only origin production
+
+          source venv/bin/activate
+
+          TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+          ANOMALY_FILE="/data/prod_unikorn/course-domain-anomalies-${TIMESTAMP}.json"
+          REPORT_FILE="/data/prod_unikorn/course-domain-migration-${{ inputs.mode }}-${TIMESTAMP}.json"
+
+          if [ "${{ inputs.mode }}" = "apply" ]; then
+            sudo -u postgres pg_dump prod_unikorn > "/data/prod_unikorn/course-domain-backup-${TIMESTAMP}.sql" || {
+              echo "Production database backup failed; refusing to apply migration."
+              exit 1
+            }
+            python -m app.scripts.migrate_course_domain \
+              --apply \
+              --anomaly-file "$ANOMALY_FILE" | tee "$REPORT_FILE"
+            sudo /usr/bin/systemctl restart prod-unikorn-api.service
+          else
+            python -m app.scripts.migrate_course_domain \
+              --dry-run \
+              --anomaly-file "$ANOMALY_FILE" | tee "$REPORT_FILE"
+          fi
+
+          echo "Report: $REPORT_FILE"
+          echo "Anomalies: $ANOMALY_FILE"

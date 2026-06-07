@@ -80,13 +80,27 @@ def test_deploy_workflows_fail_on_migration_errors_and_use_committed_revisions()
         assert "flask db migrate" not in deploy_workflow
 
 
-def test_course_domain_dev_migration_workflow_supports_dry_run_and_apply():
-    workflow_path = ROOT / ".github" / "workflows" / "migrate-course-domain-dev.yml"
+def test_course_domain_migration_workflows_support_dry_run_and_apply():
+    workflow_paths = [
+        ROOT / ".github" / "workflows" / "migrate-course-domain-dev.yml",
+        ROOT / ".github" / "workflows" / "migrate-course-domain-prod.yml",
+    ]
+
+    for workflow_path in workflow_paths:
+        workflow = workflow_path.read_text(encoding="utf-8")
+        assert "workflow_dispatch" in workflow
+        assert "mode" in workflow
+        assert "--dry-run" in workflow
+        assert "--apply" in workflow
+        assert "python -m app.scripts.migrate_course_domain" in workflow
+        assert "course-domain-anomalies" in workflow
+
+
+def test_course_domain_prod_migration_workflow_requires_backup_before_apply():
+    workflow_path = ROOT / ".github" / "workflows" / "migrate-course-domain-prod.yml"
     workflow = workflow_path.read_text(encoding="utf-8")
 
-    assert "workflow_dispatch" in workflow
-    assert "mode" in workflow
-    assert "--dry-run" in workflow
-    assert "--apply" in workflow
-    assert "python -m app.scripts.migrate_course_domain" in workflow
-    assert "course-domain-anomalies" in workflow
+    assert "environment: production" in workflow
+    assert "pg_dump prod_unikorn" in workflow
+    assert "refusing to apply migration" in workflow
+    assert "prod-unikorn-api.service" in workflow
