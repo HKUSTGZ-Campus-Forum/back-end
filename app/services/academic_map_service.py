@@ -290,6 +290,13 @@ def _record_from_domain_state(state: UserCourseState) -> DomainCourseRecordAdapt
     if status is None:
         return None
     attempt = state.best_attempt
+    if attempt is None and status == UserCourseRecord.STATUS_IN_PROGRESS:
+        attempt = (
+            UserCourseAttempt.query
+            .filter_by(user_id=state.user_id, course_id=state.course_id, status="in_progress")
+            .order_by(UserCourseAttempt.id.desc())
+            .first()
+        )
     grade = state.best_grade_letter if status == UserCourseRecord.STATUS_COMPLETED else None
     return DomainCourseRecordAdapter(
         user_id=state.user_id,

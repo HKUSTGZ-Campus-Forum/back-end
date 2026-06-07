@@ -276,6 +276,12 @@ def test_record_update_and_delete_keep_domain_tables_in_sync(client, app):
         assert state.status == "in_progress"
         assert record.keep_grade is False
         assert record.grade is None
+    summary_response = client.get("/academic-map/summary", headers=headers)
+    summary_record = summary_response.get_json()["records"][0]
+    assert summary_record["status"] == "in_progress"
+    assert summary_record["domain_attempt_id"] is not None
+    assert summary_record["term_code"] == "2410"
+    assert summary_record["keep_grade"] is False
 
     grade_response = client.put(
         f"/academic-map/records/{record_id}",
