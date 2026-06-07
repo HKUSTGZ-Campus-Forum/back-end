@@ -1,4 +1,5 @@
 import pytest
+from flask_jwt_extended import create_access_token
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 
@@ -6,6 +7,7 @@ from app import create_app
 from app.config import Config
 from app.extensions import db
 from app.models.course import Course
+from app.models.course_domain import CourseOffering, CoursePostOfferingTarget
 from app.models.user import User
 from app.models.user_role import UserRole
 from app.routes.post import SYSTEM_REVIEW_TAG, validate_and_get_tag
@@ -57,6 +59,35 @@ def _create_course(code="AIAA2205"):
     db.session.add(course)
     db.session.commit()
     return course
+
+
+def _create_offering(course, semester_id="2530"):
+    offering = CourseOffering(
+        course_id=course.id,
+        semester_id=semester_id,
+        offering_code=course.code,
+        title_snapshot=course.name,
+        credits_snapshot=course.credits,
+        source="test",
+        status="offered",
+    )
+    db.session.add(offering)
+    db.session.commit()
+    return offering
+
+
+def _auth_headers(username="review-user"):
+    role = UserRole.query.filter_by(name=UserRole.USER).first()
+    if not role:
+        role = UserRole(name=UserRole.USER)
+        db.session.add(role)
+        db.session.flush()
+    user = User(username=username, email=f"{username}@example.com", role_id=role.id, email_verified=True)
+    user.set_password("password")
+    db.session.add(user)
+    db.session.commit()
+    token = create_access_token(identity=str(user.id))
+    return {"Authorization": f"Bearer {token}"}
 
 
 def _create_post_with_tags(title, tag_names):
@@ -198,3 +229,49 @@ def test_course_discussions_reject_unknown_offering_for_course(client):
     )
 
     assert response.status_code == 400
+
+
+def test_create_review_post_writes_offering_target(client):
+    with client.application.app_context():
+        course = _create_course()
+        offering = _create_offering(course, "2530")
+        headers = _auth_headers("review-target-user")
+        course_code = course.code
+        offering_id = offering.id
+
+    response = client.post(
+        "/posts",
+        json={
+            "title": "AIAA2205 review",
+            "content": "Useful class.",
+            "tags": [course_code, "25-26Spring", SYSTEM_REVIEW_TAG],
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 201
+    post_id = response.get_json()["id"]
+    with client.application.app_context():
+        target = CoursePostOfferingTarget.query.filter_by(post_id=post_id).one()
+        assert target.course_offering_id == offering_id
+
+
+def test_create_review_post_rejects_unresolved_offering_target(client):
+    with client.application.app_context():
+        course = _create_course()
+        headers = _auth_headers("review-target-missing-user")
+        course_code = course.code
+
+    response = client.post(
+        "/posts",
+        json={
+            "title": "AIAA2205 review without offering",
+            "content": "Useful class.",
+            "tags": [course_code, "25-26Spring", SYSTEM_REVIEW_TAG],
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "Review offering target could not be resolved"
+    assert response.get_json()["code"] == "course_offering_not_resolved"
