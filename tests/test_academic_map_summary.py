@@ -9,6 +9,13 @@ from app.config import Config
 from app.extensions import db
 from app.models.academic_map import CurriculumProgram, CurriculumRequirementGroup, UserAcademicProfile, UserCourseRecord
 from app.models.course import Course
+from app.models.course_domain import (
+    CourseCatalogRequirement,
+    CourseCatalogVersion,
+    CourseOffering,
+    UserCourseAttempt,
+    UserCourseState,
+)
 from app.models.user import User
 from app.models.user_role import UserRole
 from app.services.academic_map_service import build_academic_map_summary
@@ -73,6 +80,58 @@ def add_record(user_id, code, status="completed", units=3, grade=None, keep_grad
     return record
 
 
+def add_domain_course(code, title=None, credits=3, semester_id="2530"):
+    normalized = code.replace(" ", "").upper()
+    course = Course.query.filter_by(code=normalized).first()
+    if course is None:
+        course = Course(code=normalized, name=title or code, credits=credits)
+    db.session.add(course)
+    db.session.flush()
+    course.normalized_code = course.normalized_code or normalized
+    course.display_code = course.display_code or code
+    course.canonical_title = title or course.canonical_title or code
+    course.name = title or course.name
+    course.credits = credits
+    version = CourseCatalogVersion(
+        course_id=course.id,
+        source="test",
+        source_version=semester_id,
+        title=title or code,
+        credits=credits,
+        effective_from_semester_id=semester_id,
+    )
+    db.session.add(version)
+    db.session.flush()
+    offering = CourseOffering(
+        course_id=course.id,
+        semester_id=semester_id,
+        catalog_version_id=version.id,
+        offering_code=course.normalized_code,
+        title_snapshot=title or code,
+        credits_snapshot=credits,
+        source="test",
+        status="offered",
+    )
+    db.session.add(offering)
+    db.session.flush()
+    return course, version, offering
+
+
+def add_domain_attempt(user_id, course, offering, status="completed", grade="A", points=4.0):
+    attempt = UserCourseAttempt(
+        user_id=user_id,
+        course_id=course.id,
+        offering_id=offering.id,
+        status=status,
+        grade_letter=grade,
+        grade_points=points,
+        source="manual",
+    )
+    db.session.add(attempt)
+    db.session.flush()
+    return attempt
+
+
 def test_summary_returns_unuploaded_grade_metrics_when_no_private_grades(app):
     with app.app_context():
         create_user(101, "no_private_grades")
@@ -104,6 +163,36 @@ def test_summary_calculates_ocga_from_private_grade_records(app):
     assert summary["grade_metrics"]["ocga"]["value"] == 3.65
     assert summary["grade_metrics"]["ocga"]["included_courses"] == 2
     assert summary["grade_metrics"]["ocga"]["excluded_courses"] == 1
+
+
+def test_summary_uses_domain_course_state_attempts_and_best_grade(app):
+    with app.app_context():
+        create_user(114, "domain_attempts")
+        db.session.add(UserAcademicProfile(user_id=114, cohort="2025", target_majors=["AI"]))
+        course, _, first_offering = add_domain_course("AIAA2205", "Introduction to AI", credits=3, semester_id="2430")
+        _, _, second_offering = add_domain_course("AIAA3300", "Other Course", credits=3, semester_id="2530")
+        second_offering.course_id = course.id
+        failed = add_domain_attempt(114, course, first_offering, status="completed", grade="F", points=0.0)
+        passed = add_domain_attempt(114, course, second_offering, status="completed", grade="A-", points=3.7)
+        db.session.add(UserCourseState(
+            user_id=114,
+            course_id=course.id,
+            status="completed",
+            best_attempt_id=passed.id,
+            best_grade_points=3.7,
+            best_grade_letter="A-",
+            source="derived",
+        ))
+        db.session.commit()
+
+        summary = build_academic_map_summary(114)
+
+    assert summary["course_counts"]["completed"] == 1
+    assert summary["credits"]["total_completed"] == 3
+    assert summary["grade_metrics"]["ocga"]["status"] == "available"
+    assert summary["grade_metrics"]["ocga"]["value"] == 3.7
+    assert summary["records"][0]["course_code"] == "AIAA2205"
+    assert summary["records"][0]["grade"] == "A-"
 
 
 def test_requirement_matrix_orders_in_progress_before_completed(app):
@@ -286,6 +375,48 @@ def test_prerequisite_metrics_preserve_and_or_logic(app, monkeypatch):
     assert summary["prerequisite_metrics"]["blocked_count"] == 1
     assert summary["prerequisite_metrics"]["blockers"][0]["course_code"] == "AIAA3072"
     assert summary["prerequisite_metrics"]["blockers"][0]["missing"] == ["AIAA2711"]
+
+
+def test_prerequisite_metrics_read_catalog_requirement_expressions(app):
+    with app.app_context():
+        create_user(115, "domain_prereq")
+        db.session.add(UserAcademicProfile(user_id=115, cohort="2025", target_majors=["AI"]))
+        prereq, _, prereq_offering = add_domain_course("UFUG2601", "Programming", credits=3)
+        missing, _, _ = add_domain_course("MATH1001", "Math", credits=3)
+        target, target_version, _ = add_domain_course("AIAA3201", "Computer Vision", credits=3)
+        passed = add_domain_attempt(115, prereq, prereq_offering, status="completed", grade="A", points=4.0)
+        db.session.add(UserCourseState(
+            user_id=115,
+            course_id=prereq.id,
+            status="completed",
+            best_attempt_id=passed.id,
+            best_grade_points=4.0,
+            best_grade_letter="A",
+            source="derived",
+        ))
+        db.session.add(CourseCatalogRequirement(
+            catalog_version_id=target_version.id,
+            relation_type="prerequisite",
+            raw_text="UFUG2601 AND MATH1001",
+            normalized_text="UFUG2601 AND MATH1001",
+            requirement_kind="course",
+            expression_json={
+                "op": "AND",
+                "items": [
+                    {"course_code": "UFUG2601"},
+                    {"course_code": "MATH1001"},
+                ],
+            },
+            source="test",
+        ))
+        db.session.commit()
+
+        summary = build_academic_map_summary(115)
+
+    assert summary["prerequisite_metrics"]["blocked_count"] == 1
+    assert summary["prerequisite_metrics"]["blockers"][0]["course_code"] == "AIAA3201"
+    assert summary["prerequisite_metrics"]["blockers"][0]["course_title"] == "Computer Vision"
+    assert summary["prerequisite_metrics"]["blockers"][0]["missing"] == ["MATH1001"]
 
 
 def test_requirement_matrix_returns_current_and_projected_rule_tree_progress(app):

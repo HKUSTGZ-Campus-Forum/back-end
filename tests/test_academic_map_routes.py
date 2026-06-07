@@ -8,6 +8,7 @@ from app.config import Config
 from app.extensions import db
 from app.models.academic_map import UserAcademicProfile, UserCourseRecord
 from app.models.course import Course
+from app.models.course_domain import CourseOffering, UserCourseAttempt, UserCourseState
 from app.models.user import User
 from app.models.user_role import UserRole
 
@@ -56,6 +57,21 @@ def create_user_and_headers(app, username="route_user"):
         db.session.commit()
         token = create_access_token(identity=str(user.id))
         return user.id, {"Authorization": f"Bearer {token}"}
+
+
+def seed_offering(course, semester_id):
+    offering = CourseOffering(
+        course_id=course.id,
+        semester_id=semester_id,
+        offering_code=course.code,
+        title_snapshot=course.name,
+        credits_snapshot=course.credits,
+        source="test",
+        status="offered",
+    )
+    db.session.add(offering)
+    db.session.flush()
+    return offering
 
 
 def test_update_profile_and_get_summary(client, app):
@@ -119,7 +135,11 @@ def test_parse_course_history_strips_copied_status_text(client, app):
 
 
 def test_import_matches_course_catalog_by_normalized_code(client, app):
-    _user_id, headers = create_user_and_headers(app, "import_catalog_user")
+    user_id, headers = create_user_and_headers(app, "import_catalog_user")
+    with app.app_context():
+        course = Course.query.filter_by(code="AIAA1010").one()
+        seed_offering(course, "2410")
+        db.session.commit()
 
     pasted = "AIAA 1010\tAcad. Orient for AI Ss\t2024-25 Fall\tP\t1.00\tTaken"
     parse_response = client.post("/academic-map/import/parse", json={"text": pasted}, headers=headers)
@@ -142,6 +162,13 @@ def test_import_matches_course_catalog_by_normalized_code(client, app):
     assert record["course_id"] is not None
     assert record["course_code"] == "AIAA1010"
     assert record["course_title"] == "Academic Orientation for AI Students"
+    with app.app_context():
+        course = Course.query.filter_by(code="AIAA1010").one()
+        attempt = UserCourseAttempt.query.filter_by(user_id=user_id, course_id=course.id).one()
+        assert attempt.status == "completed"
+        assert attempt.offering.semester_id == "2410"
+        state = UserCourseState.query.filter_by(user_id=user_id, course_id=course.id).one()
+        assert state.status == "completed"
 
 
 def test_import_can_match_catalog_from_title_when_code_is_missing(client, app):
@@ -177,7 +204,7 @@ def test_clear_academic_map_records_for_current_user_only(client, app):
 
 
 def test_mark_course_interested_creates_course_level_record(client, app):
-    _user_id, headers = create_user_and_headers(app, "interested_user")
+    user_id, headers = create_user_and_headers(app, "interested_user")
 
     response = client.put("/academic-map/courses/AIAA2205/interest", json={}, headers=headers)
 
@@ -189,6 +216,10 @@ def test_mark_course_interested_creates_course_level_record(client, app):
     assert record["term_label"] is None
     assert record["term_code"] is None
     assert record["course_id"] is not None
+    with app.app_context():
+        course = Course.query.filter_by(code="AIAA2205").one()
+        state = UserCourseState.query.filter_by(user_id=user_id, course_id=course.id).one()
+        assert state.status == "interested"
 
 
 def test_mark_course_interested_does_not_overwrite_completed_record(client, app):
@@ -228,6 +259,12 @@ def test_cancel_course_interested_deletes_only_interested_record(client, app):
                 status=UserCourseRecord.STATUS_INTERESTED,
             )
         )
+        db.session.add(UserCourseState(
+            user_id=user_id,
+            course_id=course.id,
+            status="interested",
+            source="manual",
+        ))
         db.session.add(
             UserCourseRecord(
                 user_id=user_id,
@@ -245,6 +282,8 @@ def test_cancel_course_interested_deletes_only_interested_record(client, app):
     with app.app_context():
         assert UserCourseRecord.query.filter_by(user_id=user_id, course_code="AIAA2205").count() == 0
         assert UserCourseRecord.query.filter_by(user_id=user_id, course_code="AIAA1010").count() == 1
+        course = Course.query.filter_by(code="AIAA2205").one()
+        assert UserCourseState.query.filter_by(user_id=user_id, course_id=course.id).count() == 0
 
 
 def test_cancel_course_interested_does_not_delete_completed_record(client, app):

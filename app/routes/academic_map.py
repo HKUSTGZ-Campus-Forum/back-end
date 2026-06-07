@@ -6,9 +6,11 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
 from app.models.academic_map import UserAcademicProfile, UserCourseRecord
+from app.models.course_domain import UserCourseAttempt, UserCourseState
 from app.services.academic_map_service import build_academic_map_summary
 from app.services.academic_major_metadata import normalize_target_majors
 from app.services.course_catalog_matcher import enrich_import_row_with_catalog, find_course_by_normalized_code
+from app.services.course_domain import derive_user_course_state, find_offering, grade_points_for_letter
 from app.services.course_history_importer import parse_course_history_text
 from app.utils.academic_map_import_text import clean_copied_status_text
 
@@ -35,6 +37,88 @@ def _compact_course_code(value: str | None) -> str:
 
 def _current_user_id() -> int:
     return int(get_jwt_identity())
+
+
+def _semester_id_from_term_label(term_label: str | None) -> str | None:
+    if not term_label:
+        return None
+    match = re.search(r"\b(20\d{2})-\d{2}\s+(Spring|Summer|Fall|Winter)\b", term_label, re.IGNORECASE)
+    if not match:
+        return None
+    suffix = {
+        "fall": "10",
+        "winter": "20",
+        "spring": "30",
+        "summer": "40",
+    }.get(match.group(2).lower())
+    if not suffix:
+        return None
+    return f"{int(match.group(1)) % 100:02d}{suffix}"
+
+
+def _upsert_course_state(user_id: int, course_id: int, status: str, source: str) -> UserCourseState:
+    state = UserCourseState.query.filter_by(user_id=user_id, course_id=course_id).first()
+    if state is None:
+        state = UserCourseState(user_id=user_id, course_id=course_id, status=status, source=source)
+        db.session.add(state)
+    elif state.status not in {"completed", "in_progress"} or status in {"completed", "in_progress"}:
+        state.status = status
+        state.source = source
+    return state
+
+
+def _upsert_derived_course_state(user_id: int, course_id: int) -> None:
+    state_data = derive_user_course_state(user_id, course_id)
+    state = UserCourseState.query.filter_by(user_id=user_id, course_id=course_id).first()
+    if state is None:
+        state = UserCourseState(user_id=user_id, course_id=course_id)
+        db.session.add(state)
+    for key, value in state_data.items():
+        setattr(state, key, value)
+
+
+def _sync_domain_record(user_id: int, matched_course, row: dict, status: str, *, keep_grades: bool) -> None:
+    if matched_course is None:
+        return
+
+    if status == UserCourseRecord.STATUS_PLANNED:
+        _upsert_course_state(user_id, matched_course.id, "interested", "import")
+        return
+
+    if status not in {UserCourseRecord.STATUS_COMPLETED, UserCourseRecord.STATUS_IN_PROGRESS}:
+        return
+
+    semester_id = row.get("term_code") or _semester_id_from_term_label(row.get("term_label"))
+    offering = find_offering(matched_course, semester_id) if semester_id else None
+    if offering is None:
+        return
+
+    attempt_status = "completed" if status == UserCourseRecord.STATUS_COMPLETED else "in_progress"
+    attempt = UserCourseAttempt.query.filter_by(
+        user_id=user_id,
+        course_id=matched_course.id,
+        offering_id=offering.id,
+    ).first()
+    if attempt is None:
+        attempt = UserCourseAttempt(
+            user_id=user_id,
+            course_id=matched_course.id,
+            offering_id=offering.id,
+            status=attempt_status,
+            source="transcript_import",
+        )
+        db.session.add(attempt)
+    attempt.status = attempt_status
+    attempt.term_label = row.get("term_label")
+    attempt.raw_payload = row
+    if keep_grades and row.get("grade"):
+        attempt.grade_letter = row.get("grade")
+        attempt.grade_points = grade_points_for_letter(row.get("grade"))
+    else:
+        attempt.grade_letter = None
+        attempt.grade_points = None
+    db.session.flush()
+    _upsert_derived_course_state(user_id, matched_course.id)
 
 
 @bp.route("/profile", methods=["GET"])
@@ -114,6 +198,8 @@ def mark_course_interested(course_code):
         raw_payload=raw_payload,
     )
     db.session.add(record)
+    if matched_course is not None:
+        _upsert_course_state(user_id, matched_course.id, "interested", "manual")
     db.session.commit()
     return jsonify({"record": record.to_dict(include_grade=True)}), 200
 
@@ -128,10 +214,19 @@ def cancel_course_interested(course_code):
 
     deleted = 0
     records = UserCourseRecord.query.filter_by(user_id=user_id, status=UserCourseRecord.STATUS_INTERESTED).all()
+    matched_course = find_course_by_normalized_code(normalized_code)
     for record in records:
         if _compact_course_code(record.course_code) == normalized_code:
             db.session.delete(record)
             deleted += 1
+    if matched_course is not None:
+        state = UserCourseState.query.filter_by(
+            user_id=user_id,
+            course_id=matched_course.id,
+            status="interested",
+        ).first()
+        if state is not None:
+            db.session.delete(state)
 
     db.session.commit()
     return jsonify({"deleted": deleted}), 200
@@ -181,6 +276,7 @@ def save_records_bulk():
         )
         db.session.add(record)
         saved.append(record)
+        _sync_domain_record(user_id, matched_course, row, status, keep_grades=keep_grades)
 
     db.session.commit()
     return jsonify({"records": [record.to_dict(include_grade=True) for record in saved]}), 200
@@ -224,6 +320,8 @@ def delete_record(record_id):
 def clear_records():
     user_id = _current_user_id()
     deleted_records = UserCourseRecord.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    UserCourseAttempt.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    UserCourseState.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     profile = UserAcademicProfile.get_or_create_for_user(user_id)
     profile.cohort = None
     profile.target_majors = []
@@ -243,5 +341,13 @@ def delete_grades():
             record.grade = None
             record.keep_grade = False
             cleared += 1
+    for attempt in UserCourseAttempt.query.filter_by(user_id=user_id).all():
+        if attempt.grade_letter or attempt.grade_points is not None:
+            attempt.grade_letter = None
+            attempt.grade_points = None
+            cleared += 1
+    for state in UserCourseState.query.filter_by(user_id=user_id).all():
+        state.best_grade_letter = None
+        state.best_grade_points = None
     db.session.commit()
     return jsonify({"cleared_count": cleared}), 200
