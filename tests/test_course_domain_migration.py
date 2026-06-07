@@ -291,3 +291,42 @@ def test_offering_user_cart_and_review_migrations(app, tmp_path):
         assert review_summary.anomalies
         anomaly_data = json.loads(anomaly_path.read_text(encoding="utf-8"))
         assert anomaly_data["items"][0]["record_id"] == unresolved.id
+
+
+def test_full_migration_dry_run_uses_transactional_staging_then_rolls_back(app, tmp_path, monkeypatch):
+    from app.scripts import migrate_course_domain
+    from app.services.course_domain_migration import MigrationSummary
+
+    apply_flags = []
+
+    def record_apply_flag(**kwargs):
+        apply_flags.append(kwargs["apply"])
+        return MigrationSummary(created=1)
+
+    def stage_course(**kwargs):
+        apply_flags.append(kwargs["apply"])
+        db.session.add(Course(code="DRYR1000", name="Dry Run Staged", credits=3))
+        return MigrationSummary(created=1)
+
+    def write_review_anomalies(**kwargs):
+        apply_flags.append(kwargs["apply"])
+        kwargs["anomaly_path"].write_text(json.dumps({"items": []}), encoding="utf-8")
+        return MigrationSummary(created=1)
+
+    monkeypatch.setattr(migrate_course_domain, "canonicalize_courses", stage_course)
+    monkeypatch.setattr(migrate_course_domain, "migrate_catalog_versions", record_apply_flag)
+    monkeypatch.setattr(migrate_course_domain, "migrate_requirements", record_apply_flag)
+    monkeypatch.setattr(migrate_course_domain, "migrate_offerings", record_apply_flag)
+    monkeypatch.setattr(migrate_course_domain, "migrate_user_academic_state", record_apply_flag)
+    monkeypatch.setattr(migrate_course_domain, "migrate_scheduler_carts", record_apply_flag)
+    monkeypatch.setattr(migrate_course_domain, "migrate_review_targets", write_review_anomalies)
+
+    with app.app_context():
+        report = migrate_course_domain.run_course_domain_migration(
+            apply=False,
+            anomaly_file=tmp_path / "anomalies.json",
+        )
+
+        assert report.canonical_courses.created == 1
+        assert apply_flags == [True, True, True, True, True, True, True]
+        assert Course.query.filter_by(code="DRYR1000").count() == 0

@@ -20,14 +20,15 @@ def run_course_domain_migration(*, apply: bool, anomaly_file: Path) -> CourseDom
     catalog_path = Path(__file__).resolve().parents[1] / "data" / "course_catalog.json"
     prerequisite_path = Path(__file__).resolve().parents[1] / "data" / "course_prerequisites.json"
     report = CourseDomainMigrationReport()
+    staged_apply = True
 
-    report.canonical_courses = canonicalize_courses(apply=apply)
-    report.catalog_versions = migrate_catalog_versions(catalog_path=catalog_path, apply=apply)
-    report.requirements = migrate_requirements(prerequisite_path=prerequisite_path, apply=apply)
-    report.offerings = migrate_offerings(apply=apply)
-    report.user_state = migrate_user_academic_state(apply=apply)
-    migrate_scheduler_carts(apply=apply)
-    report.review_targets = migrate_review_targets(anomaly_path=anomaly_file, apply=apply)
+    report.canonical_courses = canonicalize_courses(apply=staged_apply)
+    report.catalog_versions = migrate_catalog_versions(catalog_path=catalog_path, apply=staged_apply)
+    report.requirements = migrate_requirements(prerequisite_path=prerequisite_path, apply=staged_apply)
+    report.offerings = migrate_offerings(apply=staged_apply)
+    report.user_state = migrate_user_academic_state(apply=staged_apply)
+    migrate_scheduler_carts(apply=staged_apply)
+    report.review_targets = migrate_review_targets(anomaly_path=anomaly_file, apply=staged_apply)
 
     if apply:
         db.session.commit()
