@@ -209,6 +209,10 @@ def _assignment_score(
             courses_by_code,
         )
     )
+    total_allocated_courses = sum(
+        len(allocations.get(leaf["_allocation_key"], ()))
+        for leaf in leaves
+    )
     return (
         sum(satisfied),
         sum(
@@ -218,6 +222,7 @@ def _assignment_score(
         ),
         satisfied,
         progress,
+        total_allocated_courses,
     )
 
 

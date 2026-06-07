@@ -65,6 +65,30 @@ def test_evaluator_reports_planned_course_without_counting_it_as_current():
     assert cells["UFUG2601"]["allocation_status"] == "planned"
 
 
+def test_evaluator_counts_surplus_courses_in_satisfied_choice_group():
+    rule = {
+        "rule_tree": {
+            "type": "choose",
+            "key": "science",
+            "min_courses": 1,
+            "courses": ["UFUG1301", "UFUG1302", "UFUG1401", "UFUG1501"],
+        }
+    }
+    courses = {
+        "UFUG1301": _course("UFUG1301", "completed"),
+        "UFUG1501": _course("UFUG1501", "completed"),
+    }
+
+    result = evaluate_requirement_group(rule, courses)
+
+    assert result["current"]["satisfied"] is True
+    assert result["current"]["counted_courses"] == 2
+    assert result["sections"][0]["current"]["counted_courses"] == 2
+    cells = {cell["course_code"]: cell for cell in result["sections"][0]["cells"]}
+    assert cells["UFUG1301"]["allocation_status"] == "counted"
+    assert cells["UFUG1501"]["allocation_status"] == "counted"
+
+
 def test_evaluator_does_not_reuse_one_course_across_two_choice_leaves():
     rule = {
         "rule_tree": {
