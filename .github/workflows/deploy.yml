@@ -20,6 +20,7 @@ jobs:
         username: ${{ secrets.DEV_USER }}
         key: ${{ secrets.DEV_SSH_KEY }}
         script: |
+          set -e
           echo "Start deploying..."
           cd /data/dev_unikorn/back-end/
           git pull origin main
@@ -31,7 +32,6 @@ jobs:
           echo "python packages installed."
 
           echo "performing database migrations..."
-          flask db migrate
           flask db upgrade
           echo "database migrations completed."
           

@@ -1,0 +1,52 @@
+name: Migrate Course Domain on Dev
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run mode"
+        required: true
+        default: "dry-run"
+        type: choice
+        options:
+          - dry-run
+          - apply
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Run course domain migration via SSH
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.DEV_HOST }}
+        username: ${{ secrets.DEV_USER }}
+        key: ${{ secrets.DEV_SSH_KEY }}
+        script: |
+          set -e
+
+          cd /data/dev_unikorn/back-end/
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+
+          source venv/bin/activate
+
+          TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
+          ANOMALY_FILE="/data/dev_unikorn/course-domain-anomalies-${TIMESTAMP}.json"
+          REPORT_FILE="/data/dev_unikorn/course-domain-migration-${{ inputs.mode }}-${TIMESTAMP}.json"
+
+          if [ "${{ inputs.mode }}" = "apply" ]; then
+            python -m app.scripts.migrate_course_domain \
+              --apply \
+              --anomaly-file "$ANOMALY_FILE" | tee "$REPORT_FILE"
+            sudo /usr/bin/systemctl restart dev-unikorn-api.service
+          else
+            python -m app.scripts.migrate_course_domain \
+              --dry-run \
+              --anomaly-file "$ANOMALY_FILE" | tee "$REPORT_FILE"
+          fi
+
+          echo "Report: $REPORT_FILE"
+          echo "Anomalies: $ANOMALY_FILE"

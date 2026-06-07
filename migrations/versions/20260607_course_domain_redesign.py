@@ -1,7 +1,7 @@
 """add redesigned course domain tables
 
 Revision ID: 20260607_course_domain
-Revises: 20260531_scheduler_map_cart
+Revises: 20260531_add_scheduler_section_lecture_map_cart
 Create Date: 2026-06-07
 """
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision = "20260607_course_domain"
-down_revision = "20260531_scheduler_map_cart"
+down_revision = "20260531_add_scheduler_section_lecture_map_cart"
 branch_labels = None
 depends_on = None
 
@@ -19,10 +19,28 @@ def _json_type():
     return postgresql.JSONB(astext_type=sa.Text())
 
 
+def _has_unique_constraint_or_index(inspector, table_name, expected_name, expected_columns):
+    expected_columns = list(expected_columns)
+    for constraint in inspector.get_unique_constraints(table_name):
+        if constraint.get("name") == expected_name:
+            return True
+        if list(constraint.get("column_names") or []) == expected_columns:
+            return True
+    for index in inspector.get_indexes(table_name):
+        if not index.get("unique"):
+            continue
+        if index.get("name") == expected_name:
+            return True
+        if list(index.get("column_names") or []) == expected_columns:
+            return True
+    return False
+
+
 def upgrade():
+    inspector = sa.inspect(op.get_bind())
     existing_course_columns = {
         column["name"]
-        for column in sa.inspect(op.get_bind()).get_columns("courses")
+        for column in inspector.get_columns("courses")
     }
     if "normalized_code" not in existing_course_columns:
         op.add_column("courses", sa.Column("normalized_code", sa.String(length=32), nullable=True))
@@ -30,9 +48,31 @@ def upgrade():
         op.add_column("courses", sa.Column("display_code", sa.String(length=32), nullable=True))
     if "canonical_title" not in existing_course_columns:
         op.add_column("courses", sa.Column("canonical_title", sa.String(length=255), nullable=True))
-    existing_indexes = {index["name"] for index in sa.inspect(op.get_bind()).get_indexes("courses")}
-    if "uq_courses_normalized_code" not in existing_indexes:
+
+    inspector = sa.inspect(op.get_bind())
+    if not _has_unique_constraint_or_index(
+        inspector,
+        "courses",
+        "uq_courses_normalized_code",
+        ["normalized_code"],
+    ):
         op.create_unique_constraint("uq_courses_normalized_code", "courses", ["normalized_code"])
+
+    domain_tables = {
+        "course_catalog_versions",
+        "course_catalog_requirements",
+        "course_requirement_edges",
+        "course_offerings",
+        "course_sections",
+        "course_meetings",
+        "user_course_attempts",
+        "user_course_states",
+        "user_offering_carts",
+        "user_section_selections",
+        "course_post_offering_targets",
+    }
+    if domain_tables.issubset(set(inspector.get_table_names())):
+        return
 
     op.create_table(
         "course_catalog_versions",
