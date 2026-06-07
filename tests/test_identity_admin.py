@@ -23,6 +23,7 @@ def compile_jsonb_sqlite(_type, _compiler, **_kw):
 class TestConfig(Config):
     TESTING = True
     SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+    SQLALCHEMY_ENGINE_OPTIONS = {}
     CACHE_TYPE = "SimpleCache"
     ENABLE_BACKGROUND_TASKS = False
 
