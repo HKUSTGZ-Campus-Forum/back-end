@@ -9,6 +9,7 @@ from app import create_app
 from app.config import Config
 from app.extensions import db
 from app.models.course import Course
+from app.models.course_domain import CourseCatalogVersion, CourseMeeting, CourseOffering, CourseSection
 from app.models.scheduler_cart import SchedulerUserCourseCart
 from app.models.scheduler_lecture import SchedulerLecture
 from app.models.scheduler_section import SchedulerSection
@@ -186,6 +187,66 @@ def test_build_plan_and_apply_replace_only_target_semester(app, tmp_path):
             room="Old Room",
             instructor="Old Instructor",
         ))
+        old_offering = CourseOffering(
+            course_id=old.id,
+            semester_id="2540",
+            offering_code="OLD1001",
+            title_snapshot="Old Course",
+            credits_snapshot=3,
+            source="test",
+            status="offered",
+        )
+        keep_offering = CourseOffering(
+            course_id=other_semester.id,
+            semester_id="2530",
+            offering_code="KEEP1001",
+            title_snapshot="Keep Course",
+            credits_snapshot=3,
+            source="test",
+            status="offered",
+        )
+        db.session.add_all([old_offering, keep_offering])
+        db.session.flush()
+        old_domain_section = CourseSection(
+            offering_id=old_offering.id,
+            source_section_id="OLD-L01",
+            name="L01",
+            section_type="L",
+            bundle=1,
+            layer=0,
+            quota=10,
+            is_main=True,
+        )
+        keep_domain_section = CourseSection(
+            offering_id=keep_offering.id,
+            source_section_id="KEEP-L01",
+            name="L01",
+            section_type="L",
+            bundle=1,
+            layer=0,
+            quota=10,
+            is_main=True,
+        )
+        db.session.add_all([old_domain_section, keep_domain_section])
+        db.session.flush()
+        db.session.add_all([
+            CourseMeeting(
+                section_id=old_domain_section.id,
+                day=1,
+                start_time=900,
+                end_time=1000,
+                room="Old Room",
+                instructor_text="Old Instructor",
+            ),
+            CourseMeeting(
+                section_id=keep_domain_section.id,
+                day=2,
+                start_time=900,
+                end_time=1000,
+                room="Keep Room",
+                instructor_text="Keep Instructor",
+            ),
+        ])
         role = UserRole.query.filter_by(name="user").first() or UserRole(name="user")
         db.session.add(role)
         db.session.flush()
@@ -216,6 +277,28 @@ def test_build_plan_and_apply_replace_only_target_semester(app, tmp_path):
 
         assert Course.query.filter_by(code="TEST1001").one().name == "Test Course"
         assert Course.query.filter_by(code="ZERO1001").one().credits == 2
+        test_course = Course.query.filter_by(code="TEST1001").one()
+        assert test_course.normalized_code == "TEST1001"
+        assert test_course.display_code == "TEST 1001"
+        assert CourseCatalogVersion.query.filter_by(
+            course_id=test_course.id,
+            source="scheduler_offerings",
+            source_version="2540",
+        ).one().title == "Test Course"
+        offering = CourseOffering.query.filter_by(
+            course_id=test_course.id,
+            semester_id="2540",
+        ).one()
+        assert offering.title_snapshot == "Test Course"
+        assert CourseSection.query.filter_by(offering_id=offering.id).count() == 1
+        assert CourseMeeting.query.join(CourseSection).filter(
+            CourseSection.offering_id == offering.id
+        ).one().instructor_text == "Dr. Test"
+        zero_course = Course.query.filter_by(code="ZERO1001").one()
+        assert CourseOffering.query.filter_by(course_id=zero_course.id, semester_id="2540").count() == 0
+        assert old_offering.status == "archived"
+        assert CourseSection.query.filter_by(offering_id=old_offering.id).count() == 0
+        assert CourseSection.query.filter_by(offering_id=keep_offering.id).count() == 1
         assert SchedulerSection.query.filter_by(semester_id="2540").count() == 1
         assert SchedulerLecture.query.filter_by(semester_id="2540").count() == 1
         assert SchedulerSection.query.filter_by(semester_id="2530", section_id="KEEP-L01").one()
@@ -242,6 +325,7 @@ def test_deploy_update_dry_run_does_not_write_database(app, tmp_path):
         assert result.plan.courses == 2
         assert SchedulerSection.query.filter_by(semester_id="2540").count() == 0
         assert SchedulerLecture.query.filter_by(semester_id="2540").count() == 0
+        assert CourseOffering.query.filter_by(semester_id="2540").count() == 0
 
 
 def test_deploy_update_apply_is_guarded_by_hash_and_runs_once(app, tmp_path):
@@ -276,3 +360,7 @@ def test_deploy_update_apply_is_guarded_by_hash_and_runs_once(app, tmp_path):
         assert second.status == "skipped"
         assert SchedulerSection.query.filter_by(semester_id="2540").count() == 1
         assert SchedulerLecture.query.filter_by(semester_id="2540").count() == 1
+        assert CourseOffering.query.filter_by(semester_id="2540").count() == 1
+        assert CourseSection.query.join(CourseOffering).filter(
+            CourseOffering.semester_id == "2540"
+        ).count() == 1
