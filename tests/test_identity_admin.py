@@ -125,13 +125,12 @@ def test_admin_can_list_identity_requests_across_all_statuses(app, client):
         rejected.id,
         revoked.id,
     }
-    assert payload["counts"] == {
-        "pending": 1,
-        "approved": 1,
-        "rejected": 1,
-        "revoked": 1,
-        "total": 4,
-    }
+    assert payload["counts"]["pending"] == 1
+    assert payload["counts"]["approved"] == 1
+    assert payload["counts"]["rejected"] == 1
+    assert payload["counts"]["revoked"] == 1
+    assert payload["counts"]["total"] == 4
+    assert payload["counts"]["by_type"]["Professor"] == 4
 
 
 def test_admin_can_filter_identity_requests_by_status(app, client):

@@ -259,9 +259,57 @@ def test_admin_summary_endpoints_match_overview_metric_shape(app, client, endpoi
 
     assert summary_response.status_code == 200
     assert overview_response.status_code == 200
-    assert set(summary_payload.keys()) == expected_keys
-    assert summary_payload == overview_payload["metrics"][metric_key]
-    assert all(isinstance(value, int) for value in summary_payload.values())
+    assert expected_keys.issubset(summary_payload.keys())
+    for key in expected_keys:
+        assert summary_payload[key] == overview_payload["metrics"][metric_key][key]
+        assert isinstance(summary_payload[key], int)
+
+
+def test_admin_summary_endpoints_include_visualization_distributions(app, client):
+    with app.app_context():
+        admin, _user, _post, _comment = seed_admin_console_data()
+        content_response = client.get("/admin/content/summary", headers=auth_headers(admin.id))
+        courses_response = client.get("/admin/courses/summary", headers=auth_headers(admin.id))
+        matching_response = client.get("/admin/matching/summary", headers=auth_headers(admin.id))
+        contest_response = client.get("/admin/contest/summary", headers=auth_headers(admin.id))
+        operations_response = client.get("/admin/operations/summary", headers=auth_headers(admin.id))
+
+    assert content_response.status_code == 200
+    assert content_response.get_json()["files"]["status"]["uploaded"] == 1
+    assert content_response.get_json()["files"]["file_type"]["general"] == 1
+    assert courses_response.status_code == 200
+    assert set(courses_response.get_json()["course_status"]) == {"active", "inactive", "deleted"}
+    assert matching_response.status_code == 200
+    assert "recruiting" in matching_response.get_json()["project_status"]
+    assert contest_response.status_code == 200
+    assert "submission_tracks" in contest_response.get_json()
+    assert operations_response.status_code == 200
+    assert set(operations_response.get_json()["notification_status"]) == {"unread", "read"}
+
+
+def test_admin_audit_summary_returns_action_and_target_distributions(app, client):
+    with app.app_context():
+        admin, user, _post, _comment = seed_admin_console_data()
+        client.post(
+            f"/admin/users/{user.id}/role",
+            json={"role_name": UserRole.MODERATOR, "note": "trusted helper"},
+            headers=auth_headers(admin.id),
+        )
+        response = client.get("/admin/audit-logs/summary", headers=auth_headers(admin.id))
+        payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["total"] == 1
+    assert payload["actions"]["user.role_update"] == 1
+    assert payload["target_types"]["user"] == 1
+
+
+def test_non_admin_cannot_access_admin_audit_summary(app, client):
+    with app.app_context():
+        user = create_user("regular_audit_summary_user")
+        response = client.get("/admin/audit-logs/summary", headers=auth_headers(user.id))
+
+    assert response.status_code == 403
 
 
 def test_admin_can_list_users_and_change_role_with_audit_log(app, client):

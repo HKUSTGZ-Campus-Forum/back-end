@@ -277,6 +277,16 @@ def _identity_admin_counts():
         for status in statuses
     }
     counts["total"] = sum(counts.values())
+    by_type_rows = (
+        db.session.query(IdentityType.display_name, IdentityType.name, db.func.count(UserIdentity.id))
+        .join(UserIdentity, UserIdentity.identity_type_id == IdentityType.id)
+        .group_by(IdentityType.display_name, IdentityType.name)
+        .all()
+    )
+    counts["by_type"] = {
+        (display_name or name or "unknown"): int(total)
+        for display_name, name, total in by_type_rows
+    }
     return counts
 
 

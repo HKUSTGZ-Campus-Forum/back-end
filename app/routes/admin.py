@@ -58,8 +58,57 @@ def _count(query):
     return query.count()
 
 
+def _group_counts(model, column):
+    rows = (
+        db.session.query(column, func.count(model.id))
+        .group_by(column)
+        .all()
+    )
+    return {str(key or "unknown"): int(count) for key, count in rows}
+
+
 def _status_counts(model, column, statuses):
     return {status: model.query.filter(column == status).count() for status in statuses}
+
+
+def _audit_group_counts(column, limit=12):
+    rows = (
+        db.session.query(column, func.count(AdminAuditLog.id))
+        .group_by(column)
+        .order_by(func.count(AdminAuditLog.id).desc())
+        .limit(limit)
+        .all()
+    )
+    return {str(key or "unknown"): int(count) for key, count in rows}
+
+
+def _user_counts():
+    total = _count(User.query)
+    deleted = _count(User.query.filter_by(is_deleted=True))
+    email_verified = _count(User.query.filter_by(email_verified=True))
+    role_rows = (
+        db.session.query(UserRole.name, func.count(User.id))
+        .outerjoin(User, User.role_id == UserRole.id)
+        .group_by(UserRole.name)
+        .all()
+    )
+    roles = {str(name or "unknown"): int(count) for name, count in role_rows}
+    return {
+        "total": total,
+        "active": _count(User.query.filter_by(is_deleted=False)),
+        "deleted": deleted,
+        "email_verified": email_verified,
+        "email_unverified": max(total - email_verified, 0),
+        "roles": roles,
+        "status": {
+            "active": max(total - deleted, 0),
+            "deleted": deleted,
+        },
+        "email": {
+            "verified": email_verified,
+            "unverified": max(total - email_verified, 0),
+        },
+    }
 
 
 def _user_summary(user):
@@ -143,6 +192,8 @@ def _file_summary(file_record):
 
 
 def _content_summary():
+    file_status = _group_counts(File, File.status)
+    file_types = _group_counts(File, File.file_type)
     return {
         "posts": {
             "total": _count(Post.query),
@@ -162,6 +213,9 @@ def _content_summary():
             "uploaded": _count(File.query.filter_by(status="uploaded")),
             "pending": _count(File.query.filter_by(status="pending")),
             "deleted": _count(File.query.filter_by(is_deleted=True)),
+            "active": _count(File.query.filter_by(is_deleted=False)),
+            "status": file_status,
+            "file_type": file_types,
         },
         "gugu": {
             "messages": _count(GuguMessage.query),
@@ -172,21 +226,40 @@ def _content_summary():
 
 
 def _courses_summary():
+    total = _count(Course.query)
+    active = _count(Course.query.filter_by(is_active=True, is_deleted=False))
+    deleted = _count(Course.query.filter_by(is_deleted=True))
     return {
-        "courses": _count(Course.query),
-        "active_courses": _count(Course.query.filter_by(is_active=True, is_deleted=False)),
+        "courses": total,
+        "active_courses": active,
         "offerings": _count(CourseOffering.query),
         "sections": _count(CourseSection.query),
         "meetings": _count(CourseMeeting.query),
+        "deleted_courses": deleted,
+        "inactive_courses": max(total - active - deleted, 0),
+        "course_status": {
+            "active": active,
+            "inactive": max(total - active - deleted, 0),
+            "deleted": deleted,
+        },
     }
 
 
 def _matching_summary():
+    statuses = [
+        Project.STATUS_RECRUITING,
+        Project.STATUS_ACTIVE,
+        Project.STATUS_COMPLETED,
+        Project.STATUS_CANCELLED,
+    ]
     return {
         "projects": _count(Project.query),
         "active_projects": _count(Project.query.filter_by(is_deleted=False)),
         "profiles": _count(UserProfile.query),
         "active_profiles": _count(UserProfile.query.filter_by(is_active=True)),
+        "project_status": _status_counts(Project, Project.status, statuses),
+        "project_types": _group_counts(Project, Project.project_type),
+        "difficulty": _group_counts(Project, Project.difficulty_level),
     }
 
 
@@ -212,11 +285,8 @@ def _overview_metrics():
     ]
     return {
         "users": {
-            "total": _count(User.query),
-            "active": _count(User.query.filter_by(is_deleted=False)),
-            "deleted": _count(User.query.filter_by(is_deleted=True)),
+            **_user_counts(),
             "admins": _count(User.query.join(UserRole).filter(UserRole.name == UserRole.ADMIN)),
-            "email_verified": _count(User.query.filter_by(email_verified=True)),
         },
         "content": _content_summary(),
         "feedback": {
@@ -262,24 +332,43 @@ def _contest_summary():
     from app.models.contest_organizer import ContestOrganizer
     from app.models.contest_submission import ContestSubmission
 
+    active = _count(ContestInfo.query.filter_by(is_active=True))
     return {
         "contests": _count(ContestInfo.query),
-        "active_contests": _count(ContestInfo.query.filter_by(is_active=True)),
+        "active_contests": active,
         "organizers": _count(ContestOrganizer.query),
         "submissions": _count(ContestSubmission.query),
+        "contest_status": {
+            "active": active,
+            "inactive": _count(ContestInfo.query.filter_by(is_active=False)),
+        },
+        "submission_tracks": _group_counts(ContestSubmission, ContestSubmission.track),
     }
 
 
 def _operations_summary():
+    total_tokens = _count(STSTokenPool.query)
+    valid_tokens = _count(STSTokenPool.query.filter(STSTokenPool.expiration > datetime.now(timezone.utc)))
+    total_notifications = _count(Notification.query)
+    unread_notifications = _count(Notification.query.filter_by(read=False))
     return {
         "files": _count(File.query),
-        "sts_tokens": _count(STSTokenPool.query),
-        "valid_sts_tokens": _count(STSTokenPool.query.filter(STSTokenPool.expiration > datetime.now(timezone.utc))),
+        "sts_tokens": total_tokens,
+        "valid_sts_tokens": valid_tokens,
         "oauth_clients": _count(OAuthClient.query),
         "oauth_tokens": _count(OAuthToken.query),
-        "notifications": _count(Notification.query),
-        "unread_notifications": _count(Notification.query.filter_by(read=False)),
+        "notifications": total_notifications,
+        "unread_notifications": unread_notifications,
         "push_subscriptions": _count(PushSubscription.query),
+        "sts_token_status": {
+            "valid": valid_tokens,
+            "expired": max(total_tokens - valid_tokens, 0),
+        },
+        "notification_status": {
+            "unread": unread_notifications,
+            "read": max(total_notifications - unread_notifications, 0),
+        },
+        "file_status": _group_counts(File, File.status),
     }
 
 
@@ -436,6 +525,20 @@ def audit_logs():
     }), 200
 
 
+@admin_bp.route("/audit-logs/summary", methods=["GET"])
+@jwt_required()
+def audit_logs_summary():
+    admin_user, error = _admin_guard()
+    if error:
+        return error
+
+    return jsonify({
+        "total": _count(AdminAuditLog.query),
+        "actions": _audit_group_counts(AdminAuditLog.action),
+        "target_types": _audit_group_counts(AdminAuditLog.target_type),
+    }), 200
+
+
 @admin_bp.route("/users", methods=["GET"])
 @jwt_required()
 def list_users():
@@ -472,11 +575,7 @@ def list_users():
         "page": page,
         "pages": pagination.pages,
         "per_page": per_page,
-        "counts": {
-            "total": _count(User.query),
-            "deleted": _count(User.query.filter_by(is_deleted=True)),
-            "email_verified": _count(User.query.filter_by(email_verified=True)),
-        },
+        "counts": _user_counts(),
     }), 200
 
 
