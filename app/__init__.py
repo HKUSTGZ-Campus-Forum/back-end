@@ -53,6 +53,7 @@ def create_app(config_class=Config):
             _auto_init_course_domain_support()
             _auto_sync_course_catalog()
             _auto_sync_academic_curriculum()
+            _auto_seed_scheduler_map()
             _auto_migrate_gugu_reply_columns()
             _auto_init_contest()
             _ensure_mount_admin_role()
@@ -287,6 +288,20 @@ def _auto_sync_academic_curriculum():
     except Exception:
         db.session.rollback()
         logger.exception("Failed to sync academic curriculum requirements")
+
+
+def _auto_seed_scheduler_map():
+    """Seed bundled course universe map data only when the scheduler map is empty."""
+    if current_app.config.get("TESTING"):
+        return
+    try:
+        from app.services.scheduler_map_seed import seed_bundled_scheduler_map_if_empty
+
+        result = seed_bundled_scheduler_map_if_empty()
+        logger.info("Scheduler map seed result: %s", result)
+    except Exception:
+        db.session.rollback()
+        logger.exception("Failed to seed scheduler map")
 
 
 def _ensure_mount_admin_role():

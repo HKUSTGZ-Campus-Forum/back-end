@@ -56,15 +56,28 @@ def test_course_domain_migration_is_safe_for_auto_initialized_dev_tables():
 
 def test_auto_initialized_migrations_are_idempotent():
     guarded_migrations = [
-        ("20260529_academic_map.py", "academic_map_tables.issubset"),
-        ("20260531_add_scheduler_fields.py", "existing_course_columns"),
-        ("20260531_add_scheduler_section_lecture_map_cart.py", "scheduler_tables.issubset"),
-        ("20260607_course_domain_redesign.py", "domain_tables.issubset"),
+        (
+            "20260529_academic_map.py",
+            ['_table_exists("curriculum_programs")', '_index_exists("curriculum_programs"'],
+        ),
+        (
+            "20260531_add_scheduler_fields.py",
+            ["column.name not in existing"],
+        ),
+        (
+            "20260531_add_scheduler_section_lecture_map_cart.py",
+            ['inspector.has_table("scheduler_sections")', '"idx_scheduler_sections_course" not in indexes'],
+        ),
+        (
+            "20260607_course_domain_redesign.py",
+            ["domain_tables.issubset"],
+        ),
     ]
 
-    for filename, guard_text in guarded_migrations:
+    for filename, guard_texts in guarded_migrations:
         migration_text = (ROOT / "migrations" / "versions" / filename).read_text(encoding="utf-8")
-        assert guard_text in migration_text
+        for guard_text in guard_texts:
+            assert guard_text in migration_text
 
 
 def test_deploy_workflows_fail_on_migration_errors_and_use_committed_revisions():

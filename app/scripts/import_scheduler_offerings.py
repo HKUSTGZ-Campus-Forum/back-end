@@ -48,6 +48,9 @@ BUNDLED_SCHEDULER_OFFERINGS_DIR = (
 BUNDLED_25_26_FALL_OFFERINGS_FILE = BUNDLED_SCHEDULER_OFFERINGS_DIR / "25-26fall.json"
 BUNDLED_25_26_FALL_SEMESTER_ID = "2510"
 BUNDLED_25_26_FALL_SHA256 = "507853bd299c25dc9e34e6f67ebd926ea86feda095d5571493eb776d36d3bb9e"
+BUNDLED_25_26_SPRING_OFFERINGS_FILE = BUNDLED_SCHEDULER_OFFERINGS_DIR / "25-26spring.json"
+BUNDLED_25_26_SPRING_SEMESTER_ID = "2530"
+BUNDLED_25_26_SPRING_SHA256 = "e904ef4d50a2044850b002d4758620ca55b386037328aa49d5dc05a32fdd43bb"
 BUNDLED_25_26_SUMMER_OFFERINGS_FILE = (
     BUNDLED_SCHEDULER_OFFERINGS_DIR / "25-26summer.json"
 )
@@ -57,8 +60,8 @@ BUNDLED_25_26_SUMMER_SHA256 = "608eefa7520497ace53a1e6f5275ca81e99b1c7d5523ee977
 # Two-deploy switch:
 #   1. Keep "dry-run", push to main, and inspect dev logs.
 #   2. After confirming the dry-run summary, change to "apply" and push once.
-#   3. Change back to "disabled" after the dev database import succeeds.
-DEPLOY_SCHEDULER_OFFERING_UPDATE_MODE = "dry-run"
+#   3. Keep "apply"; import hashes make repeated deploys skip already-applied files.
+DEPLOY_SCHEDULER_OFFERING_UPDATE_MODE = "apply"
 
 SEASON_META = {
     "10": ("Fall", "秋"),
@@ -806,6 +809,13 @@ def bundled_scheduler_offering_updates(
             file_path=BUNDLED_25_26_FALL_OFFERINGS_FILE,
             expected_semester_id=BUNDLED_25_26_FALL_SEMESTER_ID,
             expected_sha256=BUNDLED_25_26_FALL_SHA256,
+        ),
+        BundledOfferingUpdate(
+            label="25-26 spring",
+            mode=mode,
+            file_path=BUNDLED_25_26_SPRING_OFFERINGS_FILE,
+            expected_semester_id=BUNDLED_25_26_SPRING_SEMESTER_ID,
+            expected_sha256=BUNDLED_25_26_SPRING_SHA256,
         ),
         BundledOfferingUpdate(
             label="25-26 summer",

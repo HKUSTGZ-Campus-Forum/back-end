@@ -208,6 +208,27 @@ def test_search_courses_empty(client, seed_courses):
     assert data['items'] == []
 
 
+def test_list_subjects_filters_to_current_semester_offerings(client, app):
+    with app.app_context():
+        dled = Course(code="DLED9910", name="English Communication I", credits=3, subject="DLED")
+        aiaa = Course(code="AIAA9910", name="Python Programming", credits=3, subject="AIAA")
+        moes = Course(code="MOES9910", name="Dormant MOES", credits=3, subject="MOES")
+        db.session.add_all([dled, aiaa, moes])
+        db.session.flush()
+        add_domain_section(dled, semester_id="2540", source_section_id="DLED-L01", quota=40)
+        add_domain_section(aiaa, semester_id="2540", source_section_id="AIAA-L01", quota=40)
+        add_domain_section(moes, semester_id="2530", source_section_id="MOES-L01", quota=40)
+        db.session.commit()
+
+    resp = client.get('/scheduler/subjects?semester=2540')
+
+    assert resp.status_code == 200
+    assert resp.get_json() == [
+        {'subject': 'AIAA', 'course_count': 1},
+        {'subject': 'DLED', 'course_count': 1},
+    ]
+
+
 def test_get_course_detail(client, seed_courses):
     resp = client.get('/scheduler/courses/TEST1001?semester=2530')
     assert resp.status_code == 200
