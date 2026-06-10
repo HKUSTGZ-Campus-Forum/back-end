@@ -22,7 +22,7 @@ if not ai_logger.handlers:
 class ProjectInterviewService:
     def __init__(self):
         self.client = OpenAI(
-            api_key=os.getenv("DASHSCOPE_API_KEY"),
+            api_key=os.getenv("DASHSCOPE_API_KEY") or "missing-dashscope-api-key",
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
         )
         self.model = "qwen-plus"

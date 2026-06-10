@@ -36,12 +36,17 @@ class OAuthToken(db.Model):
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        if not self.expires_in:
+            self.expires_in = 3600
         if not self.expires_at and self.expires_in:
             self.expires_at = datetime.now(timezone.utc) + timedelta(seconds=self.expires_in)
     
     def is_expired(self):
         """Check if the token is expired"""
-        return datetime.now(timezone.utc) > self.expires_at
+        expires_at = self.expires_at
+        if expires_at and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) > expires_at
     
     def is_valid(self):
         """Check if the token is valid (not expired and not revoked)"""

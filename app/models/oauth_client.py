@@ -47,8 +47,8 @@ class OAuthClient(db.Model):
             return ''
         
         allowed = set(self.scope.split(' '))
-        requested = set(scope.split(' '))
-        return ' '.join(allowed & requested)
+        requested = scope.split(' ')
+        return ' '.join(item for item in requested if item in allowed)
     
     def check_redirect_uri(self, redirect_uri):
         """Check if redirect URI is allowed"""

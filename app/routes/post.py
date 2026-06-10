@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify, abort, current_app
 from app.models.post import Post, serialize_post_tag
 from app.models.tag import Tag, TagType
 from app.models.course import Course
+from app.models.course_domain import CoursePostOfferingTarget
 from app.models.reaction import Reaction
 from app.extensions import db
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -10,12 +11,54 @@ from datetime import datetime, timedelta
 import json
 import bleach
 from app.services.content_moderation_service import content_moderation
+from app.services.course_domain import find_course_by_code, find_offering
+from app.utils.semester import normalize_offering_identifier
 
 bp = Blueprint('post', __name__, url_prefix='/posts')
 
 MAX_POST_TAG_COUNT = 5
 MAX_POST_TAG_LENGTH = 50
 SYSTEM_REVIEW_TAG = "course-review"
+
+
+def _semester_id_from_offering_tag(tag_name):
+    normalized = normalize_offering_identifier(tag_name)
+    if not normalized:
+        return None
+    year, semester_code = normalized
+    suffix = {
+        "fall": "10",
+        "winter": "20",
+        "spring": "30",
+        "summer": "40",
+    }.get(semester_code)
+    if not suffix:
+        return None
+    return f"{int(year) % 100:02d}{suffix}"
+
+
+def _resolve_review_offering(tag_names):
+    if SYSTEM_REVIEW_TAG not in tag_names:
+        return None, None
+
+    course = None
+    semester_id = None
+    for tag_name in tag_names:
+        if tag_name == SYSTEM_REVIEW_TAG:
+            continue
+        if semester_id is None:
+            semester_id = _semester_id_from_offering_tag(tag_name)
+        if course is None:
+            course = find_course_by_code(tag_name)
+
+    if course is None or semester_id is None:
+        return None, "Review posts must include a resolvable course tag and offering tag."
+
+    offering = find_offering(course, semester_id)
+    if offering is None:
+        return None, "Review offering target could not be resolved"
+
+    return offering, None
 
 def normalize_post_tags(raw_tag_names):
     if raw_tag_names is None:
@@ -157,7 +200,22 @@ def get_posts():
             if tag_match not in {'any', 'all'}:
                 return jsonify({"error": "Invalid tag_match. Use 'any' or 'all'."}), 400
 
-            if tag_match == 'all':
+            review_offering = None
+            if tag_match == 'all' and SYSTEM_REVIEW_TAG in tag_names:
+                review_offering, review_error = _resolve_review_offering(tag_names)
+                if review_error:
+                    return jsonify({
+                        "error": "Review offering target could not be resolved",
+                        "code": "course_offering_not_resolved",
+                        "message": review_error,
+                    }), 400
+
+            if review_offering is not None:
+                query = query.join(CoursePostOfferingTarget).filter(
+                    CoursePostOfferingTarget.course_offering_id == review_offering.id
+                )
+                query = query.filter(Post.tags.any(Tag.name == SYSTEM_REVIEW_TAG))
+            elif tag_match == 'all':
                 for tag_name in tag_names:
                     query = query.filter(Post.tags.any(Tag.name == tag_name))
             else:
@@ -342,6 +400,20 @@ def create_post():
             "message": "One or more tags are invalid.",
             "tag_errors": tag_errors
         }), 400
+
+    review_offering, review_error = _resolve_review_offering(tag_names)
+    if review_error:
+        db.session.rollback()
+        return jsonify({
+            "error": "Review offering target could not be resolved",
+            "code": "course_offering_not_resolved",
+            "message": review_error,
+        }), 400
+    if review_offering is not None:
+        db.session.add(CoursePostOfferingTarget(
+            post_id=post.id,
+            course_offering_id=review_offering.id,
+        ))
     
     db.session.commit()
     

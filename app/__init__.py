@@ -3,6 +3,8 @@ import threading
 from datetime import datetime, timezone
 from flask import Flask
 from flask import current_app
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
 from .config import Config
 from .extensions import db, jwt, migrate, cache#, limiter
 from .routes import register_blueprints
@@ -11,9 +13,15 @@ from app.tasks.sts_pool import init_pool_maintenance
 logger = logging.getLogger(__name__)
 
 
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_for_sqlite(type_, compiler, **kw):
+    return "JSON"
+
+
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
+    _normalize_sqlite_engine_options(app)
 
     # Initialize extensions
     db.init_app(app)
@@ -36,17 +44,20 @@ def create_app(config_class=Config):
     init_pool_maintenance(app)
 
     # 启动时自动初始化比赛数据（幂等操作，重复执行安全）
-    with app.app_context():
-        _auto_init_feedback_support()
-        _auto_init_academic_map_support()
-        _auto_init_scheduler_support()
-        _auto_sync_course_catalog()
-        _auto_sync_academic_curriculum()
-        _auto_seed_scheduler_map()
-        _auto_migrate_gugu_reply_columns()
-        _auto_init_contest()
-        _ensure_mount_admin_role()
-        _seed_dev_feedback()
+    if app.config.get('AUTO_INIT_ON_STARTUP', True):
+        with app.app_context():
+            _auto_init_feedback_support()
+            _auto_init_admin_support()
+            _auto_init_academic_map_support()
+            _auto_init_scheduler_support()
+            _auto_init_course_domain_support()
+            _auto_sync_course_catalog()
+            _auto_sync_academic_curriculum()
+            _auto_seed_scheduler_map()
+            _auto_migrate_gugu_reply_columns()
+            _auto_init_contest()
+            _ensure_mount_admin_role()
+            _seed_dev_feedback()
 
     # 25-26 春课表补丁：推迟到「首次 HTTP 请求」再跑，避免进程启动时数据库尚未就绪导致
     # 静默失败；幂等，多 worker 各执行一次可接受。
@@ -54,6 +65,24 @@ def create_app(config_class=Config):
     _register_deferred_scheduler_offering_imports(app)
 
     return app
+
+
+def _normalize_sqlite_engine_options(app):
+    """Drop PostgreSQL-only connection options when tests override the URI to SQLite."""
+    database_uri = app.config.get('SQLALCHEMY_DATABASE_URI') or ''
+    if not database_uri.startswith('sqlite'):
+        return
+
+    engine_options = dict(app.config.get('SQLALCHEMY_ENGINE_OPTIONS') or {})
+    connect_args = dict(engine_options.get('connect_args') or {})
+    connect_args.pop('options', None)
+
+    if connect_args:
+        engine_options['connect_args'] = connect_args
+    else:
+        engine_options.pop('connect_args', None)
+
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = engine_options
 
 
 def _auto_init_feedback_support():
@@ -91,6 +120,17 @@ def _auto_init_feedback_support():
                 conn.commit()
     except Exception:
         db.session.rollback()
+
+
+def _auto_init_admin_support():
+    """Ensure admin console audit tables exist when migrations are skipped."""
+    from app.models.admin_audit_log import AdminAuditLog
+
+    db.metadata.create_all(
+        bind=db.engine,
+        tables=[AdminAuditLog.__table__],
+        checkfirst=True,
+    )
 
 
 def _auto_init_academic_map_support():
@@ -163,6 +203,62 @@ def _auto_init_scheduler_support():
             SchedulerMapLine.__table__,
             SchedulerUserCourseCart.__table__,
             SchedulerUserBundleCart.__table__,
+        ],
+        checkfirst=True,
+    )
+
+
+def _auto_init_course_domain_support():
+    """Ensure the redesigned course domain tables exist when migrations are skipped."""
+    from sqlalchemy import inspect, text
+    from app.models.course import Course
+    from app.models.course_domain import (
+        CourseCatalogVersion,
+        CourseCatalogRequirement,
+        CourseRequirementEdge,
+        CourseOffering,
+        CourseSection,
+        CourseMeeting,
+        UserCourseState,
+        UserCourseAttempt,
+        UserOfferingCart,
+        UserSectionSelection,
+        CoursePostOfferingTarget,
+    )
+
+    db.metadata.create_all(bind=db.engine, tables=[Course.__table__], checkfirst=True)
+
+    existing = {column['name'] for column in inspect(db.engine).get_columns('courses')}
+    canonical_columns = {
+        'normalized_code': 'VARCHAR(32)',
+        'display_code': 'VARCHAR(32)',
+        'canonical_title': 'VARCHAR(255)',
+    }
+    with db.engine.begin() as conn:
+        for column_name, column_type in canonical_columns.items():
+            if column_name in existing:
+                continue
+            if db.engine.dialect.name == 'postgresql':
+                conn.execute(text(
+                    f'ALTER TABLE courses ADD COLUMN IF NOT EXISTS {column_name} {column_type}'
+                ))
+            else:
+                conn.execute(text(f'ALTER TABLE courses ADD COLUMN {column_name} {column_type}'))
+
+    db.metadata.create_all(
+        bind=db.engine,
+        tables=[
+            CourseCatalogVersion.__table__,
+            CourseCatalogRequirement.__table__,
+            CourseRequirementEdge.__table__,
+            CourseOffering.__table__,
+            CourseSection.__table__,
+            CourseMeeting.__table__,
+            UserCourseAttempt.__table__,
+            UserCourseState.__table__,
+            UserOfferingCart.__table__,
+            UserSectionSelection.__table__,
+            CoursePostOfferingTarget.__table__,
         ],
         checkfirst=True,
     )

@@ -9,12 +9,20 @@ from app.models.oauth_client import OAuthClient
 from app.models.oauth_token import OAuthToken
 from app.models.oauth_authorization_code import OAuthAuthorizationCode
 
+
+class TestConfig:
+    TESTING = True
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
+    SQLALCHEMY_ENGINE_OPTIONS = {}
+    JWT_SECRET_KEY = 'test-secret'
+    CACHE_TYPE = 'SimpleCache'
+    AUTO_INIT_ON_STARTUP = False
+
+
 class TestOAuthModels(unittest.TestCase):
     def setUp(self):
         """Set up test environment"""
-        self.app = create_app()
-        self.app.config['TESTING'] = True
-        self.app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
+        self.app = create_app(TestConfig)
         
         self.app_context = self.app.app_context()
         self.app_context.push()

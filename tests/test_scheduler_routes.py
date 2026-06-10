@@ -3,10 +3,9 @@ from app import create_app
 from app.config import Config
 from app.extensions import db
 from app.models.course import Course
+from app.models.course_domain import CourseMeeting, CourseOffering, CourseSection
 from app.models.scheduler_section import SchedulerSection
-from app.models.scheduler_lecture import SchedulerLecture
 from app.models.scheduler_map import SchedulerMapComponent, SchedulerMapLine
-from app.models.scheduler_cart import SchedulerUserCourseCart, SchedulerUserBundleCart
 from app.models.user import User
 from app.models.user_role import UserRole
 from flask_jwt_extended import create_access_token
@@ -44,6 +43,56 @@ def client(app):
     return app.test_client()
 
 
+def add_domain_section(
+    course,
+    *,
+    semester_id="2530",
+    source_section_id=None,
+    name="L01",
+    bundle=1,
+    layer=0,
+    quota=30,
+    section_type="L",
+    is_main=True,
+    instructor=None,
+):
+    offering = CourseOffering.query.filter_by(course_id=course.id, semester_id=semester_id).first()
+    if offering is None:
+        offering = CourseOffering(
+            course_id=course.id,
+            semester_id=semester_id,
+            offering_code=course.code,
+            title_snapshot=course.name,
+            credits_snapshot=course.credits,
+            source="test",
+            status="offered",
+        )
+        db.session.add(offering)
+        db.session.flush()
+    section = CourseSection(
+        offering_id=offering.id,
+        source_section_id=source_section_id or f"{course.code}-{name}",
+        name=name,
+        bundle=bundle,
+        layer=layer,
+        quota=quota,
+        section_type=section_type,
+        is_main=is_main,
+    )
+    db.session.add(section)
+    db.session.flush()
+    if instructor:
+        db.session.add(CourseMeeting(
+            section_id=section.id,
+            day=1,
+            start_time=900,
+            end_time=1030,
+            room="Room 101",
+            instructor_text=instructor,
+        ))
+    return section
+
+
 @pytest.fixture
 def seed_courses(app):
     with app.app_context():
@@ -54,14 +103,8 @@ def seed_courses(app):
         db.session.add_all([c1, c2])
         db.session.flush()
 
-        # Use unique section_ids per course since (semester_id, section_id) is the composite PK
-        s1 = SchedulerSection(semester_id="2530", section_id="TEST1001-L01", course_id=c1.id,
-                              name="L01", bundle=1, layer=0, quota=30, section_type="L", is_main=True)
-        s2 = SchedulerSection(semester_id="2530", section_id="TEST1010-L01", course_id=c2.id,
-                              name="L01", bundle=1, layer=0, quota=50, section_type="L", is_main=True)
-        l1 = SchedulerLecture(semester_id="2530", section_id="TEST1001-L01", day=1, start_time=900, end_time=1030,
-                              room="Room 101", instructor="Dr. Smith")
-        db.session.add_all([s1, s2, l1])
+        add_domain_section(c1, source_section_id="TEST1001-L01", quota=30, instructor="Dr. Smith")
+        add_domain_section(c2, source_section_id="TEST1010-L01", quota=50)
         db.session.commit()
 
 
@@ -97,17 +140,17 @@ def test_list_semesters_includes_25_26_summer_label(client, app):
         course = Course(code="SUMR1001", name="Summer Course", credits=3)
         db.session.add(course)
         db.session.flush()
-        db.session.add(SchedulerSection(
+        add_domain_section(
+            course,
             semester_id="2540",
-            section_id="SUMR-L01",
-            course_id=course.id,
+            source_section_id="SUMR-L01",
             name="L01",
             bundle=1,
             layer=0,
             quota=30,
             section_type="L",
             is_main=True,
-        ))
+        )
         db.session.commit()
 
     resp = client.get('/scheduler/semesters')
@@ -123,6 +166,30 @@ def test_search_courses(client, seed_courses):
     data = resp.get_json()
     assert data['total'] >= 1
     assert data['items'][0]['course_code'] == 'TEST1001'
+
+
+def test_search_courses_ignores_legacy_scheduler_only_semester_rows(client, app):
+    with app.app_context():
+        course = Course(code="OLD1001", name="Legacy Only", credits=3)
+        db.session.add(course)
+        db.session.flush()
+        db.session.add(SchedulerSection(
+            semester_id="2530",
+            section_id="OLD1001-L01",
+            course_id=course.id,
+            name="L01",
+            bundle=1,
+            layer=0,
+            quota=30,
+            section_type="L",
+            is_main=True,
+        ))
+        db.session.commit()
+
+    resp = client.get('/scheduler/courses/search?query=OLD1001&semester=2530')
+
+    assert resp.status_code == 200
+    assert resp.get_json()['items'] == []
 
 
 def test_search_courses_no_semester(client, seed_courses):
@@ -148,14 +215,9 @@ def test_list_subjects_filters_to_current_semester_offerings(client, app):
         moes = Course(code="MOES9910", name="Dormant MOES", credits=3, subject="MOES")
         db.session.add_all([dled, aiaa, moes])
         db.session.flush()
-        db.session.add_all([
-            SchedulerSection(semester_id="2540", section_id="DLED-L01", course_id=dled.id,
-                             name="L01", bundle=1, layer=0, quota=40, section_type="L", is_main=True),
-            SchedulerSection(semester_id="2540", section_id="AIAA-L01", course_id=aiaa.id,
-                             name="L01", bundle=1, layer=0, quota=40, section_type="L", is_main=True),
-            SchedulerSection(semester_id="2530", section_id="MOES-L01", course_id=moes.id,
-                             name="L01", bundle=1, layer=0, quota=40, section_type="L", is_main=True),
-        ])
+        add_domain_section(dled, semester_id="2540", source_section_id="DLED-L01", quota=40)
+        add_domain_section(aiaa, semester_id="2540", source_section_id="AIAA-L01", quota=40)
+        add_domain_section(moes, semester_id="2530", source_section_id="MOES-L01", quota=40)
         db.session.commit()
 
     resp = client.get('/scheduler/subjects?semester=2540')
@@ -346,14 +408,12 @@ def test_cart_serialization_orders_layers_bundles_and_sections(client, auth_head
         course = Course(code='SORT1001', name='Sort Me', credits=3)
         db.session.add(course)
         db.session.flush()
-        db.session.add_all([
-            SchedulerSection(semester_id='2530', section_id='SORT-T02', course_id=course.id,
-                             name='T02', bundle=2, layer=1, quota=10, section_type='T', is_main=False),
-            SchedulerSection(semester_id='2530', section_id='SORT-L02', course_id=course.id,
-                             name='L02', bundle=2, layer=0, quota=10, section_type='L', is_main=True),
-            SchedulerSection(semester_id='2530', section_id='SORT-L01', course_id=course.id,
-                             name='L01', bundle=1, layer=0, quota=10, section_type='L', is_main=True),
-        ])
+        add_domain_section(course, source_section_id='SORT-T02', name='T02', bundle=2, layer=1,
+                           quota=10, section_type='T', is_main=False)
+        add_domain_section(course, source_section_id='SORT-L02', name='L02', bundle=2, layer=0,
+                           quota=10, section_type='L', is_main=True)
+        add_domain_section(course, source_section_id='SORT-L01', name='L01', bundle=1, layer=0,
+                           quota=10, section_type='L', is_main=True)
         db.session.commit()
 
     client.post('/scheduler/cart/2530/add',

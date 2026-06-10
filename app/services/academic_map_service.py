@@ -7,6 +7,8 @@ from pathlib import Path
 
 from app.models.academic_map import CurriculumProgram, CurriculumRequirementGroup, UserAcademicProfile, UserCourseRecord
 from app.models.course import Course
+from app.models.course_domain import CourseCatalogRequirement, UserCourseAttempt, UserCourseState
+from app.services.course_domain import best_completed_attempt, current_catalog_version, expression_missing_courses
 from app.services.academic_curriculum_evaluator import evaluate_requirement_program
 from app.utils.academic_map_import_text import clean_copied_status_text
 
@@ -42,7 +44,73 @@ GRADE_POINTS = {
 NON_GPA_GRADES = {"AU", "DI", "I", "P", "PA", "PP", "T", "W"}
 
 
-def _units(record: UserCourseRecord) -> float:
+class DomainCourseRecordAdapter:
+    import_source = "course_domain"
+    needs_review = False
+    review_reason = None
+    raw_payload = {}
+
+    def __init__(
+        self,
+        *,
+        user_id: int,
+        course_id: int,
+        course_code: str,
+        course_title: str | None,
+        term_label: str | None,
+        term_code: str | None,
+        units: float | None,
+        status: str,
+        grade: str | None,
+        keep_grade: bool,
+        created_at,
+        updated_at,
+        record_id: int | None = None,
+        domain_state_id: int | None = None,
+        domain_attempt_id: int | None = None,
+    ):
+        self.id = record_id
+        self.user_id = user_id
+        self.course_id = course_id
+        self.course_code = course_code
+        self.course_title = course_title
+        self.term_label = term_label
+        self.term_code = term_code
+        self.units = Decimal(str(units)) if units is not None else None
+        self.status = status
+        self.grade = grade
+        self.keep_grade = keep_grade
+        self.created_at = created_at
+        self.updated_at = updated_at
+        self.domain_state_id = domain_state_id
+        self.domain_attempt_id = domain_attempt_id
+
+    def to_dict(self, include_grade=False):
+        data = {
+            "id": self.id,
+            "domain_state_id": self.domain_state_id,
+            "domain_attempt_id": self.domain_attempt_id,
+            "user_id": self.user_id,
+            "course_id": self.course_id,
+            "course_code": self.course_code,
+            "course_title": clean_copied_status_text(self.course_title),
+            "term_label": self.term_label,
+            "term_code": self.term_code,
+            "units": float(self.units) if self.units is not None else None,
+            "status": self.status,
+            "keep_grade": self.keep_grade,
+            "import_source": self.import_source,
+            "needs_review": self.needs_review,
+            "review_reason": self.review_reason,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if include_grade and self.keep_grade:
+            data["grade"] = self.grade
+        return data
+
+
+def _units(record) -> float:
     if record.units is None:
         return 0.0
     if isinstance(record.units, Decimal):
@@ -63,7 +131,7 @@ def _grade_point(grade: str | None) -> float | None:
     return GRADE_POINTS.get(normalized)
 
 
-def _average_grade_points(records: list[UserCourseRecord]) -> dict:
+def _average_grade_points(records: list) -> dict:
     included = []
     excluded = 0
     for record in records:
@@ -113,7 +181,7 @@ def _codes_from_rule(rule: dict) -> set[str]:
     return {code for code in codes if code}
 
 
-def _major_grade_records(records: list[UserCourseRecord], program: CurriculumProgram | None) -> list[UserCourseRecord]:
+def _major_grade_records(records: list, program: CurriculumProgram | None) -> list:
     if program is None:
         return []
     required_codes: set[str] = set()
@@ -124,8 +192,58 @@ def _major_grade_records(records: list[UserCourseRecord], program: CurriculumPro
     return [record for record in records if _normalized_code(record.course_code) in required_codes]
 
 
-def _record_by_code(records: list[UserCourseRecord]) -> dict[str, UserCourseRecord]:
+def _record_by_code(records: list) -> dict[str, UserCourseRecord]:
     return {_normalized_code(record.course_code): record for record in records}
+
+
+def _strongest_legacy_records_by_code(records: list[UserCourseRecord]) -> dict[str, UserCourseRecord]:
+    by_code: dict[str, UserCourseRecord] = {}
+    for record in records:
+        code = _normalized_code(record.course_code)
+        if not code:
+            continue
+        rank = (
+            STATUS_RANK.get(record.status, 9),
+            0 if record.keep_grade else 1,
+            0 if record.term_code else 1,
+            -(record.updated_at.timestamp() if record.updated_at else 0),
+            record.id,
+        )
+        existing = by_code.get(code)
+        if existing is None:
+            by_code[code] = record
+            continue
+        existing_rank = (
+            STATUS_RANK.get(existing.status, 9),
+            0 if existing.keep_grade else 1,
+            0 if existing.term_code else 1,
+            -(existing.updated_at.timestamp() if existing.updated_at else 0),
+            existing.id,
+        )
+        if rank < existing_rank:
+            by_code[code] = record
+    return by_code
+
+
+def _attach_legacy_record_handles(
+    domain_records: list[DomainCourseRecordAdapter],
+    legacy_records: list[UserCourseRecord],
+) -> None:
+    legacy_by_code = _strongest_legacy_records_by_code(legacy_records)
+    for record in domain_records:
+        legacy = legacy_by_code.get(_normalized_code(record.course_code))
+        if legacy is None:
+            continue
+        record.id = legacy.id
+        record.needs_review = legacy.needs_review
+        record.review_reason = legacy.review_reason
+        if record.term_label is None:
+            record.term_label = legacy.term_label
+        if record.term_code is None:
+            record.term_code = legacy.term_code
+        if record.status == UserCourseRecord.STATUS_COMPLETED and record.grade is None and legacy.keep_grade:
+            record.grade = legacy.grade
+            record.keep_grade = bool(legacy.grade)
 
 
 def strongest_record_for_course(records: list[UserCourseRecord], course_code: str) -> UserCourseRecord | None:
@@ -134,6 +252,138 @@ def strongest_record_for_course(records: list[UserCourseRecord], course_code: st
     if not matches:
         return None
     return sorted(matches, key=lambda record: STATUS_RANK.get(record.status, 9))[0]
+
+
+def _domain_status_to_record_status(status: str) -> str | None:
+    return {
+        "completed": UserCourseRecord.STATUS_COMPLETED,
+        "in_progress": UserCourseRecord.STATUS_IN_PROGRESS,
+        "interested": UserCourseRecord.STATUS_INTERESTED,
+        "not_taken": None,
+    }.get(status)
+
+
+def _course_units(course, attempt: UserCourseAttempt | None = None) -> float | None:
+    version = current_catalog_version(course)
+    if version and version.credits is not None:
+        return float(version.credits)
+    if attempt and attempt.offering and attempt.offering.credits_snapshot is not None:
+        return float(attempt.offering.credits_snapshot)
+    if course.credits is not None:
+        return float(course.credits)
+    return None
+
+
+def _course_title(course, attempt: UserCourseAttempt | None = None) -> str | None:
+    version = current_catalog_version(course)
+    if version and version.title:
+        return version.title
+    if course.canonical_title:
+        return course.canonical_title
+    if attempt and attempt.offering and attempt.offering.title_snapshot:
+        return attempt.offering.title_snapshot
+    return course.name
+
+
+def _record_from_domain_state(state: UserCourseState) -> DomainCourseRecordAdapter | None:
+    status = _domain_status_to_record_status(state.status)
+    if status is None:
+        return None
+    attempt = state.best_attempt
+    if attempt is None and status == UserCourseRecord.STATUS_IN_PROGRESS:
+        attempt = (
+            UserCourseAttempt.query
+            .filter_by(user_id=state.user_id, course_id=state.course_id, status="in_progress")
+            .order_by(UserCourseAttempt.id.desc())
+            .first()
+        )
+    grade = state.best_grade_letter if status == UserCourseRecord.STATUS_COMPLETED else None
+    return DomainCourseRecordAdapter(
+        user_id=state.user_id,
+        course_id=state.course_id,
+        course_code=state.course.normalized_code or _normalized_code(state.course.code),
+        course_title=_course_title(state.course, attempt),
+        term_label=(attempt.term_label if attempt else None) or (attempt.offering.semester_id if attempt and attempt.offering else None),
+        term_code=attempt.offering.semester_id if attempt and attempt.offering else None,
+        units=_course_units(state.course, attempt),
+        status=status,
+        grade=grade,
+        keep_grade=bool(grade),
+        created_at=state.created_at,
+        updated_at=state.updated_at,
+        domain_state_id=state.id,
+        domain_attempt_id=attempt.id if attempt else None,
+    )
+
+
+def _record_from_domain_attempts(user_id: int, course_id: int, attempts: list[UserCourseAttempt]) -> DomainCourseRecordAdapter | None:
+    if not attempts:
+        return None
+    course = attempts[0].course
+    best = best_completed_attempt(attempts)
+    if best is not None:
+        status = UserCourseRecord.STATUS_COMPLETED
+        attempt = best
+        grade = best.grade_letter
+    elif any(attempt.status == "in_progress" for attempt in attempts):
+        status = UserCourseRecord.STATUS_IN_PROGRESS
+        attempt = next(attempt for attempt in attempts if attempt.status == "in_progress")
+        grade = None
+    else:
+        return None
+    return DomainCourseRecordAdapter(
+        user_id=user_id,
+        course_id=course_id,
+        course_code=course.normalized_code or _normalized_code(course.code),
+        course_title=_course_title(course, attempt),
+        term_label=attempt.term_label or (attempt.offering.semester_id if attempt.offering else None),
+        term_code=attempt.offering.semester_id if attempt.offering else None,
+        units=_course_units(course, attempt),
+        status=status,
+        grade=grade,
+        keep_grade=bool(grade),
+        created_at=attempt.created_at,
+        updated_at=attempt.updated_at,
+        domain_attempt_id=attempt.id,
+    )
+
+
+def _domain_records_for_user(user_id: int) -> list[DomainCourseRecordAdapter]:
+    records = []
+    states = UserCourseState.query.filter_by(user_id=user_id).all()
+    state_course_ids = {state.course_id for state in states}
+    for state in states:
+        record = _record_from_domain_state(state)
+        if record is not None:
+            records.append(record)
+
+    attempts_by_course: dict[int, list[UserCourseAttempt]] = {}
+    for attempt in UserCourseAttempt.query.filter_by(user_id=user_id).all():
+        if attempt.course_id in state_course_ids:
+            continue
+        attempts_by_course.setdefault(attempt.course_id, []).append(attempt)
+    for course_id, attempts in attempts_by_course.items():
+        record = _record_from_domain_attempts(user_id, course_id, attempts)
+        if record is not None:
+            records.append(record)
+    return records
+
+
+def _dedupe_records(records: list) -> list:
+    by_code = {}
+    for index, record in enumerate(records):
+        code = _normalized_code(record.course_code)
+        source_rank = 0 if getattr(record, "import_source", None) == "course_domain" else 1
+        rank = (
+            source_rank,
+            STATUS_RANK.get(record.status, 9),
+            0 if record.keep_grade else 1,
+            index,
+        )
+        existing = by_code.get(code)
+        if existing is None or rank < existing[0]:
+            by_code[code] = (rank, record)
+    return [item[1] for item in sorted(by_code.values(), key=lambda item: item[0])]
 
 
 def _catalog_title_by_code() -> dict[str, str]:
@@ -441,26 +691,21 @@ def _load_prerequisite_data() -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _missing_prerequisites(expression: dict | None, completed_codes: set[str]) -> list[str]:
-    if not expression:
-        return []
-    if expression.get("course_code"):
-        code = _normalized_code(expression.get("course_code"))
-        return [] if code in completed_codes else [code]
-    op = str(expression.get("op", "")).upper()
-    items = [item for item in expression.get("items", []) if isinstance(item, dict)]
-    if op == "AND":
-        missing: list[str] = []
-        for item in items:
-            missing.extend(_missing_prerequisites(item, completed_codes))
-        return sorted(set(missing))
-    if op == "OR":
-        item_missing = [_missing_prerequisites(item, completed_codes) for item in items]
-        if any(len(missing) == 0 for missing in item_missing):
-            return []
-        shortest = min(item_missing, key=len) if item_missing else []
-        return sorted(set(shortest))
-    return []
+def _database_prerequisite_items() -> list[dict]:
+    items = []
+    requirements = CourseCatalogRequirement.query.filter_by(relation_type="prerequisite").all()
+    for requirement in requirements:
+        version = requirement.catalog_version
+        course = version.course if version else None
+        expression = requirement.expression_json
+        if not course or not isinstance(expression, dict) or not expression:
+            continue
+        items.append({
+            "course_code": course.normalized_code or _normalized_code(course.code),
+            "course_title": version.title or course.canonical_title or course.name,
+            "prerequisite_expression": expression,
+        })
+    return items
 
 
 def _build_prerequisite_metrics(records: list[UserCourseRecord]) -> dict:
@@ -471,14 +716,17 @@ def _build_prerequisite_metrics(records: list[UserCourseRecord]) -> dict:
     }
     unlocked = 0
     blockers = []
-    for item in _load_prerequisite_data().get("courses", []):
+    prerequisite_items = _database_prerequisite_items()
+    if not prerequisite_items:
+        prerequisite_items = _load_prerequisite_data().get("courses", [])
+    for item in prerequisite_items:
         target_code = _normalized_code(item.get("course_code"))
         if not target_code or target_code in completed_codes:
             continue
         expression = item.get("prerequisite_expression")
         if not isinstance(expression, dict):
             continue
-        missing = _missing_prerequisites(expression, completed_codes)
+        missing = expression_missing_courses(expression, completed_codes)
         if missing:
             blockers.append({
                 "course_code": target_code,
@@ -496,7 +744,16 @@ def _build_prerequisite_metrics(records: list[UserCourseRecord]) -> dict:
 
 def build_academic_map_summary(user_id: int) -> dict:
     profile = UserAcademicProfile.get_or_create_for_user(user_id)
-    records = UserCourseRecord.query.filter_by(user_id=user_id).order_by(UserCourseRecord.created_at.asc()).all()
+    legacy_records = UserCourseRecord.query.filter_by(user_id=user_id).all()
+    domain_records = _domain_records_for_user(user_id)
+    _attach_legacy_record_handles(domain_records, legacy_records)
+    domain_codes = {_normalized_code(record.course_code) for record in domain_records}
+    unresolved_legacy_records = [
+        record
+        for record in legacy_records
+        if _normalized_code(record.course_code) not in domain_codes
+    ]
+    records = _dedupe_records(domain_records + unresolved_legacy_records)
     programs = _programs_for_profile(profile)
     primary_program = programs[0] if programs else None
 

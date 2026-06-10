@@ -50,7 +50,10 @@ class OAuthAuthorizationCode(db.Model):
     
     def is_expired(self):
         """Check if the authorization code is expired"""
-        return datetime.now(timezone.utc) > self.expires_at
+        expires_at = self.expires_at
+        if expires_at and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) > expires_at
     
     def is_valid(self):
         """Check if the code is valid (not expired and not used)"""

@@ -34,3 +34,16 @@ from .scheduler_section import SchedulerSection
 from .scheduler_lecture import SchedulerLecture
 from .scheduler_map import SchedulerMapComponent, SchedulerMapLine
 from .scheduler_cart import SchedulerUserCourseCart, SchedulerUserBundleCart
+from .course_domain import (
+    CourseCatalogVersion,
+    CourseCatalogRequirement,
+    CourseRequirementEdge,
+    CourseOffering,
+    CourseSection,
+    CourseMeeting,
+    UserCourseState,
+    UserCourseAttempt,
+    UserOfferingCart,
+    UserSectionSelection,
+    CoursePostOfferingTarget,
+)

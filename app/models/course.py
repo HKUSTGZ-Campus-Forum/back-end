@@ -7,6 +7,9 @@ class Course(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(20), nullable=False, unique=True)  # e.g., "UCUG1001"
+    normalized_code = db.Column(db.String(32), nullable=True, unique=True)
+    display_code = db.Column(db.String(32), nullable=True)
+    canonical_title = db.Column(db.String(255), nullable=True)
     name = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text)
     instructor_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
@@ -44,6 +47,9 @@ class Course(db.Model):
         return {
             "id": self.id,
             "code": self.code,
+            "normalized_code": self.normalized_code,
+            "display_code": self.display_code,
+            "canonical_title": self.canonical_title,
             "name": self.name,
             "description": self.description,
             "instructor_id": self.instructor_id,

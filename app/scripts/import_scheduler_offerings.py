@@ -5,9 +5,10 @@ Usage:
     python -m app.scripts.import_scheduler_offerings --file ../更新材料/25-26summer.json --dry-run
     python -m app.scripts.import_scheduler_offerings --file ../更新材料/25-26summer.json --apply
 
-The importer upserts Course rows and replaces SchedulerSection /
-SchedulerLecture rows only for the target semester. Scheduler carts, map
-components, map lines, and other semesters are left untouched.
+The importer upserts Course rows and the course-domain catalog/offering/
+section/meeting graph, while keeping legacy SchedulerSection/SchedulerLecture
+rows in sync for compatibility. Scheduler carts, map components, map lines,
+and other semesters are left untouched.
 """
 
 from __future__ import annotations
@@ -30,9 +31,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.config import Config, normalize_database_config
 from app.extensions import db
 from app.models.course import Course
+from app.models.course_domain import CourseCatalogVersion, CourseMeeting, CourseOffering, CourseSection
 from app.models.scheduler_cart import SchedulerUserCourseCart
 from app.models.scheduler_lecture import SchedulerLecture
 from app.models.scheduler_section import SchedulerSection
+from app.services.course_domain import display_course_code, normalize_course_code
 
 
 logger = logging.getLogger(__name__)
@@ -426,6 +429,29 @@ def apply_offerings(snapshot: OfferingSnapshot) -> ImportPlan:
     plan = build_import_plan(snapshot)
 
     try:
+        target_offering_ids = [
+            offering_id for (offering_id,) in (
+                db.session.query(CourseOffering.id)
+                .filter_by(semester_id=snapshot.semester_id)
+                .all()
+            )
+        ]
+        if target_offering_ids:
+            target_section_ids = [
+                section_id for (section_id,) in (
+                    db.session.query(CourseSection.id)
+                    .filter(CourseSection.offering_id.in_(target_offering_ids))
+                    .all()
+                )
+            ]
+            if target_section_ids:
+                CourseMeeting.query.filter(CourseMeeting.section_id.in_(target_section_ids)).delete(
+                    synchronize_session=False
+                )
+            CourseSection.query.filter(CourseSection.offering_id.in_(target_offering_ids)).delete(
+                synchronize_session=False
+            )
+
         SchedulerLecture.query.filter_by(semester_id=snapshot.semester_id).delete(
             synchronize_session=False
         )
@@ -444,6 +470,15 @@ def apply_offerings(snapshot: OfferingSnapshot) -> ImportPlan:
             if course is None:
                 course = Course(code=item.course_code, name=item.course_title, credits=item.credit)
                 course_by_code[item.course_code] = course
+            normalized_code = normalize_course_code(item.course_code)
+            normalized_conflict = Course.query.filter(
+                Course.normalized_code == normalized_code,
+                Course.id != course.id,
+            ).first()
+            if normalized_conflict is None:
+                course.normalized_code = normalized_code
+            course.display_code = display_course_code(item.course_code)
+            course.canonical_title = item.course_title
             course.name = item.course_title
             course.description = item.course_desc
             course.credits = item.credit
@@ -461,9 +496,92 @@ def apply_offerings(snapshot: OfferingSnapshot) -> ImportPlan:
             db.session.add(course)
         db.session.flush()
 
+        version_by_code = {}
         for item in snapshot.courses:
             course = course_by_code[item.course_code]
+            version = CourseCatalogVersion.query.filter_by(
+                course_id=course.id,
+                source="scheduler_offerings",
+                source_version=snapshot.semester_id,
+            ).first()
+            if version is None:
+                version = CourseCatalogVersion(
+                    course_id=course.id,
+                    source="scheduler_offerings",
+                    source_version=snapshot.semester_id,
+                    title=item.course_title,
+                    credits=item.credit,
+                )
+                db.session.add(version)
+            version.catalog_year = snapshot.semester_id[:2]
+            version.title = item.course_title
+            version.title_abbr = item.course_title_abbr
+            version.description = item.course_desc
+            version.credits = item.credit
+            version.pre_requirement_raw = item.pre_requirement
+            version.co_requirement_raw = item.co_requirement
+            version.exclusion_raw = item.exclusion
+            version.pg_course = item.pg_course
+            version.klms_course = item.klms_course
+            version.vector = item.vector
+            version.effective_from_semester_id = snapshot.semester_id
+            version_by_code[item.course_code] = version
+        db.session.flush()
+
+        offered_course_codes = {item.course_code for item in snapshot.courses if item.sections}
+        for offering in CourseOffering.query.filter_by(semester_id=snapshot.semester_id).all():
+            if normalize_course_code(offering.course.code) not in offered_course_codes:
+                offering.status = "archived"
+
+        for item in snapshot.courses:
+            course = course_by_code[item.course_code]
+            if item.sections:
+                offering = CourseOffering.query.filter_by(
+                    course_id=course.id,
+                    semester_id=snapshot.semester_id,
+                ).first()
+                if offering is None:
+                    offering = CourseOffering(
+                        course_id=course.id,
+                        semester_id=snapshot.semester_id,
+                        offering_code=item.course_code,
+                        title_snapshot=item.course_title,
+                        credits_snapshot=item.credit,
+                        source="scheduler_offerings",
+                        status="offered",
+                    )
+                    db.session.add(offering)
+                offering.catalog_version_id = version_by_code[item.course_code].id
+                offering.offering_code = item.course_code
+                offering.title_snapshot = item.course_title
+                offering.credits_snapshot = item.credit
+                offering.source = "scheduler_offerings"
+                offering.status = "offered"
+                db.session.flush()
+
             for section in item.sections:
+                domain_section = CourseSection(
+                    offering_id=offering.id,
+                    source_section_id=section.section_id,
+                    name=section.name,
+                    section_type=section.section_type,
+                    bundle=section.bundle,
+                    layer=section.layer,
+                    quota=section.quota,
+                    is_main=section.is_main,
+                )
+                db.session.add(domain_section)
+                db.session.flush()
+                for lecture in section.lectures:
+                    db.session.add(CourseMeeting(
+                        section_id=domain_section.id,
+                        day=lecture.day,
+                        start_time=lecture.start_time,
+                        end_time=lecture.end_time,
+                        room=lecture.room,
+                        instructor_text=lecture.instructor,
+                    ))
+
                 db.session.add(SchedulerSection(
                     semester_id=section.semester_id,
                     section_id=section.section_id,

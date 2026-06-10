@@ -1,4 +1,5 @@
 import pytest
+from flask_jwt_extended import create_access_token
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 
@@ -6,6 +7,7 @@ from app import create_app
 from app.config import Config
 from app.extensions import db
 from app.models.course import Course
+from app.models.course_domain import CourseOffering, CoursePostOfferingTarget
 from app.models.user import User
 from app.models.user_role import UserRole
 from app.routes.post import SYSTEM_REVIEW_TAG, validate_and_get_tag
@@ -59,6 +61,40 @@ def _create_course(code="AIAA2205"):
     return course
 
 
+def _create_offering(course, semester_id="2530"):
+    offering = CourseOffering(
+        course_id=course.id,
+        semester_id=semester_id,
+        offering_code=course.code,
+        title_snapshot=course.name,
+        credits_snapshot=course.credits,
+        source="test",
+        status="offered",
+    )
+    db.session.add(offering)
+    db.session.commit()
+    return offering
+
+
+def _create_offerings(course, semester_ids):
+    for semester_id in semester_ids:
+        _create_offering(course, semester_id)
+
+
+def _auth_headers(username="review-user"):
+    role = UserRole.query.filter_by(name=UserRole.USER).first()
+    if not role:
+        role = UserRole(name=UserRole.USER)
+        db.session.add(role)
+        db.session.flush()
+    user = User(username=username, email=f"{username}@example.com", role_id=role.id, email_verified=True)
+    user.set_password("password")
+    db.session.add(user)
+    db.session.commit()
+    token = create_access_token(identity=str(user.id))
+    return {"Authorization": f"Bearer {token}"}
+
+
 def _create_post_with_tags(title, tag_names):
     role = UserRole.query.filter_by(name=UserRole.USER).first()
     if not role:
@@ -89,16 +125,8 @@ def test_course_discussions_include_current_and_previous_offerings_only(client):
         course = _create_course()
         other_course = _create_course("COMP1000")
 
-        for semester in [
-            "2024fall",
-            "2024spring",
-            "2024summer",
-            "2025fall",
-            "2025spring",
-            "2025summer",
-        ]:
-            course.create_semester_tag(semester)
-        other_course.create_semester_tag("2025spring")
+        _create_offerings(course, ["2410", "2430", "2440", "2510", "2530", "2540"])
+        _create_offering(other_course, "2530")
 
         current_post = _create_post_with_tags(
             "current-spring-discussion",
@@ -154,8 +182,7 @@ def test_course_discussions_for_fall_offering_excludes_newer_same_year_posts(cli
     with client.application.app_context():
         course = _create_course()
 
-        for semester in ["2024fall", "2025fall", "2025spring"]:
-            course.create_semester_tag(semester)
+        _create_offerings(course, ["2410", "2510", "2530"])
 
         visible_fall_post = _create_post_with_tags(
             "visible-fall-post",
@@ -198,3 +225,89 @@ def test_course_discussions_reject_unknown_offering_for_course(client):
     )
 
     assert response.status_code == 400
+
+
+def test_create_review_post_writes_offering_target(client):
+    with client.application.app_context():
+        course = _create_course()
+        offering = _create_offering(course, "2530")
+        headers = _auth_headers("review-target-user")
+        course_code = course.code
+        offering_id = offering.id
+
+    response = client.post(
+        "/posts",
+        json={
+            "title": "AIAA2205 review",
+            "content": "Useful class.",
+            "tags": [course_code, "25-26Spring", SYSTEM_REVIEW_TAG],
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 201
+    post_id = response.get_json()["id"]
+    with client.application.app_context():
+        target = CoursePostOfferingTarget.query.filter_by(post_id=post_id).one()
+        assert target.course_offering_id == offering_id
+
+
+def test_create_review_post_rejects_unresolved_offering_target(client):
+    with client.application.app_context():
+        course = _create_course()
+        headers = _auth_headers("review-target-missing-user")
+        course_code = course.code
+
+    response = client.post(
+        "/posts",
+        json={
+            "title": "AIAA2205 review without offering",
+            "content": "Useful class.",
+            "tags": [course_code, "25-26Spring", SYSTEM_REVIEW_TAG],
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "Review offering target could not be resolved"
+    assert response.get_json()["code"] == "course_offering_not_resolved"
+
+
+def test_review_listing_uses_offering_target_instead_of_tags(client):
+    with client.application.app_context():
+        course = _create_course()
+        target_offering = _create_offering(course, "2530")
+        other_offering = _create_offering(course, "2510")
+        correct = _create_post_with_tags(
+            "correct-target",
+            [course.code, "25-26Spring", SYSTEM_REVIEW_TAG],
+        )
+        spoofed = _create_post_with_tags(
+            "spoofed-tags-wrong-target",
+            [course.code, "25-26Spring", SYSTEM_REVIEW_TAG],
+        )
+        db.session.add(CoursePostOfferingTarget(
+            post_id=correct.id,
+            course_offering_id=target_offering.id,
+        ))
+        db.session.add(CoursePostOfferingTarget(
+            post_id=spoofed.id,
+            course_offering_id=other_offering.id,
+        ))
+        db.session.commit()
+        course_code = course.code
+        correct_id = correct.id
+        spoofed_id = spoofed.id
+
+    response = client.get(
+        "/posts",
+        query_string={
+            "tags": f"{course_code},25-26Spring,{SYSTEM_REVIEW_TAG}",
+            "tag_match": "all",
+        },
+    )
+
+    assert response.status_code == 200
+    returned_ids = {post["id"] for post in response.get_json()["posts"]}
+    assert correct_id in returned_ids
+    assert spoofed_id not in returned_ids

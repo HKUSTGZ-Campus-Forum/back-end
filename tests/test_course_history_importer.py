@@ -33,3 +33,10 @@ UCUG 1807 Thinking like an Economist I 2025-26 Spring 3.00
     assert rows[1]["grade"] == "P"
     assert rows[2]["grade"] is None
     assert rows[2]["status"] == "planned"
+
+
+def test_parse_course_history_assigns_scheduler_term_code():
+    rows = parse_course_history_text("AIAA 2205 Introduction to AI 2024-25 Summer A+ 3.00")
+
+    assert rows[0]["term_label"] == "2024-25 Summer"
+    assert rows[0]["term_code"] == "2440"

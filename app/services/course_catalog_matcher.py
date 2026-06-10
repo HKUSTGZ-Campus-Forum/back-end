@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import func
 
 from app.models.course import Course
+from app.models.course_domain import CourseOffering
 
 
 def normalize_course_code(value: str | None) -> str:
@@ -18,10 +19,37 @@ def find_course_by_normalized_code(course_code: str | None) -> Course | None:
     normalized = normalize_course_code(course_code)
     if not normalized:
         return None
-    return Course.query.filter(
+    candidates = Course.query.filter(
         func.upper(func.replace(Course.code, " ", "")) == normalized,
         Course.is_deleted == False,
-    ).first()
+    ).all()
+    if not candidates:
+        return None
+
+    offering_counts = dict(
+        CourseOffering.query.with_entities(CourseOffering.course_id, func.count(CourseOffering.id))
+        .filter(CourseOffering.course_id.in_([course.id for course in candidates]))
+        .group_by(CourseOffering.course_id)
+        .all()
+    )
+
+    def rank(course: Course) -> tuple:
+        has_domain_code = normalize_course_code(course.normalized_code) == normalized
+        compact_code = normalize_course_code(course.code)
+        has_offerings = offering_counts.get(course.id, 0) > 0
+        has_catalog_versions = course.catalog_versions.count() > 0
+        has_scheduler_shape = bool(course.subject and course.catalog_number)
+        return (
+            0 if has_domain_code else 1,
+            0 if has_offerings else 1,
+            0 if has_catalog_versions else 1,
+            0 if has_scheduler_shape else 1,
+            0 if compact_code == normalized and " " not in (course.code or "") else 1,
+            -(offering_counts.get(course.id, 0) or 0),
+            course.id,
+        )
+
+    return sorted(candidates, key=rank)[0]
 
 
 def _normalized_title(value: str | None) -> str:
