@@ -1,6 +1,6 @@
 {
   "source": "https://ug-prog-crs.hkust-gz.edu.cn/api/ugprogcrs-web/course/search",
-  "course_count": 223,
+  "course_count": 225,
   "courses": [
     {
       "course_code": "AIAA1010",
@@ -551,6 +551,17 @@
       "pre_requirement": "DLED 3010 and AMAT 2250",
       "co_requirement": "DLED 4010 and AMAT 2450",
       "exclusion": "AMAT 4095"
+    },
+    {
+      "course_code": "CMAA5028",
+      "subject": "CMAA",
+      "catalog_number": "5028",
+      "course_title": "Immersive Authoring for World Building and Animation",
+      "credit": "3",
+      "course_desc": "Creating immersivity in virtual reality allows creators to have an engaging experience in creating arts, animation, or visual assets for building virtual world. The way of creating is significantly different compared to traditional methods of creating. In this studio-based course, students will be introduced creating methods using different immersive authoring tools in VR, such as QuillVR and Gravity Sketch; and have opportunities to practice the sketching, assets building, animation and pipeline building for world building projects.",
+      "pre_requirement": null,
+      "co_requirement": null,
+      "exclusion": null
     },
     {
       "course_code": "DLED3010",
@@ -2363,6 +2374,17 @@
       "course_title": "Special Topics",
       "credit": "1-4",
       "course_desc": "This special topics course will help students to gain a better understanding on the topics related to their interdisciplinary studies. A range of professional activities are eligible for study, including seminars/ lectures, professional activities/ meetings, journal readings or structured readings. May be repeated for credits if different topics are taken. May be graded by letter, P/F or DI/PA/F for different offerings.",
+      "pre_requirement": null,
+      "co_requirement": null,
+      "exclusion": null
+    },
+    {
+      "course_code": "UFUG1999A",
+      "subject": "UFUG",
+      "catalog_number": "1999A",
+      "course_title": "Engineering Team Design Experience",
+      "credit": "3",
+      "course_desc": "The Engineering Team Design Experience course allows students to explore various areas of engineering in order to design and work towards a final road show demonstration before the end of the term. Students in this course will be divided into design teams with a common goal: construct their project artifact or virtual 3D model, taken from a wide range of engineering and design contexts. There will be three main aspects: engineering skills, design creativity and teamwork. Fundamental engineering skills will be introduced in different engineering fields, such as 3D modelling or hands-on prototyping skills, along with exposure to various kinds of advanced technology available. Some class sessions will focus on design thinking and creativity. They are key to creating practical and interesting products. Students will work together in teams to realize their common idea of their final roadshow project, to have a real-world experience working with a design team.",
       "pre_requirement": null,
       "co_requirement": null,
       "exclusion": null
