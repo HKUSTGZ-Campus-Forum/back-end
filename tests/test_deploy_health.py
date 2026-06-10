@@ -93,6 +93,15 @@ def test_deploy_workflows_fail_on_migration_errors_and_use_committed_revisions()
         assert "flask db migrate" not in deploy_workflow
 
 
+def test_production_deploy_backfills_2024_25_scheduler_offerings():
+    deploy_workflow = (ROOT / ".github" / "workflows" / "deploy-backend-prod.yml").read_text(encoding="utf-8")
+
+    assert "python -m app.scripts.backfill_legacy_scheduler_offerings --semesters 2430 2440 --apply" in deploy_workflow
+    assert deploy_workflow.index("python -m app.scripts.init_db") < deploy_workflow.index(
+        "python -m app.scripts.backfill_legacy_scheduler_offerings"
+    )
+
+
 def test_course_domain_migration_workflows_support_dry_run_and_apply():
     workflow_paths = [
         ROOT / ".github" / "workflows" / "migrate-course-domain-dev.yml",

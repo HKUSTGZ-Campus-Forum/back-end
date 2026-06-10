@@ -293,6 +293,63 @@ def test_offering_user_cart_and_review_migrations(app, tmp_path):
         assert anomaly_data["items"][0]["record_id"] == unresolved.id
 
 
+def test_migrate_offerings_can_limit_to_legacy_semesters(app):
+    from app.services.course_domain_migration import migrate_offerings
+
+    with app.app_context():
+        target_course = Course(code="CDOM2430", name="Target Legacy Course", credits=3)
+        ignored_course = Course(code="CDOM2530", name="Ignored Legacy Course", credits=3)
+        db.session.add_all([target_course, ignored_course])
+        db.session.flush()
+        db.session.add_all([
+            SchedulerSection(
+                semester_id="2430",
+                section_id="CDOM2430-L01",
+                course_id=target_course.id,
+                name="L01",
+                bundle=1,
+                layer=0,
+                quota=40,
+                section_type="L",
+                is_main=True,
+            ),
+            SchedulerLecture(
+                semester_id="2430",
+                section_id="CDOM2430-L01",
+                day=2,
+                start_time=900,
+                end_time=1020,
+                room="Room 2430",
+                instructor="Prof. Spring",
+            ),
+            SchedulerSection(
+                semester_id="2530",
+                section_id="CDOM2530-L01",
+                course_id=ignored_course.id,
+                name="L01",
+                bundle=1,
+                layer=0,
+                quota=40,
+                section_type="L",
+                is_main=True,
+            ),
+        ])
+        db.session.commit()
+
+        dry_run = migrate_offerings(apply=False, semester_ids=["2430"])
+        assert dry_run.scanned == 1
+        assert CourseOffering.query.count() == 0
+
+        summary = migrate_offerings(apply=True, semester_ids=["2430"])
+        db.session.commit()
+
+        assert summary.scanned == 1
+        offering = CourseOffering.query.filter_by(course_id=target_course.id, semester_id="2430").one()
+        assert CourseSection.query.filter_by(offering_id=offering.id).count() == 1
+        assert CourseMeeting.query.join(CourseSection).filter(CourseSection.offering_id == offering.id).count() == 1
+        assert CourseOffering.query.filter_by(course_id=ignored_course.id, semester_id="2530").count() == 0
+
+
 def test_full_migration_dry_run_uses_transactional_staging_then_rolls_back(app, tmp_path, monkeypatch):
     from app.scripts import migrate_course_domain
     from app.services.course_domain_migration import MigrationSummary

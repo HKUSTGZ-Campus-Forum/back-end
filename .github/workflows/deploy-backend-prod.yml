@@ -74,6 +74,10 @@ jobs:
           echo "initializing database with predefined data..."
           python -m app.scripts.init_db
           echo "database initialization completed."
+
+          echo "backfilling 2024-25 legacy scheduler offerings..."
+          python -m app.scripts.backfill_legacy_scheduler_offerings --semesters 2430 2440 --apply
+          echo "2024-25 legacy scheduler offerings backfilled."
           
           # Graceful restart
           echo "Restarting production service..."
