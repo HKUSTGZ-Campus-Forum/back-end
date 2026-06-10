@@ -306,6 +306,68 @@ def test_record_update_and_delete_keep_domain_tables_in_sync(client, app):
         assert UserCourseState.query.filter_by(user_id=user_id, course_id=course.id).count() == 0
 
 
+def test_bulk_import_overwrites_existing_course_with_last_row(client, app):
+    user_id, headers = create_user_and_headers(app, "bulk_overwrite_user")
+    with app.app_context():
+        course = Course.query.filter_by(code="AIAA1010").one()
+        seed_offering(course, "2410")
+        seed_offering(course, "2440")
+        db.session.commit()
+
+    rows = [
+        {
+            "course_code": "AIAA1010",
+            "matched_course_code": "AIAA1010",
+            "course_title": "Academic Orientation for AI Students",
+            "term_label": "2024-25 Fall",
+            "term_code": "2410",
+            "units": 1,
+            "status": "completed",
+            "grade": "B+",
+        },
+        {
+            "course_code": "AIAA1010",
+            "matched_course_code": "AIAA1010",
+            "course_title": "Academic Orientation for AI Students",
+            "term_label": "2024-25 Summer",
+            "term_code": "2440",
+            "units": 1,
+            "status": "completed",
+            "grade": "A",
+        },
+    ]
+
+    first_response = client.post(
+        "/academic-map/records/bulk",
+        json={"keep_grades": True, "records": [rows[0]]},
+        headers=headers,
+    )
+    assert first_response.status_code == 200
+
+    overwrite_response = client.post(
+        "/academic-map/records/bulk",
+        json={"keep_grades": True, "records": rows},
+        headers=headers,
+    )
+
+    assert overwrite_response.status_code == 200
+    saved = overwrite_response.get_json()["records"]
+    assert len(saved) == 1
+    assert saved[0]["term_code"] == "2440"
+    assert saved[0]["grade"] == "A"
+    with app.app_context():
+        course = Course.query.filter_by(code="AIAA1010").one()
+        records = UserCourseRecord.query.filter_by(user_id=user_id, course_id=course.id).all()
+        assert len(records) == 1
+        assert records[0].term_code == "2440"
+        attempts = UserCourseAttempt.query.filter_by(user_id=user_id, course_id=course.id).all()
+        assert len(attempts) == 1
+        assert attempts[0].offering.semester_id == "2440"
+        assert attempts[0].grade_letter == "A"
+        state = UserCourseState.query.filter_by(user_id=user_id, course_id=course.id).one()
+        assert state.best_grade_letter == "A"
+
+
 def test_import_can_match_catalog_from_title_when_code_is_missing(client, app):
     _user_id, headers = create_user_and_headers(app, "import_title_user")
 

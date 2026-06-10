@@ -42,18 +42,55 @@ def _current_user_id() -> int:
 def _semester_id_from_term_label(term_label: str | None) -> str | None:
     if not term_label:
         return None
-    match = re.search(r"\b(20\d{2})-\d{2}\s+(Spring|Summer|Fall|Winter)\b", term_label, re.IGNORECASE)
+    match = re.search(r"\b(20\d{2})\s*-\s*(\d{2}|20\d{2})\s+(Spring|Summer|Fall|Winter)\b", term_label, re.IGNORECASE)
     if not match:
+        return None
+    start_year = int(match.group(1))
+    end_year = int(match.group(2)) if len(match.group(2)) == 4 else 2000 + int(match.group(2))
+    if end_year != start_year + 1:
         return None
     suffix = {
         "fall": "10",
         "winter": "20",
         "spring": "30",
         "summer": "40",
-    }.get(match.group(2).lower())
+    }.get(match.group(3).lower())
     if not suffix:
         return None
-    return f"{int(match.group(1)) % 100:02d}{suffix}"
+    return f"{start_year % 100:02d}{suffix}"
+
+
+def _import_row_key(row: dict) -> str:
+    return _compact_course_code(row.get("matched_course_code") or row.get("course_code"))
+
+
+def _dedupe_import_rows(rows: list) -> list:
+    rows_by_code = {}
+    passthrough = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        key = _import_row_key(row)
+        if key:
+            rows_by_code[key] = row
+        else:
+            passthrough.append(row)
+    return passthrough + list(rows_by_code.values())
+
+
+def _clear_existing_import_for_course(user_id: int, matched_course, normalized_code: str) -> None:
+    existing_records = UserCourseRecord.query.filter_by(user_id=user_id).all()
+    for existing in existing_records:
+        if _compact_course_code(existing.course_code) == normalized_code:
+            db.session.delete(existing)
+
+    if matched_course is None:
+        return
+
+    UserCourseAttempt.query.filter_by(user_id=user_id, course_id=matched_course.id).delete(synchronize_session=False)
+    state = UserCourseState.query.filter_by(user_id=user_id, course_id=matched_course.id).first()
+    if state is not None:
+        db.session.delete(state)
 
 
 def _upsert_course_state(user_id: int, course_id: int, status: str, source: str) -> UserCourseState:
@@ -281,7 +318,7 @@ def save_records_bulk():
     user_id = _current_user_id()
     data = request.get_json() or {}
     keep_grades = bool(data.get("keep_grades"))
-    rows = data.get("records") if isinstance(data.get("records"), list) else []
+    rows = _dedupe_import_rows(data.get("records") if isinstance(data.get("records"), list) else [])
     saved = []
 
     for row in rows:
@@ -289,6 +326,8 @@ def save_records_bulk():
         if not course_code:
             continue
         matched_course = find_course_by_normalized_code(row.get("matched_course_code") or course_code)
+        normalized_code = _import_row_key(row)
+        _clear_existing_import_for_course(user_id, matched_course, normalized_code)
         status = row.get("status") if row.get("status") in VALID_STATUSES else UserCourseRecord.STATUS_COMPLETED
         units = row.get("units")
         resolved_units = units if units is not None else (matched_course.credits if matched_course else None)
