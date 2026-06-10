@@ -350,6 +350,63 @@ def test_migrate_offerings_can_limit_to_legacy_semesters(app):
         assert CourseOffering.query.filter_by(course_id=ignored_course.id, semester_id="2530").count() == 0
 
 
+def test_packaged_legacy_scheduler_backfill_imports_tsv(app, tmp_path, monkeypatch):
+    from app.scripts import backfill_legacy_scheduler_offerings
+
+    sections_path = tmp_path / "sections.tsv"
+    lectures_path = tmp_path / "lectures.tsv"
+    sections_path.write_text(
+        "\t".join([
+            "course_code",
+            "name",
+            "bundle",
+            "quota",
+            "enrol",
+            "avail",
+            "wait",
+            "section_id",
+            "semester_id",
+            "section_type",
+            "is_main",
+            "layer",
+        ])
+        + "\n"
+        + "CDOM2440\tL01\t1\t40\t12\t28\t0\t6045\t2440\tL\tt\t0\n",
+        encoding="utf-8",
+    )
+    lectures_path.write_text(
+        "\t".join(["section_id", "id", "day", "start_time", "end_time", "room", "instructor", "semester_id"])
+        + "\n"
+        + "6045\t1\t2\t1500\t1750\tRoom 2440\tProf. Summer\t2440\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(backfill_legacy_scheduler_offerings, "LEGACY_DATA_DIR", tmp_path)
+    monkeypatch.setattr(
+        backfill_legacy_scheduler_offerings,
+        "PACKAGED_SEMESTER_FILES",
+        {"2440": ("sections.tsv", "lectures.tsv")},
+    )
+
+    with app.app_context():
+        course = Course(code="CDOM2440", name="Packaged Legacy Course", credits=3)
+        db.session.add(course)
+        db.session.commit()
+
+        dry_run = backfill_legacy_scheduler_offerings.run_backfill(semesters=["2440"], apply=False)
+        assert dry_run.scanned == 1
+        assert CourseOffering.query.count() == 0
+
+        summary = backfill_legacy_scheduler_offerings.run_backfill(semesters=["2440"], apply=True)
+        db.session.commit()
+
+        assert summary.scanned == 1
+        offering = CourseOffering.query.filter_by(course_id=course.id, semester_id="2440").one()
+        section = CourseSection.query.filter_by(offering_id=offering.id).one()
+        assert section.enrol == 12
+        assert section.avail == 28
+        assert CourseMeeting.query.filter_by(section_id=section.id).one().room == "Room 2440"
+
+
 def test_full_migration_dry_run_uses_transactional_staging_then_rolls_back(app, tmp_path, monkeypatch):
     from app.scripts import migrate_course_domain
     from app.services.course_domain_migration import MigrationSummary
