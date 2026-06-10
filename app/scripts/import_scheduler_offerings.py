@@ -485,9 +485,12 @@ def apply_offerings(snapshot: OfferingSnapshot) -> ImportPlan:
             course.subject = item.subject.upper() if item.subject else None
             course.catalog_number = item.catalog_number
             course.course_title_abbr = item.course_title_abbr
-            course.pre_requirement = item.pre_requirement
-            course.co_requirement = item.co_requirement
-            course.exclusion = item.exclusion
+            if item.pre_requirement is not None:
+                course.pre_requirement = item.pre_requirement
+            if item.co_requirement is not None:
+                course.co_requirement = item.co_requirement
+            if item.exclusion is not None:
+                course.exclusion = item.exclusion
             course.pg_course = item.pg_course
             course.klms_course = item.klms_course
             course.vector = item.vector

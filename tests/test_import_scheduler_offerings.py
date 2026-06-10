@@ -311,6 +311,41 @@ def test_build_plan_and_apply_replace_only_target_semester(app, tmp_path):
         ).one()
 
 
+def test_apply_offerings_preserves_existing_course_rules_when_snapshot_rules_are_empty(app, tmp_path):
+    snapshot = load_offerings_file(write_payload(tmp_path, {
+        "semester_id": "2530",
+        "courses": [
+            {
+                "course_code": "RULE1504",
+                "course_title": "Honors General Physics II",
+                "course_desc": "Offering description.",
+                "credit": 3,
+                "subject": "RULE",
+                "catalog_number": "1504",
+                "sections": [],
+            }
+        ],
+    }))
+
+    with app.app_context():
+        db.session.add(Course(
+            code="RULE1504",
+            name="Honors General Physics II",
+            credits=3,
+            pre_requirement="(UFUG 1501 or UFUG 1503) AND (UFUG 1102 or UFUG 1105)",
+            exclusion="UFUG 1502",
+        ))
+        db.session.commit()
+
+        apply_offerings(snapshot)
+
+        course = Course.query.filter_by(code="RULE1504").one()
+
+    assert course.pre_requirement == "(UFUG 1501 or UFUG 1503) AND (UFUG 1102 or UFUG 1105)"
+    assert course.co_requirement is None
+    assert course.exclusion == "UFUG 1502"
+
+
 def test_deploy_update_dry_run_does_not_write_database(app, tmp_path):
     path = write_payload(tmp_path, payload())
     digest = file_sha256(path)

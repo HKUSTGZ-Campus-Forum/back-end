@@ -134,3 +134,43 @@ def test_sync_course_catalog_keeps_explicit_zero_credit_courses(app):
     assert result["upserted"] == 1
     assert result["skipped"] == 0
     assert course.credits == 0
+
+
+def test_sync_course_catalog_updates_course_rules(app):
+    from app.services.course_catalog_sync import sync_course_catalog_from_payload
+
+    payload = {
+        "courses": [
+            {
+                "course_code": "RULE1504",
+                "course_title": "Honors General Physics II",
+                "credit": "3",
+                "course_desc": "Official catalog description.",
+                "pre_requirement": "(UFUG 1501 or UFUG 1503) AND (UFUG 1102 or UFUG 1105)",
+                "co_requirement": None,
+                "exclusion": "UFUG 1502",
+                "subject": "RULE",
+                "catalog_number": "1504",
+            }
+        ]
+    }
+
+    with app.app_context():
+        db.session.add(Course(
+            code="RULE1504",
+            name="Honors General Physics II",
+            credits=3,
+            is_active=True,
+            is_deleted=False,
+        ))
+        db.session.commit()
+
+        result = sync_course_catalog_from_payload(payload)
+        course = Course.query.filter_by(code="RULE1504").one()
+
+    assert result["upserted"] == 1
+    assert course.pre_requirement == "(UFUG 1501 or UFUG 1503) AND (UFUG 1102 or UFUG 1105)"
+    assert course.co_requirement is None
+    assert course.exclusion == "UFUG 1502"
+    assert course.subject == "RULE"
+    assert course.catalog_number == "1504"
