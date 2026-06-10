@@ -30,6 +30,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import Config, normalize_database_config
 from app.extensions import db
+from app import models as _models  # noqa: F401
 from app.models.course import Course
 from app.models.course_domain import CourseCatalogVersion, CourseMeeting, CourseOffering, CourseSection
 from app.models.scheduler_cart import SchedulerUserCourseCart
@@ -47,12 +48,12 @@ BUNDLED_SCHEDULER_OFFERINGS_DIR = (
 )
 BUNDLED_25_26_FALL_OFFERINGS_FILE = BUNDLED_SCHEDULER_OFFERINGS_DIR / "25-26fall.json"
 BUNDLED_25_26_FALL_SEMESTER_ID = "2510"
-BUNDLED_25_26_FALL_SHA256 = "507853bd299c25dc9e34e6f67ebd926ea86feda095d5571493eb776d36d3bb9e"
+BUNDLED_25_26_FALL_SHA256 = "fbe6d6b3f350f1a9465b5fdff7b042fd0b79e2329002548e2e6533f9874db6ce"
 BUNDLED_25_26_SUMMER_OFFERINGS_FILE = (
     BUNDLED_SCHEDULER_OFFERINGS_DIR / "25-26summer.json"
 )
 BUNDLED_25_26_SUMMER_SEMESTER_ID = "2540"
-BUNDLED_25_26_SUMMER_SHA256 = "608eefa7520497ace53a1e6f5275ca81e99b1c7d5523ee977801da0df07e2c23"
+BUNDLED_25_26_SUMMER_SHA256 = "a816790f896cd4741469ff9f7ea6b4f33568f8f6185843acad37c34a0c9d879b"
 
 # Two-deploy switch:
 #   1. Keep "dry-run", push to main, and inspect dev logs.
@@ -833,7 +834,10 @@ def run_bundled_scheduler_offering_updates(
 
 
 def create_import_app(database_url: str | None = None) -> Flask:
-    app = Flask(__name__)
+    app = Flask(
+        __name__,
+        instance_path=str(Path(__file__).resolve().parents[2] / "instance"),
+    )
     app.config.from_object(Config)
     app.config["ENABLE_BACKGROUND_TASKS"] = False
     if database_url:
