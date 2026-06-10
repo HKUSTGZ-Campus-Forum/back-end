@@ -4,7 +4,7 @@ import json
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from app.extensions import db
 from app.models.academic_map import UserCourseRecord
@@ -345,9 +345,14 @@ def _current_version_for_course(course_id: int) -> CourseCatalogVersion | None:
     )
 
 
-def migrate_offerings(*, apply: bool) -> MigrationSummary:
+def migrate_offerings(*, apply: bool, semester_ids: Iterable[str] | None = None) -> MigrationSummary:
     summary = MigrationSummary()
-    sections = SchedulerSection.query.all()
+    section_query = SchedulerSection.query
+    if semester_ids is not None:
+        normalized_semester_ids = [str(semester_id) for semester_id in semester_ids]
+        section_query = section_query.filter(SchedulerSection.semester_id.in_(normalized_semester_ids))
+
+    sections = section_query.all()
     groups: dict[tuple[int, str], list[SchedulerSection]] = {}
     for section in sections:
         groups.setdefault((section.course_id, section.semester_id), []).append(section)
