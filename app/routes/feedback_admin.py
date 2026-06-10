@@ -1,10 +1,12 @@
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
 
+from app.extensions import db
 from app.models.feedback import Feedback
 from app.models.feedback_comment import FeedbackComment
 from app.models.feedback_merge_comment import FeedbackMergeComment
 from app.models.feedback_merge_request import FeedbackMergeRequest
+from app.services.admin_audit_service import log_admin_action
 from app.services.feedback_service import FeedbackService
 from app.utils.permissions import require_admin_user
 
@@ -19,7 +21,7 @@ def _admin_guard():
     return admin_user, None
 
 
-def _feedback_action(handler, feedback_id: int):
+def _feedback_action(handler, feedback_id: int, action_name: str):
     admin_user, error = _admin_guard()
     if error:
         return error
@@ -31,17 +33,29 @@ def _feedback_action(handler, feedback_id: int):
             feedback_id=feedback_id,
             admin_user_id=admin_user.id,
             note=payload.get("note"),
+            commit=False,
         )
     except TypeError:
         feedback = handler(
             feedback_id=feedback_id,
             admin_user_id=admin_user.id,
+            commit=False,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 404
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 400
 
+    log_admin_action(
+        admin_user,
+        action_name,
+        "feedback",
+        feedback.id,
+        feedback.title,
+        payload.get("note"),
+        {"status": feedback.status},
+    )
+    db.session.commit()
     return jsonify(feedback.to_dict(include_private=True)), 200
 
 
@@ -173,25 +187,25 @@ def list_merge_requests():
 @feedback_admin_bp.route("/feedbacks/<int:feedback_id>/approve", methods=["POST"])
 @jwt_required()
 def approve_feedback(feedback_id: int):
-    return _feedback_action(FeedbackService.publish_feedback, feedback_id)
+    return _feedback_action(FeedbackService.publish_feedback, feedback_id, "feedback.approve")
 
 
 @feedback_admin_bp.route("/feedbacks/<int:feedback_id>/reject", methods=["POST"])
 @jwt_required()
 def reject_feedback(feedback_id: int):
-    return _feedback_action(FeedbackService.reject_feedback, feedback_id)
+    return _feedback_action(FeedbackService.reject_feedback, feedback_id, "feedback.reject")
 
 
 @feedback_admin_bp.route("/feedbacks/<int:feedback_id>/close", methods=["POST"])
 @jwt_required()
 def close_feedback(feedback_id: int):
-    return _feedback_action(FeedbackService.close_feedback, feedback_id)
+    return _feedback_action(FeedbackService.close_feedback, feedback_id, "feedback.close")
 
 
 @feedback_admin_bp.route("/feedbacks/<int:feedback_id>/reopen", methods=["POST"])
 @jwt_required()
 def reopen_feedback(feedback_id: int):
-    return _feedback_action(FeedbackService.reopen_feedback, feedback_id)
+    return _feedback_action(FeedbackService.reopen_feedback, feedback_id, "feedback.reopen")
 
 
 @feedback_admin_bp.route("/feedbacks/<int:feedback_id>/end-comments", methods=["POST"])
@@ -206,10 +220,21 @@ def end_feedback_comments(feedback_id: int):
             feedback_id=feedback_id,
             admin_user_id=admin_user.id,
             comments_ended=True,
+            commit=False,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 404
 
+    log_admin_action(
+        admin_user,
+        "feedback.comments_end",
+        "feedback",
+        feedback.id,
+        feedback.title,
+        None,
+        metadata={"comments_ended": True},
+    )
+    db.session.commit()
     return jsonify(feedback.to_dict(include_private=True)), 200
 
 
@@ -225,10 +250,20 @@ def resume_feedback_comments(feedback_id: int):
             feedback_id=feedback_id,
             admin_user_id=admin_user.id,
             comments_ended=False,
+            commit=False,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 404
 
+    log_admin_action(
+        admin_user,
+        "feedback.comments_resume",
+        "feedback",
+        feedback.id,
+        feedback.title,
+        metadata={"comments_ended": False},
+    )
+    db.session.commit()
     return jsonify(feedback.to_dict(include_private=True)), 200
 
 
@@ -263,6 +298,7 @@ def approve_merge_request(merge_request_id: int):
             merge_request_id=merge_request_id,
             admin_user_id=admin_user.id,
             note=payload.get("note"),
+            commit=False,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 404
@@ -270,6 +306,16 @@ def approve_merge_request(merge_request_id: int):
         return jsonify({"error": str(exc)}), 400
 
     merge_request = FeedbackMergeRequest.query.get(merge_request_id)
+    log_admin_action(
+        admin_user,
+        "feedback.merge_approve",
+        "feedback_merge_request",
+        merge_request.id,
+        merge_request.title,
+        payload.get("note"),
+        {"feedback_id": merge_request.feedback_id, "status": merge_request.status},
+    )
+    db.session.commit()
     return jsonify(merge_request.to_dict()), 200
 
 
@@ -287,12 +333,23 @@ def reject_merge_request(merge_request_id: int):
             merge_request_id=merge_request_id,
             admin_user_id=admin_user.id,
             note=payload.get("note"),
+            commit=False,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 404
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 400
 
+    log_admin_action(
+        admin_user,
+        "feedback.merge_reject",
+        "feedback_merge_request",
+        merge_request.id,
+        merge_request.title,
+        payload.get("note"),
+        {"feedback_id": merge_request.feedback_id, "status": merge_request.status},
+    )
+    db.session.commit()
     return jsonify(merge_request.to_dict()), 200
 
 
@@ -309,12 +366,23 @@ def hide_feedback_comment(comment_id: int):
             comment_id=comment_id,
             admin_user_id=admin_user.id,
             reason=str(payload.get("reason", "")),
+            commit=False,
         )
     except ValueError as exc:
         message = str(exc)
         status_code = 404 if message == "Feedback comment not found" else 400
         return jsonify({"error": message}), status_code
 
+    log_admin_action(
+        admin_user,
+        "feedback.comment_hide",
+        "feedback_comment",
+        comment.id,
+        (comment.content or "")[:255],
+        payload.get("reason"),
+        {"feedback_id": comment.feedback_id},
+    )
+    db.session.commit()
     return jsonify(comment.to_dict(viewer_user_id=admin_user.id, viewer_is_admin=True)), 200
 
 
@@ -331,10 +399,21 @@ def hide_feedback_merge_comment(comment_id: int):
             comment_id=comment_id,
             admin_user_id=admin_user.id,
             reason=str(payload.get("reason", "")),
+            commit=False,
         )
     except ValueError as exc:
         message = str(exc)
         status_code = 404 if message == "Merge request comment not found" else 400
         return jsonify({"error": message}), status_code
 
+    log_admin_action(
+        admin_user,
+        "feedback.merge_comment_hide",
+        "feedback_merge_comment",
+        comment.id,
+        (comment.content or "")[:255],
+        payload.get("reason"),
+        {"merge_request_id": comment.merge_request_id, "feedback_id": comment.merge_request.feedback_id},
+    )
+    db.session.commit()
     return jsonify(comment.to_dict(viewer_user_id=admin_user.id, viewer_is_admin=True)), 200

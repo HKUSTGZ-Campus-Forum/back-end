@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
@@ -26,6 +26,7 @@ from app.models.user import User
 from app.models.user_identity import UserIdentity
 from app.models.user_profile import UserProfile
 from app.models.user_role import UserRole
+from app.services.admin_audit_service import log_admin_action
 from app.utils.permissions import require_admin_user
 
 
@@ -59,20 +60,6 @@ def _count(query):
 
 def _status_counts(model, column, statuses):
     return {status: model.query.filter(column == status).count() for status in statuses}
-
-
-def _log_admin_action(actor, action, target_type, target_id=None, target_label=None, note=None, metadata=None):
-    log = AdminAuditLog(
-        actor_user_id=actor.id if actor else None,
-        action=action,
-        target_type=target_type,
-        target_id=target_id,
-        target_label=target_label,
-        note=note,
-        metadata_json=metadata or {},
-    )
-    db.session.add(log)
-    return log
 
 
 def _user_summary(user):
@@ -122,6 +109,39 @@ def _comment_summary(comment):
     }
 
 
+def _gugu_summary(message):
+    return {
+        "id": message.id,
+        "author_id": message.author_id,
+        "author": message.author.username if message.author else None,
+        "content": message.content,
+        "reply_to_message_id": message.reply_to_message_id,
+        "is_deleted": message.is_deleted,
+        "deleted_at": message.deleted_at.isoformat() if message.deleted_at else None,
+        "created_at": message.created_at.isoformat() if message.created_at else None,
+        "updated_at": message.updated_at.isoformat() if message.updated_at else None,
+    }
+
+
+def _file_summary(file_record):
+    return {
+        "id": file_record.id,
+        "user_id": file_record.user_id,
+        "owner": file_record.owner.username if file_record.owner else None,
+        "original_filename": file_record.original_filename,
+        "file_size": file_record.file_size,
+        "mime_type": file_record.mime_type,
+        "status": file_record.status,
+        "file_type": file_record.file_type,
+        "entity_type": file_record.entity_type,
+        "entity_id": file_record.entity_id,
+        "is_deleted": file_record.is_deleted,
+        "deleted_at": file_record.deleted_at.isoformat() if file_record.deleted_at else None,
+        "created_at": file_record.created_at.isoformat() if file_record.created_at else None,
+        "updated_at": file_record.updated_at.isoformat() if file_record.updated_at else None,
+    }
+
+
 def _content_summary():
     return {
         "posts": {
@@ -145,7 +165,28 @@ def _content_summary():
         },
         "gugu": {
             "messages": _count(GuguMessage.query),
+            "active": _count(GuguMessage.query.filter_by(is_deleted=False)),
+            "deleted": _count(GuguMessage.query.filter_by(is_deleted=True)),
         },
+    }
+
+
+def _courses_summary():
+    return {
+        "courses": _count(Course.query),
+        "active_courses": _count(Course.query.filter_by(is_active=True, is_deleted=False)),
+        "offerings": _count(CourseOffering.query),
+        "sections": _count(CourseSection.query),
+        "meetings": _count(CourseMeeting.query),
+    }
+
+
+def _matching_summary():
+    return {
+        "projects": _count(Project.query),
+        "active_projects": _count(Project.query.filter_by(is_deleted=False)),
+        "profiles": _count(UserProfile.query),
+        "active_profiles": _count(UserProfile.query.filter_by(is_active=True)),
     }
 
 
@@ -191,20 +232,9 @@ def _overview_metrics():
             "requests": _count(UserIdentity.query),
             **_status_counts(UserIdentity, UserIdentity.status, identity_statuses),
         },
-        "courses": {
-            "courses": _count(Course.query),
-            "active_courses": _count(Course.query.filter_by(is_active=True, is_deleted=False)),
-            "offerings": _count(CourseOffering.query),
-            "sections": _count(CourseSection.query),
-            "meetings": _count(CourseMeeting.query),
-        },
+        "courses": _courses_summary(),
         "academic_map": _academic_map_summary(),
-        "matching": {
-            "projects": _count(Project.query),
-            "active_projects": _count(Project.query.filter_by(is_deleted=False)),
-            "profiles": _count(UserProfile.query),
-            "active_profiles": _count(UserProfile.query.filter_by(is_active=True)),
-        },
+        "matching": _matching_summary(),
         "contest": _contest_summary(),
         "operations": _operations_summary(),
     }
@@ -253,6 +283,87 @@ def _operations_summary():
     }
 
 
+def _parse_trend_days():
+    try:
+        days = int(request.args.get("days", 30))
+    except (TypeError, ValueError):
+        return None, (jsonify({"error": "Invalid days"}), 400)
+    if days not in {7, 30}:
+        return None, (jsonify({"error": "days must be 7 or 30"}), 400)
+    return days, None
+
+
+def _date_bucket_counts(model, created_column, start_at):
+    rows = (
+        db.session.query(func.date(created_column), func.count(model.id))
+        .filter(created_column >= start_at)
+        .group_by(func.date(created_column))
+        .all()
+    )
+    return {str(day): int(count) for day, count in rows}
+
+
+def _overview_trends(days):
+    from app.models.academic_map import UserCourseRecord
+
+    today = datetime.now(timezone.utc).date()
+    start_date = today - timedelta(days=days - 1)
+    start_at = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
+    series = {
+        "users": _date_bucket_counts(User, User.created_at, start_at),
+        "posts": _date_bucket_counts(Post, Post.created_at, start_at),
+        "comments": _date_bucket_counts(Comment, Comment.created_at, start_at),
+        "feedbacks": _date_bucket_counts(Feedback, Feedback.created_at, start_at),
+        "identity_requests": _date_bucket_counts(UserIdentity, UserIdentity.created_at, start_at),
+        "course_records": _date_bucket_counts(UserCourseRecord, UserCourseRecord.created_at, start_at),
+        "projects": _date_bucket_counts(Project, Project.created_at, start_at),
+        "files": _date_bucket_counts(File, File.created_at, start_at),
+    }
+
+    rows = []
+    for offset in range(days):
+        day = (start_date + timedelta(days=offset)).isoformat()
+        row = {"date": day}
+        for key, counts in series.items():
+            row[key] = counts.get(day, 0)
+        rows.append(row)
+    return {"days": days, "items": rows}
+
+
+def _admin_summary_response(summary_builder):
+    _admin_user, error = _admin_guard()
+    if error:
+        return error
+    return jsonify(summary_builder()), 200
+
+
+def _active_admin_count(exclude_user_id=None):
+    query = User.query.join(UserRole).filter(
+        UserRole.name == UserRole.ADMIN,
+        User.is_deleted.is_(False),
+    )
+    if exclude_user_id is not None:
+        query = query.filter(User.id != exclude_user_id)
+    return query.count()
+
+
+def _ensure_user_admin_mutation_allowed(admin_user, target, requested_role_name=None, deleting=False):
+    if target.id == admin_user.id and deleting:
+        return jsonify({"error": "Admins cannot delete their own account"}), 400
+
+    target_is_admin = target.get_role_name() == UserRole.ADMIN
+    demoting_admin = target_is_admin and requested_role_name and requested_role_name != UserRole.ADMIN
+    deleting_admin = target_is_admin and deleting
+
+    if deleting_admin and target.id != admin_user.id:
+        return jsonify({"error": "Admin accounts cannot be deleted from this console"}), 400
+
+    if (demoting_admin or deleting_admin) and _active_admin_count(exclude_user_id=target.id) == 0:
+        return jsonify({"error": "At least one active admin is required"}), 400
+
+    return None
+
+
 @admin_bp.route("/overview", methods=["GET"])
 @jwt_required()
 def overview():
@@ -271,6 +382,19 @@ def overview():
         "pending": pending,
         "recent_activity": [log.to_dict() for log in recent_logs],
     }), 200
+
+
+@admin_bp.route("/overview/trends", methods=["GET"])
+@jwt_required()
+def overview_trends():
+    admin_user, error = _admin_guard()
+    if error:
+        return error
+
+    days, days_error = _parse_trend_days()
+    if days_error:
+        return days_error
+    return jsonify(_overview_trends(days)), 200
 
 
 @admin_bp.route("/audit-logs", methods=["GET"])
@@ -374,8 +498,16 @@ def update_user_role(user_id):
         return jsonify({"error": "User not found"}), 404
 
     old_role = target.get_role_name()
+    safety_error = _ensure_user_admin_mutation_allowed(
+        admin_user,
+        target,
+        requested_role_name=role.name,
+    )
+    if safety_error:
+        return safety_error
+
     target.role_id = role.id
-    _log_admin_action(
+    log_admin_action(
         admin_user,
         "user.role_update",
         "user",
@@ -398,9 +530,12 @@ def delete_user(user_id):
     target = User.query.get(user_id)
     if target is None:
         return jsonify({"error": "User not found"}), 404
+    safety_error = _ensure_user_admin_mutation_allowed(admin_user, target, deleting=True)
+    if safety_error:
+        return safety_error
     target.is_deleted = True
     target.deleted_at = datetime.now(timezone.utc)
-    _log_admin_action(admin_user, "user.delete", "user", target.id, target.username, payload.get("note"))
+    log_admin_action(admin_user, "user.delete", "user", target.id, target.username, payload.get("note"))
     db.session.commit()
     return jsonify({"user": _user_summary(target)}), 200
 
@@ -417,7 +552,7 @@ def restore_user(user_id):
         return jsonify({"error": "User not found"}), 404
     target.is_deleted = False
     target.deleted_at = None
-    _log_admin_action(admin_user, "user.restore", "user", target.id, target.username, payload.get("note"))
+    log_admin_action(admin_user, "user.restore", "user", target.id, target.username, payload.get("note"))
     db.session.commit()
     return jsonify({"user": _user_summary(target)}), 200
 
@@ -429,6 +564,30 @@ def content_summary():
     if error:
         return error
     return jsonify(_content_summary()), 200
+
+
+@admin_bp.route("/courses/summary", methods=["GET"])
+@jwt_required()
+def courses_summary():
+    return _admin_summary_response(_courses_summary)
+
+
+@admin_bp.route("/matching/summary", methods=["GET"])
+@jwt_required()
+def matching_summary():
+    return _admin_summary_response(_matching_summary)
+
+
+@admin_bp.route("/contest/summary", methods=["GET"])
+@jwt_required()
+def contest_summary():
+    return _admin_summary_response(_contest_summary)
+
+
+@admin_bp.route("/operations/summary", methods=["GET"])
+@jwt_required()
+def operations_summary():
+    return _admin_summary_response(_operations_summary)
 
 
 @admin_bp.route("/content/posts", methods=["GET"])
@@ -484,6 +643,65 @@ def list_comments():
     }), 200
 
 
+@admin_bp.route("/content/gugu", methods=["GET"])
+@jwt_required()
+def list_gugu_messages():
+    admin_user, error = _admin_guard()
+    if error:
+        return error
+    page, per_page, pagination_error = _pagination_args()
+    if pagination_error:
+        return pagination_error
+    query = GuguMessage.query
+    search = request.args.get("search")
+    deleted = request.args.get("deleted")
+    if search:
+        query = query.filter(GuguMessage.content.ilike(f"%{search.strip()}%"))
+    if deleted in {"true", "false"}:
+        query = query.filter(GuguMessage.is_deleted == (deleted == "true"))
+    pagination = query.order_by(GuguMessage.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    return jsonify({
+        "gugu": [_gugu_summary(message) for message in pagination.items],
+        "total": pagination.total,
+        "page": page,
+        "pages": pagination.pages,
+        "per_page": per_page,
+    }), 200
+
+
+@admin_bp.route("/content/files", methods=["GET"])
+@jwt_required()
+def list_files():
+    admin_user, error = _admin_guard()
+    if error:
+        return error
+    page, per_page, pagination_error = _pagination_args()
+    if pagination_error:
+        return pagination_error
+    query = File.query
+    search = request.args.get("search")
+    deleted = request.args.get("deleted")
+    status = request.args.get("status")
+    file_type = request.args.get("file_type")
+    if search:
+        pattern = f"%{search.strip()}%"
+        query = query.filter(or_(File.original_filename.ilike(pattern), File.object_name.ilike(pattern)))
+    if deleted in {"true", "false"}:
+        query = query.filter(File.is_deleted == (deleted == "true"))
+    if status:
+        query = query.filter(File.status == status)
+    if file_type:
+        query = query.filter(File.file_type == file_type)
+    pagination = query.order_by(File.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    return jsonify({
+        "files": [_file_summary(file_record) for file_record in pagination.items],
+        "total": pagination.total,
+        "page": page,
+        "pages": pagination.pages,
+        "per_page": per_page,
+    }), 200
+
+
 def _soft_delete_record(model, record_id, deleted, action_name, target_type, serializer):
     admin_user, error = _admin_guard()
     if error:
@@ -495,7 +713,7 @@ def _soft_delete_record(model, record_id, deleted, action_name, target_type, ser
     record.is_deleted = deleted
     record.deleted_at = datetime.now(timezone.utc) if deleted else None
     target_label = getattr(record, "title", None) or getattr(record, "content", None)
-    _log_admin_action(
+    log_admin_action(
         admin_user,
         action_name,
         target_type,
@@ -505,6 +723,28 @@ def _soft_delete_record(model, record_id, deleted, action_name, target_type, ser
     )
     db.session.commit()
     return jsonify({target_type: serializer(record)}), 200
+
+
+def _set_gugu_deleted(message_id, deleted):
+    admin_user, error = _admin_guard()
+    if error:
+        return error
+    payload = request.get_json(silent=True) or {}
+    message = GuguMessage.query.get(message_id)
+    if message is None:
+        return jsonify({"error": "Gugu message not found"}), 404
+    message.is_deleted = deleted
+    message.deleted_at = datetime.now(timezone.utc) if deleted else None
+    log_admin_action(
+        admin_user,
+        "content.gugu_delete" if deleted else "content.gugu_restore",
+        "gugu_message",
+        message.id,
+        (message.content or "")[:255],
+        payload.get("note"),
+    )
+    db.session.commit()
+    return jsonify({"gugu": _gugu_summary(message)}), 200
 
 
 @admin_bp.route("/content/posts/<int:post_id>/delete", methods=["POST"])
@@ -529,3 +769,27 @@ def delete_comment(comment_id):
 @jwt_required()
 def restore_comment(comment_id):
     return _soft_delete_record(Comment, comment_id, False, "content.comment_restore", "comment", _comment_summary)
+
+
+@admin_bp.route("/content/gugu/<int:message_id>/delete", methods=["POST"])
+@jwt_required()
+def delete_gugu_message(message_id):
+    return _set_gugu_deleted(message_id, True)
+
+
+@admin_bp.route("/content/gugu/<int:message_id>/restore", methods=["POST"])
+@jwt_required()
+def restore_gugu_message(message_id):
+    return _set_gugu_deleted(message_id, False)
+
+
+@admin_bp.route("/content/files/<int:file_id>/delete", methods=["POST"])
+@jwt_required()
+def delete_file(file_id):
+    return _soft_delete_record(File, file_id, True, "content.file_delete", "file", _file_summary)
+
+
+@admin_bp.route("/content/files/<int:file_id>/restore", methods=["POST"])
+@jwt_required()
+def restore_file(file_id):
+    return _soft_delete_record(File, file_id, False, "content.file_restore", "file", _file_summary)

@@ -9,6 +9,7 @@ from sqlalchemy.ext.compiler import compiles
 from app import create_app
 from app.config import Config
 from app.extensions import db
+from app.models.admin_audit_log import AdminAuditLog
 from app.models.feedback import Feedback
 from app.models.feedback_comment import FeedbackComment
 from app.models.feedback_merge_request import FeedbackMergeRequest
@@ -144,6 +145,7 @@ def test_admin_can_publish_pending_feedback(app, client):
 
     assert response.status_code == 200
     assert payload["status"] == Feedback.STATUS_PUBLISHED
+    assert AdminAuditLog.query.filter_by(action="feedback.approve", target_id=owner.id).count() == 1
 
 
 def test_admin_can_approve_author_accepted_merge_request(app, client):
@@ -174,6 +176,10 @@ def test_admin_can_approve_author_accepted_merge_request(app, client):
     assert response.status_code == 200
     assert payload["status"] == FeedbackMergeRequest.STATUS_MERGED
     assert payload["merged_version_id"] is not None
+    assert AdminAuditLog.query.filter_by(
+        action="feedback.merge_approve",
+        target_id=merge_request.id,
+    ).count() == 1
 
 
 def test_admin_can_close_feedback(app, client):
@@ -247,6 +253,10 @@ def test_admin_can_hide_feedback_comment(app, client):
     assert response.status_code == 200
     assert payload["visibility"] == FeedbackComment.VISIBILITY_HIDDEN
     assert payload["hidden_reason"] == "personal attack"
+    assert AdminAuditLog.query.filter_by(
+        action="feedback.comment_hide",
+        target_id=comment.id,
+    ).count() == 1
 
 
 def test_admin_can_list_feedbacks_by_status(app, client):

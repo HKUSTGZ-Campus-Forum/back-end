@@ -9,6 +9,7 @@ from app import create_app
 from app.config import Config
 from app.extensions import db
 from app.models.comment import Comment
+from app.models.admin_audit_log import AdminAuditLog
 from app.models.feedback import Feedback
 from app.models.feedback_merge_request import FeedbackMergeRequest
 from app.models.feedback_version import FeedbackVersion
@@ -83,6 +84,39 @@ def create_user(username: str, role_name: str = UserRole.USER) -> User:
 def auth_headers(user_id: int) -> dict[str, str]:
     token = create_access_token(identity=str(user_id))
     return {"Authorization": f"Bearer {token}"}
+
+
+SUMMARY_ENDPOINTS = [
+    (
+        "/admin/courses/summary",
+        "courses",
+        {"courses", "active_courses", "offerings", "sections", "meetings"},
+    ),
+    (
+        "/admin/matching/summary",
+        "matching",
+        {"projects", "active_projects", "profiles", "active_profiles"},
+    ),
+    (
+        "/admin/contest/summary",
+        "contest",
+        {"contests", "active_contests", "organizers", "submissions"},
+    ),
+    (
+        "/admin/operations/summary",
+        "operations",
+        {
+            "files",
+            "sts_tokens",
+            "valid_sts_tokens",
+            "oauth_clients",
+            "oauth_tokens",
+            "notifications",
+            "unread_notifications",
+            "push_subscriptions",
+        },
+    ),
+]
 
 
 def create_feedback(author: User, status: str = Feedback.STATUS_PENDING_REVIEW) -> Feedback:
@@ -167,12 +201,67 @@ def test_admin_overview_returns_full_site_metrics(app, client):
     assert "operations" in payload["metrics"]
 
 
+def test_admin_overview_trends_returns_daily_campus_metrics(app, client):
+    with app.app_context():
+        admin, _user, _post, _comment = seed_admin_console_data()
+        response = client.get("/admin/overview/trends?days=7", headers=auth_headers(admin.id))
+        payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["days"] == 7
+    assert len(payload["items"]) == 7
+    assert {
+        "date",
+        "users",
+        "posts",
+        "comments",
+        "feedbacks",
+        "identity_requests",
+        "course_records",
+        "projects",
+        "files",
+    }.issubset(payload["items"][0].keys())
+
+
+def test_admin_overview_trends_rejects_unsupported_days(app, client):
+    with app.app_context():
+        admin = create_user("trend_admin", UserRole.ADMIN)
+        response = client.get("/admin/overview/trends?days=14", headers=auth_headers(admin.id))
+
+    assert response.status_code == 400
+
+
 def test_non_admin_cannot_access_admin_overview(app, client):
     with app.app_context():
         user = create_user("regular_console_user")
         response = client.get("/admin/overview", headers=auth_headers(user.id))
 
     assert response.status_code == 403
+
+
+@pytest.mark.parametrize("endpoint, _metric_key, _expected_keys", SUMMARY_ENDPOINTS)
+def test_non_admin_cannot_access_admin_summary_endpoints(app, client, endpoint, _metric_key, _expected_keys):
+    with app.app_context():
+        user = create_user("regular_summary_user")
+        response = client.get(endpoint, headers=auth_headers(user.id))
+
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize("endpoint, metric_key, expected_keys", SUMMARY_ENDPOINTS)
+def test_admin_summary_endpoints_match_overview_metric_shape(app, client, endpoint, metric_key, expected_keys):
+    with app.app_context():
+        admin, _user, _post, _comment = seed_admin_console_data()
+        summary_response = client.get(endpoint, headers=auth_headers(admin.id))
+        overview_response = client.get("/admin/overview", headers=auth_headers(admin.id))
+        summary_payload = summary_response.get_json()
+        overview_payload = overview_response.get_json()
+
+    assert summary_response.status_code == 200
+    assert overview_response.status_code == 200
+    assert set(summary_payload.keys()) == expected_keys
+    assert summary_payload == overview_payload["metrics"][metric_key]
+    assert all(isinstance(value, int) for value in summary_payload.values())
 
 
 def test_admin_can_list_users_and_change_role_with_audit_log(app, client):
@@ -199,32 +288,137 @@ def test_admin_can_list_users_and_change_role_with_audit_log(app, client):
     assert audit_payload["logs"][0]["target_id"] == user.id
 
 
+def test_admin_user_management_protects_admin_accounts(app, client):
+    with app.app_context():
+        admin = create_user("only_admin", UserRole.ADMIN)
+        moderator_role = UserRole.query.filter_by(name=UserRole.MODERATOR).first()
+        if moderator_role is None:
+            moderator_role = UserRole(name=UserRole.MODERATOR, description="moderator role")
+            db.session.add(moderator_role)
+            db.session.commit()
+
+        demote_response = client.post(
+            f"/admin/users/{admin.id}/role",
+            json={"role_name": UserRole.MODERATOR},
+            headers=auth_headers(admin.id),
+        )
+        self_delete_response = client.post(
+            f"/admin/users/{admin.id}/delete",
+            headers=auth_headers(admin.id),
+        )
+
+    assert demote_response.status_code == 400
+    assert self_delete_response.status_code == 400
+
+
 def test_admin_can_soft_delete_and_restore_content(app, client):
     with app.app_context():
         admin, _user, post, comment = seed_admin_console_data()
+        post_id = post.id
+        comment_id = comment.id
         delete_post_response = client.post(
-            f"/admin/content/posts/{post.id}/delete",
+            f"/admin/content/posts/{post_id}/delete",
             json={"note": "duplicate"},
             headers=auth_headers(admin.id),
         )
+        public_deleted_post_response = client.get(f"/posts/{post_id}")
+        public_deleted_post_comments_response = client.get(f"/comments/post/{post_id}")
         restore_post_response = client.post(
-            f"/admin/content/posts/{post.id}/restore",
+            f"/admin/content/posts/{post_id}/restore",
             headers=auth_headers(admin.id),
         )
         delete_comment_response = client.post(
-            f"/admin/content/comments/{comment.id}/delete",
+            f"/admin/content/comments/{comment_id}/delete",
             json={"note": "off topic"},
             headers=auth_headers(admin.id),
         )
+        public_post_response = client.get(f"/posts/{post_id}")
+        public_comment_response = client.get(f"/comments/{comment_id}")
         summary_response = client.get("/admin/content/summary", headers=auth_headers(admin.id))
         summary_payload = summary_response.get_json()
 
     assert delete_post_response.status_code == 200
     assert delete_post_response.get_json()["post"]["is_deleted"] is True
+    assert public_deleted_post_response.status_code == 404
+    assert public_deleted_post_comments_response.status_code == 404
     assert restore_post_response.status_code == 200
     assert restore_post_response.get_json()["post"]["is_deleted"] is False
     assert delete_comment_response.status_code == 200
     assert delete_comment_response.get_json()["comment"]["is_deleted"] is True
+    assert public_post_response.status_code == 200
+    assert public_post_response.get_json()["comments_list"] == []
+    assert public_comment_response.status_code == 404
     assert summary_response.status_code == 200
     assert summary_payload["posts"]["total"] == 1
     assert summary_payload["comments"]["deleted"] == 1
+
+
+def test_soft_deleted_gugu_parent_is_not_exposed_in_public_reply(app, client):
+    with app.app_context():
+        admin = create_user("gugu_parent_admin", UserRole.ADMIN)
+        user = create_user("gugu_parent_user")
+        parent = GuguMessage(author_id=user.id, content="hidden parent")
+        db.session.add(parent)
+        db.session.flush()
+        reply = GuguMessage(
+            author_id=user.id,
+            content="visible reply",
+            reply_to_message_id=parent.id,
+        )
+        db.session.add(reply)
+        db.session.commit()
+
+        delete_parent_response = client.post(
+            f"/admin/content/gugu/{parent.id}/delete",
+            json={"note": "hide quoted context"},
+            headers=auth_headers(admin.id),
+        )
+        public_messages_response = client.get("/gugu/messages")
+        messages = public_messages_response.get_json()["messages"]
+
+    assert delete_parent_response.status_code == 200
+    assert public_messages_response.status_code == 200
+    assert [message["id"] for message in messages] == [reply.id]
+    assert "reply_to" not in messages[0]
+
+
+def test_admin_can_list_and_soft_delete_gugu_and_files(app, client):
+    with app.app_context():
+        admin, user, _post, _comment = seed_admin_console_data()
+        gugu = GuguMessage.query.filter_by(author_id=user.id).first()
+        file_record = File.query.filter_by(user_id=user.id).first()
+        gugu_id = gugu.id
+        file_id = file_record.id
+
+        gugu_list_response = client.get("/admin/content/gugu", headers=auth_headers(admin.id))
+        file_list_response = client.get("/admin/content/files", headers=auth_headers(admin.id))
+        delete_gugu_response = client.post(
+            f"/admin/content/gugu/{gugu_id}/delete",
+            json={"note": "campus moderation"},
+            headers=auth_headers(admin.id),
+        )
+        delete_file_response = client.post(
+            f"/admin/content/files/{file_id}/delete",
+            json={"note": "invalid upload"},
+            headers=auth_headers(admin.id),
+        )
+        restore_gugu_response = client.post(
+            f"/admin/content/gugu/{gugu_id}/restore",
+            headers=auth_headers(admin.id),
+        )
+        audit_count = AdminAuditLog.query.filter(AdminAuditLog.action.in_([
+            "content.gugu_delete",
+            "content.file_delete",
+        ])).count()
+
+    assert gugu_list_response.status_code == 200
+    assert gugu_list_response.get_json()["gugu"][0]["id"] == gugu_id
+    assert file_list_response.status_code == 200
+    assert file_list_response.get_json()["files"][0]["id"] == file_id
+    assert delete_gugu_response.status_code == 200
+    assert delete_gugu_response.get_json()["gugu"]["is_deleted"] is True
+    assert delete_file_response.status_code == 200
+    assert delete_file_response.get_json()["file"]["is_deleted"] is True
+    assert restore_gugu_response.status_code == 200
+    assert restore_gugu_response.get_json()["gugu"]["is_deleted"] is False
+    assert audit_count == 2

@@ -371,7 +371,7 @@ def _seed_dev_feedback():
 
 
 def _auto_migrate_gugu_reply_columns():
-    """启动时自动补齐 gugu_messages.reply_to_message_id，兼容本地旧库。"""
+    """启动时自动补齐 gugu_messages 管理字段，兼容本地旧库。"""
     from sqlalchemy import inspect, text
     try:
         inspector = inspect(db.engine)
@@ -379,12 +379,22 @@ def _auto_migrate_gugu_reply_columns():
             return
 
         existing = {c['name'] for c in inspector.get_columns('gugu_messages')}
-        if 'reply_to_message_id' not in existing:
-            with db.engine.connect() as conn:
+        with db.engine.connect() as conn:
+            if 'reply_to_message_id' not in existing:
                 conn.execute(text(
                     "ALTER TABLE gugu_messages ADD COLUMN reply_to_message_id INTEGER"
                 ))
-                conn.commit()
+            if 'is_deleted' not in existing:
+                conn.execute(text(
+                    "ALTER TABLE gugu_messages ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT false"
+                    if db.engine.dialect.name == 'postgresql'
+                    else "ALTER TABLE gugu_messages ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT 0"
+                ))
+            if 'deleted_at' not in existing:
+                conn.execute(text(
+                    "ALTER TABLE gugu_messages ADD COLUMN deleted_at TIMESTAMP"
+                ))
+            conn.commit()
     except Exception:
         db.session.rollback()
 
