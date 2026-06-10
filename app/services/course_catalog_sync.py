@@ -56,12 +56,22 @@ def sync_course_catalog_from_payload(payload: dict[str, Any]) -> dict[str, int]:
 
         for matched_course in matching_courses or [course]:
             matched_course.name = name
+            matched_course.canonical_title = name
             if credits is not None:
                 matched_course.credits = credits
             matched_course.is_active = True
             matched_course.is_deleted = False
             matched_course.deleted_at = None
             matched_course.description = item.get("course_desc")
+            matched_course.subject = item.get("subject") or matched_course.subject
+            matched_course.catalog_number = item.get("catalog_number") or matched_course.catalog_number
+            matched_course.course_title_abbr = item.get("course_title_abbr")
+            matched_course.pre_requirement = item.get("pre_requirement")
+            matched_course.co_requirement = item.get("co_requirement")
+            matched_course.exclusion = item.get("exclusion")
+            matched_course.pg_course = bool(item.get("pg_course", False))
+            matched_course.klms_course = bool(item.get("klms_course", False))
+            matched_course.vector = item.get("vector")
         upserted += 1
 
     db.session.commit()
