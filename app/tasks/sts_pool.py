@@ -34,6 +34,10 @@ def init_pool_maintenance(app):
     """
     global unified_scheduler
 
+    if not app.config.get('ENABLE_BACKGROUND_TASKS', True):
+        app.logger.info("Background task scheduler disabled by configuration.")
+        return
+
     if not unified_scheduler.running:
         # Add STS pool maintenance job
         unified_scheduler.add_job(

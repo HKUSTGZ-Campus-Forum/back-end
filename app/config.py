@@ -80,7 +80,7 @@ class Config:
     REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
     
     # Cache Configuration
-    CACHE_TYPE = 'redis'
+    CACHE_TYPE = os.getenv('CACHE_TYPE', 'redis')
     CACHE_REDIS_URL = REDIS_URL
     CACHE_DEFAULT_TIMEOUT = 2700  # 45 minutes (45*60 seconds)
     

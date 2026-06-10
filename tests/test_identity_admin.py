@@ -8,6 +8,7 @@ from sqlalchemy.ext.compiler import compiles
 from app import create_app
 from app.config import Config
 from app.extensions import db
+from app.models.admin_audit_log import AdminAuditLog
 from app.models.file import File
 from app.models.identity_type import IdentityType
 from app.models.user import User
@@ -124,13 +125,12 @@ def test_admin_can_list_identity_requests_across_all_statuses(app, client):
         rejected.id,
         revoked.id,
     }
-    assert payload["counts"] == {
-        "pending": 1,
-        "approved": 1,
-        "rejected": 1,
-        "revoked": 1,
-        "total": 4,
-    }
+    assert payload["counts"]["pending"] == 1
+    assert payload["counts"]["approved"] == 1
+    assert payload["counts"]["rejected"] == 1
+    assert payload["counts"]["revoked"] == 1
+    assert payload["counts"]["total"] == 4
+    assert payload["counts"]["by_type"]["Professor"] == 4
 
 
 def test_admin_can_filter_identity_requests_by_status(app, client):
@@ -151,6 +151,20 @@ def test_admin_can_filter_identity_requests_by_status(app, client):
     assert [item["id"] for item in payload["requests"]] == [approved.id]
     assert payload["total"] == 1
     assert payload["counts"]["total"] == 2
+
+
+def test_admin_identity_requests_are_available_under_admin_namespace(app, client):
+    with app.app_context():
+        admin = create_user("identity_namespace_admin", role_name=UserRole.ADMIN)
+        identity_type = create_identity_type()
+        pending = create_identity(create_user("namespace_pending_user"), identity_type, UserIdentity.PENDING)
+        db.session.commit()
+
+        response = client.get("/admin/identity/requests", headers=auth_headers(admin.id))
+        payload = response.get_json()
+
+    assert response.status_code == 200
+    assert [item["id"] for item in payload["requests"]] == [pending.id]
 
 
 def test_admin_identity_list_includes_document_view_metadata(app, client):
@@ -205,3 +219,26 @@ def test_non_admin_cannot_list_identity_requests(app, client):
         response = client.get("/identities/admin/requests", headers=auth_headers(user.id))
 
     assert response.status_code == 403
+
+
+def test_admin_identity_actions_write_unified_audit_logs(app, client):
+    with app.app_context():
+        admin = create_user("identity_action_admin", role_name=UserRole.ADMIN)
+        identity_type = create_identity_type()
+        identity = create_identity(create_user("identity_action_user"), identity_type, UserIdentity.PENDING)
+        db.session.commit()
+
+        approve_response = client.post(
+            f"/admin/identity/{identity.id}/approve",
+            json={"notes": "verified from campus document"},
+            headers=auth_headers(admin.id),
+        )
+        audit_log = AdminAuditLog.query.filter_by(
+            action="identity.approve",
+            target_id=identity.id,
+        ).first()
+
+    assert approve_response.status_code == 200
+    assert approve_response.get_json()["verification"]["status"] == UserIdentity.APPROVED
+    assert audit_log is not None
+    assert audit_log.metadata_json["user_id"] == identity.user_id

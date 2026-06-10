@@ -26,12 +26,16 @@ def get_comments():
     post_id = request.args.get('post_id', type=int)
     
     # Start building the query
-    query = Comment.query.filter_by(is_deleted=False)
+    query = Comment.query.join(Post, Comment.post_id == Post.id).filter(
+        Comment.is_deleted == False,
+        Post.is_deleted == False,
+    )
     
     # Apply filters
     if user_id:
         query = query.filter(Comment.user_id == user_id)
     if post_id:
+        Post.query.filter_by(id=post_id, is_deleted=False).first_or_404()
         query = query.filter(Comment.post_id == post_id)
     
     # Order by creation date (newest first)
@@ -87,12 +91,12 @@ def create_comment():
             }), 400
         
         # Check if post exists
-        post = Post.query.get_or_404(data['post_id'])
+        post = Post.query.filter_by(id=data['post_id'], is_deleted=False).first_or_404()
         
         # Check parent comment if provided
         parent_comment_id = data.get('parent_comment_id')
         if parent_comment_id:
-            parent_comment = Comment.query.get_or_404(parent_comment_id)
+            parent_comment = Comment.query.filter_by(id=parent_comment_id, is_deleted=False).first_or_404()
             # Ensure parent comment belongs to the same post
             if parent_comment.post_id != post.id:
                 return jsonify({"error": "Parent comment does not belong to the specified post"}), 400
@@ -147,13 +151,21 @@ def create_comment():
 @bp.route('/<int:comment_id>', methods=['GET'])
 # @limiter.limit("60 per minute")
 def get_comment(comment_id):
-    comment = Comment.query.get_or_404(comment_id)
+    comment = (
+        Comment.query.join(Post, Comment.post_id == Post.id)
+        .filter(Comment.id == comment_id, Comment.is_deleted == False, Post.is_deleted == False)
+        .first_or_404()
+    )
     include_replies = request.args.get('include_replies', 'false').lower() == 'true'
     
     result = comment.to_dict()
     
     if include_replies:
-        result['replies'] = [reply.to_dict() for reply in comment.replies.filter_by(is_deleted=False)]
+        result['replies'] = [
+            reply.to_dict()
+            for reply in comment.replies.filter_by(is_deleted=False)
+            if not reply.post.is_deleted
+        ]
     
     return jsonify(result), 200
 
@@ -163,7 +175,11 @@ def get_comment(comment_id):
 # @limiter.limit("20 per minute")
 def update_comment(comment_id):
     try:
-        comment = Comment.query.get_or_404(comment_id)
+        comment = (
+            Comment.query.join(Post, Comment.post_id == Post.id)
+            .filter(Comment.id == comment_id, Comment.is_deleted == False, Post.is_deleted == False)
+            .first_or_404()
+        )
         current_user_id = get_jwt_identity()
         
         # Check permissions
@@ -192,7 +208,11 @@ def update_comment(comment_id):
 # @limiter.limit("10 per minute")
 def delete_comment(comment_id):
     try:
-        comment = Comment.query.get_or_404(comment_id)
+        comment = (
+            Comment.query.join(Post, Comment.post_id == Post.id)
+            .filter(Comment.id == comment_id, Comment.is_deleted == False, Post.is_deleted == False)
+            .first_or_404()
+        )
         current_user_id = get_jwt_identity()
         user = User.query.get(current_user_id)
 
@@ -221,7 +241,7 @@ def delete_comment(comment_id):
 # @limiter.limit("60 per minute")
 def get_post_comments(post_id):
     # Check if post exists
-    post = Post.query.get_or_404(post_id)
+    post = Post.query.filter_by(id=post_id, is_deleted=False).first_or_404()
     
     # Get pagination parameters
     page = request.args.get('page', 1, type=int)

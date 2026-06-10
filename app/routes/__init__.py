@@ -20,6 +20,7 @@ def register_blueprints(app):
     app.register_blueprint(push.bp)
     app.register_blueprint(cache.cache_bp)
     app.register_blueprint(identity.identity_bp)
+    app.register_blueprint(identity.identity_admin_bp)
     app.register_blueprint(profile.profile_bp)
     app.register_blueprint(project.project_bp)
     app.register_blueprint(matching.matching_bp)

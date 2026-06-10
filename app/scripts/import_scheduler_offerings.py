@@ -30,6 +30,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import Config, normalize_database_config
 from app.extensions import db
+from app import models as _models  # noqa: F401
 from app.models.course import Course
 from app.models.course_domain import CourseCatalogVersion, CourseMeeting, CourseOffering, CourseSection
 from app.models.scheduler_cart import SchedulerUserCourseCart
@@ -373,8 +374,8 @@ def load_offerings_file(file_path: Path, semester_override: str | None = None) -
 def file_sha256(file_path: Path) -> str:
     digest = hashlib.sha256()
     with file_path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
+        data = handle.read().replace(b"\r\n", b"\n")
+    digest.update(data)
     return digest.hexdigest()
 
 
@@ -846,7 +847,10 @@ def run_bundled_scheduler_offering_updates(
 
 
 def create_import_app(database_url: str | None = None) -> Flask:
-    app = Flask(__name__)
+    app = Flask(
+        __name__,
+        instance_path=str(Path(__file__).resolve().parents[2] / "instance"),
+    )
     app.config.from_object(Config)
     app.config["ENABLE_BACKGROUND_TASKS"] = False
     if database_url:
