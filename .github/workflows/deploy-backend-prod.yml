@@ -67,13 +67,17 @@ jobs:
           # Use sudo to run pg_dump as postgres user
           sudo -u postgres pg_dump prod_unikorn > /data/prod_unikorn/db_backup_$(date +%Y%m%d_%H%M%S).sql || echo "Backup skipped - database may not exist yet"
           
-          echo "performing database migrations..."
+          echo "applying database migrations..."
           flask db upgrade heads
-          echo "database migrations completed."
+          echo "database migrations applied."
           
           echo "initializing database with predefined data..."
           python -m app.scripts.init_db
           echo "database initialization completed."
+
+          echo "backfilling 2024-25 legacy scheduler offerings..."
+          python -m app.scripts.backfill_legacy_scheduler_offerings --semesters 2430 2440 --apply
+          echo "2024-25 legacy scheduler offerings backfilled."
           
           # Graceful restart
           echo "Restarting production service..."

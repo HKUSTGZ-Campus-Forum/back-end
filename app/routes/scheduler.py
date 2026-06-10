@@ -201,6 +201,31 @@ def search_courses():
     })
 
 
+@bp.route('/subjects', methods=['GET'])
+def list_subjects():
+    """List course subjects that have course-domain sections in a semester."""
+    semester = request.args.get('semester', '').strip()
+    q = (
+        db.session.query(
+            func.upper(Course.subject).label('subject'),
+            func.count(func.distinct(Course.id)).label('course_count'),
+        )
+        .join(CourseOffering, CourseOffering.course_id == Course.id)
+        .join(CourseSection, CourseSection.offering_id == CourseOffering.id)
+        .filter(Course.is_deleted == False)
+        .filter(Course.subject.isnot(None))
+        .filter(func.trim(Course.subject) != '')
+    )
+    if semester:
+        q = q.filter(CourseOffering.semester_id == semester)
+
+    rows = q.group_by(func.upper(Course.subject)).order_by(func.upper(Course.subject)).all()
+    return jsonify([
+        {'subject': subject, 'course_count': course_count}
+        for subject, course_count in rows
+    ])
+
+
 @bp.route('/courses/<code>', methods=['GET'])
 def get_course_detail(code):
     """Get course detail with sections and lectures for a semester."""
