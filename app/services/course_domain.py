@@ -34,8 +34,8 @@ def normalize_course_code(value: Any) -> str:
 
 def display_course_code(value: Any) -> str:
     compact = normalize_course_code(value)
-    prefix = "".join(ch for ch in compact if ch.isalpha())
-    suffix = compact[len(prefix):]
+    prefix = subject_for_code(compact)
+    suffix = compact[len(prefix):] if prefix else ""
     return f"{prefix} {suffix}".strip() if prefix and suffix else compact
 
 

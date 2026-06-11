@@ -311,6 +311,28 @@ def test_build_plan_and_apply_replace_only_target_semester(app, tmp_path):
         ).one()
 
 
+def test_apply_offerings_formats_suffixed_course_display_code(app, tmp_path):
+    data = payload()
+    data["courses"] = [{
+        "course_code": "UCUG1052A",
+        "course_title": "Academic English for University Studies",
+        "course_desc": "",
+        "credit": 3,
+        "subject": "UCUG",
+        "catalog_number": "1052A",
+        "pg_course": False,
+        "sections": [],
+    }]
+    snapshot = load_offerings_file(write_payload(tmp_path, data))
+
+    with app.app_context():
+        apply_offerings(snapshot)
+
+        course = Course.query.filter_by(code="UCUG1052A").one()
+        assert course.normalized_code == "UCUG1052A"
+        assert course.display_code == "UCUG 1052A"
+
+
 def test_apply_offerings_preserves_existing_course_rules_when_snapshot_rules_are_empty(app, tmp_path):
     snapshot = load_offerings_file(write_payload(tmp_path, {
         "semester_id": "2530",

@@ -56,8 +56,11 @@ def test_normalize_and_display_course_code():
     assert normalize_course_code("UFUG 2104") == "UFUG2104"
     assert normalize_course_code("ufug2104") == "UFUG2104"
     assert display_course_code("UFUG2104") == "UFUG 2104"
+    assert display_course_code("UCUG1052A") == "UCUG 1052A"
     assert subject_for_code("UFUG2104") == "UFUG"
     assert catalog_number_for_code("UFUG2104") == "2104"
+    assert subject_for_code("UCUG1052A") == "UCUG"
+    assert catalog_number_for_code("UCUG1052A") == "1052A"
 
 
 def test_grade_points_for_letter():
