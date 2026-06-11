@@ -11,6 +11,18 @@ from datetime import datetime, timezone
 
 bp = Blueprint('reaction', __name__, url_prefix='/reactions')
 
+
+def _active_post_or_404(post_id):
+    return Post.query.filter_by(id=post_id, is_deleted=False).first_or_404()
+
+
+def _active_comment_or_404(comment_id):
+    return (
+        Comment.query.join(Post, Comment.post_id == Post.id)
+        .filter(Comment.id == comment_id, Comment.is_deleted == False, Post.is_deleted == False)
+        .first_or_404()
+    )
+
 # Get all available emojis
 @bp.route('/emojis', methods=['GET'])
 # @limiter.limit("60 per minute")
@@ -39,7 +51,7 @@ def get_emoji(emoji_id):
 def get_post_reactions(post_id):
     """Get all reactions for a specific post"""
     # Check if post exists
-    post = Post.query.get_or_404(post_id)
+    post = _active_post_or_404(post_id)
     
     # Get user_id from query params if provided
     user_id = request.args.get('user_id', type=int)
@@ -97,7 +109,7 @@ def add_post_reaction(post_id):
     """Add a reaction to a post"""
     try:
         # Check if post exists
-        post = Post.query.get_or_404(post_id)
+        post = _active_post_or_404(post_id)
         
         # Get current user
         user_id = get_jwt_identity()
@@ -161,7 +173,7 @@ def remove_post_reaction(post_id):
     """Remove a reaction from a post"""
     try:
         # Check if post exists
-        post = Post.query.get_or_404(post_id)
+        post = _active_post_or_404(post_id)
         
         # Get current user
         user_id = get_jwt_identity()
@@ -201,7 +213,7 @@ def remove_post_reaction(post_id):
 def get_comment_reactions(comment_id):
     """Get all reactions for a specific comment"""
     # Check if comment exists
-    comment = Comment.query.get_or_404(comment_id)
+    comment = _active_comment_or_404(comment_id)
     
     # Get user_id from query params if provided
     user_id = request.args.get('user_id', type=int)
@@ -259,7 +271,7 @@ def add_comment_reaction(comment_id):
     """Add a reaction to a comment"""
     try:
         # Check if comment exists
-        comment = Comment.query.get_or_404(comment_id)
+        comment = _active_comment_or_404(comment_id)
         
         # Get current user
         user_id = get_jwt_identity()
@@ -319,7 +331,7 @@ def remove_comment_reaction(comment_id):
     """Remove a reaction from a comment"""
     try:
         # Check if comment exists
-        comment = Comment.query.get_or_404(comment_id)
+        comment = _active_comment_or_404(comment_id)
         
         # Get current user
         user_id = get_jwt_identity()

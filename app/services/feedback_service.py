@@ -12,6 +12,11 @@ from app.models.feedback_version import FeedbackVersion
 
 class FeedbackService:
     @staticmethod
+    def _commit_if_requested(commit: bool) -> None:
+        if commit:
+            db.session.commit()
+
+    @staticmethod
     def _notification_service():
         from app.services.notification_service import NotificationService
 
@@ -334,6 +339,7 @@ class FeedbackService:
         merge_request_id: int,
         admin_user_id: int,
         note: Optional[str],
+        commit: bool = True,
     ) -> FeedbackVersion:
         merge_request = db.session.get(FeedbackMergeRequest, merge_request_id)
         if merge_request is None:
@@ -369,11 +375,11 @@ class FeedbackService:
             merge_request=merge_request,
             sender_id=admin_user_id,
         )
-        db.session.commit()
+        FeedbackService._commit_if_requested(commit)
         return version
 
     @staticmethod
-    def publish_feedback(feedback_id: int, admin_user_id: int) -> Feedback:
+    def publish_feedback(feedback_id: int, admin_user_id: int, commit: bool = True) -> Feedback:
         feedback = db.session.get(Feedback, feedback_id)
         if feedback is None:
             raise ValueError("Feedback not found")
@@ -394,7 +400,7 @@ class FeedbackService:
             feedback=feedback,
             admin_user_id=admin_user_id,
         )
-        db.session.commit()
+        FeedbackService._commit_if_requested(commit)
         return feedback
 
     @staticmethod
@@ -402,6 +408,7 @@ class FeedbackService:
         feedback_id: int,
         admin_user_id: int,
         note: Optional[str],
+        commit: bool = True,
     ) -> Feedback:
         feedback = db.session.get(Feedback, feedback_id)
         if feedback is None:
@@ -424,7 +431,7 @@ class FeedbackService:
             admin_user_id=admin_user_id,
             note=note.strip() if note else None,
         )
-        db.session.commit()
+        FeedbackService._commit_if_requested(commit)
         return feedback
 
     @staticmethod
@@ -432,6 +439,7 @@ class FeedbackService:
         merge_request_id: int,
         admin_user_id: int,
         note: Optional[str],
+        commit: bool = True,
     ) -> FeedbackMergeRequest:
         merge_request = db.session.get(FeedbackMergeRequest, merge_request_id)
         if merge_request is None:
@@ -454,11 +462,11 @@ class FeedbackService:
             merge_request=merge_request,
             sender_id=admin_user_id,
         )
-        db.session.commit()
+        FeedbackService._commit_if_requested(commit)
         return merge_request
 
     @staticmethod
-    def close_feedback(feedback_id: int, admin_user_id: int) -> Feedback:
+    def close_feedback(feedback_id: int, admin_user_id: int, commit: bool = True) -> Feedback:
         feedback = db.session.get(Feedback, feedback_id)
         if feedback is None:
             raise ValueError("Feedback not found")
@@ -475,11 +483,11 @@ class FeedbackService:
             event_type="feedback_closed",
             event_payload={},
         )
-        db.session.commit()
+        FeedbackService._commit_if_requested(commit)
         return feedback
 
     @staticmethod
-    def reopen_feedback(feedback_id: int, admin_user_id: int) -> Feedback:
+    def reopen_feedback(feedback_id: int, admin_user_id: int, commit: bool = True) -> Feedback:
         feedback = db.session.get(Feedback, feedback_id)
         if feedback is None:
             raise ValueError("Feedback not found")
@@ -496,7 +504,7 @@ class FeedbackService:
             event_type="feedback_reopened",
             event_payload={},
         )
-        db.session.commit()
+        FeedbackService._commit_if_requested(commit)
         return feedback
 
     @staticmethod
@@ -504,6 +512,7 @@ class FeedbackService:
         feedback_id: int,
         admin_user_id: int,
         comments_ended: bool,
+        commit: bool = True,
     ) -> Feedback:
         feedback = db.session.get(Feedback, feedback_id)
         if feedback is None:
@@ -518,7 +527,7 @@ class FeedbackService:
             event_type=event_type,
             event_payload={},
         )
-        db.session.commit()
+        FeedbackService._commit_if_requested(commit)
         return feedback
 
     @staticmethod
@@ -526,6 +535,7 @@ class FeedbackService:
         comment_id: int,
         admin_user_id: int,
         reason: str,
+        commit: bool = True,
     ) -> FeedbackComment:
         comment = db.session.get(FeedbackComment, comment_id)
         if comment is None:
@@ -546,7 +556,7 @@ class FeedbackService:
             event_type="feedback_comment_hidden",
             event_payload={"comment_id": comment.id, "reason": normalized_reason},
         )
-        db.session.commit()
+        FeedbackService._commit_if_requested(commit)
         return comment
 
     @staticmethod
@@ -554,6 +564,7 @@ class FeedbackService:
         comment_id: int,
         admin_user_id: int,
         reason: str,
+        commit: bool = True,
     ) -> FeedbackMergeComment:
         comment = db.session.get(FeedbackMergeComment, comment_id)
         if comment is None:
@@ -574,7 +585,7 @@ class FeedbackService:
             event_type="merge_request_comment_hidden",
             event_payload={"comment_id": comment.id, "reason": normalized_reason},
         )
-        db.session.commit()
+        FeedbackService._commit_if_requested(commit)
         return comment
 
     @staticmethod

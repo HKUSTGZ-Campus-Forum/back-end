@@ -9,9 +9,12 @@ from app.models.file import File
 from app.models.post import Post
 from app.models.comment import Comment
 from app.models.gugu_message import GuguMessage
+from app.services.admin_audit_service import log_admin_action
+from app.utils.permissions import require_admin_user
 import json
 
 identity_bp = Blueprint('identity', __name__, url_prefix='/identities')
+identity_admin_bp = Blueprint('identity_admin', __name__, url_prefix='/admin/identity')
 
 @identity_bp.route('/types', methods=['GET'])
 def get_identity_types():
@@ -274,7 +277,167 @@ def _identity_admin_counts():
         for status in statuses
     }
     counts["total"] = sum(counts.values())
+    by_type_rows = (
+        db.session.query(IdentityType.display_name, IdentityType.name, db.func.count(UserIdentity.id))
+        .join(UserIdentity, UserIdentity.identity_type_id == IdentityType.id)
+        .group_by(IdentityType.display_name, IdentityType.name)
+        .all()
+    )
+    counts["by_type"] = {
+        (display_name or name or "unknown"): int(total)
+        for display_name, name, total in by_type_rows
+    }
     return counts
+
+
+def _identity_admin_guard():
+    admin_user, error = require_admin_user()
+    if error:
+        response, status = error
+        payload = response.get_json(silent=True) or {}
+        return None, (jsonify({"success": False, "error": payload.get("error", "Access denied")}), status)
+    return admin_user, None
+
+
+def _identity_admin_requests_response():
+    admin_user, error = _identity_admin_guard()
+    if error:
+        return error
+
+    status = request.args.get('status')
+    identity_type_id = request.args.get('identity_type_id')
+    sort = request.args.get('sort', 'newest')
+
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "Invalid page"}), 400
+
+    try:
+        per_page = min(100, max(1, int(request.args.get('per_page', 20))))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "Invalid per_page"}), 400
+
+    valid_statuses = {
+        UserIdentity.PENDING,
+        UserIdentity.APPROVED,
+        UserIdentity.REJECTED,
+        UserIdentity.REVOKED,
+    }
+    if status and status not in valid_statuses:
+        return jsonify({"success": False, "error": "Invalid status"}), 400
+
+    query = UserIdentity.query
+    if status:
+        query = query.filter_by(status=status)
+
+    if identity_type_id:
+        try:
+            identity_type_id_value = int(identity_type_id)
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "error": "Invalid identity_type_id"}), 400
+        query = query.filter_by(identity_type_id=identity_type_id_value)
+
+    if sort == 'oldest':
+        query = query.order_by(UserIdentity.created_at.asc())
+    elif sort == 'priority':
+        priority_case = db.case(
+            (UserIdentity.status == UserIdentity.PENDING, 0),
+            (UserIdentity.status == UserIdentity.APPROVED, 1),
+            (UserIdentity.status == UserIdentity.REJECTED, 2),
+            (UserIdentity.status == UserIdentity.REVOKED, 3),
+            else_=4,
+        )
+        query = query.order_by(priority_case.asc(), UserIdentity.created_at.asc())
+    else:
+        query = query.order_by(UserIdentity.created_at.desc())
+
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+
+    return jsonify({
+        "success": True,
+        "requests": [item.to_admin_dict() for item in pagination.items],
+        "total": pagination.total,
+        "page": page,
+        "pages": pagination.pages,
+        "per_page": per_page,
+        "counts": _identity_admin_counts(),
+    }), 200
+
+
+def _identity_pending_response():
+    admin_user, error = _identity_admin_guard()
+    if error:
+        return error
+
+    pending_verifications = UserIdentity.get_pending_verifications()
+    return jsonify({
+        "success": True,
+        "pending_verifications": [verification.to_admin_dict() for verification in pending_verifications]
+    }), 200
+
+
+def _identity_action_response(verification_id, action):
+    admin_user, error = _identity_admin_guard()
+    if error:
+        return error
+
+    data = request.get_json() or {}
+    notes = data.get('notes', '')
+    verification = UserIdentity.query.get(verification_id)
+    if not verification:
+        return jsonify({"success": False, "error": "Verification request not found"}), 404
+
+    try:
+        if action == "approve":
+            if verification.status != UserIdentity.PENDING:
+                return jsonify({"success": False, "error": "Can only approve pending verification requests"}), 400
+            expires_days = data.get('expires_days')
+            if expires_days:
+                from datetime import datetime, timezone, timedelta
+                verification.expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days)
+            verification.approve(admin_user.id, notes)
+            message = "Verification request approved successfully"
+        elif action == "reject":
+            if not data.get('reason'):
+                return jsonify({"success": False, "error": "Rejection reason is required"}), 400
+            if verification.status != UserIdentity.PENDING:
+                return jsonify({"success": False, "error": "Can only reject pending verification requests"}), 400
+            verification.reject(admin_user.id, data.get('reason'), notes)
+            message = "Verification request rejected"
+        elif action == "revoke":
+            if not data.get('reason'):
+                return jsonify({"success": False, "error": "Revocation reason is required"}), 400
+            if verification.status != UserIdentity.APPROVED:
+                return jsonify({"success": False, "error": "Can only revoke approved verifications"}), 400
+            verification.revoke(admin_user.id, data.get('reason'), notes)
+            message = "Verification revoked successfully"
+        else:
+            return jsonify({"success": False, "error": "Invalid identity admin action"}), 400
+
+        log_admin_action(
+            admin_user,
+            f"identity.{action}",
+            "user_identity",
+            verification.id,
+            verification.identity_type.display_name if verification.identity_type else None,
+            notes or data.get('reason'),
+            {
+                "user_id": verification.user_id,
+                "identity_type_id": verification.identity_type_id,
+                "status": verification.status,
+            },
+        )
+        db.session.commit()
+        return jsonify({
+            "success": True,
+            "message": message,
+            "verification": verification.to_dict(include_admin_info=True)
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error processing identity admin action: {e}")
+        return jsonify({"success": False, "error": "Failed to update verification"}), 500
 
 
 @identity_bp.route('/admin/requests', methods=['GET'])
@@ -282,71 +445,7 @@ def _identity_admin_counts():
 def list_admin_verification_requests():
     """Get identity verification requests across all statuses (admin only)."""
     try:
-        current_user_id = get_jwt_identity()
-        current_user = User.query.get(current_user_id)
-
-        if not current_user or not current_user.is_admin():
-            return jsonify({"success": False, "error": "Access denied"}), 403
-
-        status = request.args.get('status')
-        identity_type_id = request.args.get('identity_type_id')
-        sort = request.args.get('sort', 'newest')
-
-        try:
-            page = max(1, int(request.args.get('page', 1)))
-        except (TypeError, ValueError):
-            return jsonify({"success": False, "error": "Invalid page"}), 400
-
-        try:
-            per_page = min(100, max(1, int(request.args.get('per_page', 20))))
-        except (TypeError, ValueError):
-            return jsonify({"success": False, "error": "Invalid per_page"}), 400
-
-        valid_statuses = {
-            UserIdentity.PENDING,
-            UserIdentity.APPROVED,
-            UserIdentity.REJECTED,
-            UserIdentity.REVOKED,
-        }
-        if status and status not in valid_statuses:
-            return jsonify({"success": False, "error": "Invalid status"}), 400
-
-        query = UserIdentity.query
-        if status:
-            query = query.filter_by(status=status)
-
-        if identity_type_id:
-            try:
-                identity_type_id_value = int(identity_type_id)
-            except (TypeError, ValueError):
-                return jsonify({"success": False, "error": "Invalid identity_type_id"}), 400
-            query = query.filter_by(identity_type_id=identity_type_id_value)
-
-        if sort == 'oldest':
-            query = query.order_by(UserIdentity.created_at.asc())
-        elif sort == 'priority':
-            priority_case = db.case(
-                (UserIdentity.status == UserIdentity.PENDING, 0),
-                (UserIdentity.status == UserIdentity.APPROVED, 1),
-                (UserIdentity.status == UserIdentity.REJECTED, 2),
-                (UserIdentity.status == UserIdentity.REVOKED, 3),
-                else_=4,
-            )
-            query = query.order_by(priority_case.asc(), UserIdentity.created_at.asc())
-        else:
-            query = query.order_by(UserIdentity.created_at.desc())
-
-        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-
-        return jsonify({
-            "success": True,
-            "requests": [item.to_admin_dict() for item in pagination.items],
-            "total": pagination.total,
-            "page": page,
-            "pages": pagination.pages,
-            "per_page": per_page,
-            "counts": _identity_admin_counts(),
-        }), 200
+        return _identity_admin_requests_response()
 
     except Exception as e:
         current_app.logger.error(f"Error fetching admin verification requests: {e}")
@@ -358,23 +457,7 @@ def list_admin_verification_requests():
 def get_pending_verifications():
     """Get all pending verification requests (admin only)"""
     try:
-        current_user_id = get_jwt_identity()
-        current_user = User.query.get(current_user_id)
-        
-        if not current_user or not current_user.is_admin():
-            return jsonify({"success": False, "error": "Access denied"}), 403
-        
-        pending_verifications = UserIdentity.get_pending_verifications()
-        
-        result = []
-        for verification in pending_verifications:
-            verification_data = verification.to_admin_dict()
-            result.append(verification_data)
-        
-        return jsonify({
-            "success": True,
-            "pending_verifications": result
-        }), 200
+        return _identity_pending_response()
         
     except Exception as e:
         current_app.logger.error(f"Error fetching pending verifications: {e}")
@@ -384,120 +467,49 @@ def get_pending_verifications():
 @jwt_required()
 def approve_verification(verification_id):
     """Approve a verification request (admin only)"""
-    try:
-        current_user_id = get_jwt_identity()
-        current_user = User.query.get(current_user_id)
-        
-        if not current_user or not current_user.is_admin():
-            return jsonify({"success": False, "error": "Access denied"}), 403
-        
-        data = request.get_json() or {}
-        notes = data.get('notes', '')
-        expires_days = data.get('expires_days')  # Optional expiration
-        
-        verification = UserIdentity.query.get(verification_id)
-        if not verification:
-            return jsonify({"success": False, "error": "Verification request not found"}), 404
-        
-        if verification.status != UserIdentity.PENDING:
-            return jsonify({"success": False, "error": "Can only approve pending verification requests"}), 400
-        
-        # Set expiration if provided
-        if expires_days:
-            from datetime import datetime, timezone, timedelta
-            verification.expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days)
-        
-        verification.approve(current_user_id, notes)
-        db.session.commit()
-        
-        return jsonify({
-            "success": True,
-            "message": "Verification request approved successfully",
-            "verification": verification.to_dict(include_admin_info=True)
-        }), 200
-        
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Error approving verification: {e}")
-        return jsonify({"success": False, "error": "Failed to approve verification"}), 500
+    return _identity_action_response(verification_id, "approve")
 
 @identity_bp.route('/admin/<int:verification_id>/reject', methods=['POST'])
 @jwt_required()
 def reject_verification(verification_id):
     """Reject a verification request (admin only)"""
-    try:
-        current_user_id = get_jwt_identity()
-        current_user = User.query.get(current_user_id)
-        
-        if not current_user or not current_user.is_admin():
-            return jsonify({"success": False, "error": "Access denied"}), 403
-        
-        data = request.get_json()
-        if not data or not data.get('reason'):
-            return jsonify({"success": False, "error": "Rejection reason is required"}), 400
-        
-        reason = data.get('reason')
-        notes = data.get('notes', '')
-        
-        verification = UserIdentity.query.get(verification_id)
-        if not verification:
-            return jsonify({"success": False, "error": "Verification request not found"}), 404
-        
-        if verification.status != UserIdentity.PENDING:
-            return jsonify({"success": False, "error": "Can only reject pending verification requests"}), 400
-        
-        verification.reject(current_user_id, reason, notes)
-        db.session.commit()
-        
-        return jsonify({
-            "success": True,
-            "message": "Verification request rejected",
-            "verification": verification.to_dict(include_admin_info=True)
-        }), 200
-        
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Error rejecting verification: {e}")
-        return jsonify({"success": False, "error": "Failed to reject verification"}), 500
+    return _identity_action_response(verification_id, "reject")
 
 @identity_bp.route('/admin/<int:verification_id>/revoke', methods=['POST'])
 @jwt_required()
 def revoke_verification(verification_id):
     """Revoke an approved verification (admin only)"""
-    try:
-        current_user_id = get_jwt_identity()
-        current_user = User.query.get(current_user_id)
-        
-        if not current_user or not current_user.is_admin():
-            return jsonify({"success": False, "error": "Access denied"}), 403
-        
-        data = request.get_json()
-        if not data or not data.get('reason'):
-            return jsonify({"success": False, "error": "Revocation reason is required"}), 400
-        
-        reason = data.get('reason')
-        notes = data.get('notes', '')
-        
-        verification = UserIdentity.query.get(verification_id)
-        if not verification:
-            return jsonify({"success": False, "error": "Verification request not found"}), 404
-        
-        if verification.status != UserIdentity.APPROVED:
-            return jsonify({"success": False, "error": "Can only revoke approved verifications"}), 400
-        
-        verification.revoke(current_user_id, reason, notes)
-        db.session.commit()
-        
-        return jsonify({
-            "success": True,
-            "message": "Verification revoked successfully",
-            "verification": verification.to_dict(include_admin_info=True)
-        }), 200
-        
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Error revoking verification: {e}")
-        return jsonify({"success": False, "error": "Failed to revoke verification"}), 500
+    return _identity_action_response(verification_id, "revoke")
+
+
+@identity_admin_bp.route('/requests', methods=['GET'])
+@jwt_required()
+def list_admin_identity_requests():
+    return _identity_admin_requests_response()
+
+
+@identity_admin_bp.route('/pending', methods=['GET'])
+@jwt_required()
+def list_pending_identity_requests():
+    return _identity_pending_response()
+
+
+@identity_admin_bp.route('/<int:verification_id>/approve', methods=['POST'])
+@jwt_required()
+def approve_identity_request(verification_id):
+    return _identity_action_response(verification_id, "approve")
+
+
+@identity_admin_bp.route('/<int:verification_id>/reject', methods=['POST'])
+@jwt_required()
+def reject_identity_request(verification_id):
+    return _identity_action_response(verification_id, "reject")
+
+
+@identity_admin_bp.route('/<int:verification_id>/revoke', methods=['POST'])
+@jwt_required()
+def revoke_identity_request(verification_id):
+    return _identity_action_response(verification_id, "revoke")
 
 # Display identity selection endpoints
 @identity_bp.route('/display-identity', methods=['POST'])

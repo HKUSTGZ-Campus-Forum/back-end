@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, abort, current_app
 from app.models.post import Post, serialize_post_tag
+from app.models.comment import Comment
 from app.models.tag import Tag, TagType
 from app.models.course import Course
 from app.models.course_domain import CoursePostOfferingTarget
@@ -421,7 +422,7 @@ def create_post():
 
 @bp.route('/<int:post_id>', methods=['GET'])
 def get_post(post_id):
-    post = Post.query.get_or_404(post_id)
+    post = Post.query.filter_by(id=post_id, is_deleted=False).first_or_404()
     user_id = request.args.get('user_id', type=int)
     
     # Increment view count
@@ -456,7 +457,7 @@ def get_post(post_id):
     
     # Get comments with reactions
     comments_list = []
-    for comment in post.comments:
+    for comment in post.comments.filter_by(is_deleted=False).order_by(asc(Comment.created_at)).all():
         comment_reactions = db.session.query(
             Reaction.emoji,
             func.count(Reaction.id).label('count')
@@ -524,7 +525,7 @@ def get_post(post_id):
 @bp.route('/<int:post_id>', methods=['PUT'])
 @jwt_required()
 def update_post(post_id):
-    post = Post.query.get_or_404(post_id)
+    post = Post.query.filter_by(id=post_id, is_deleted=False).first_or_404()
     current_user_id = get_jwt_identity()
     
     # Check permissions
@@ -549,7 +550,7 @@ def update_post(post_id):
 @bp.route('/<int:post_id>', methods=['DELETE'])
 @jwt_required()
 def delete_post(post_id):
-    post = Post.query.get_or_404(post_id)
+    post = Post.query.filter_by(id=post_id, is_deleted=False).first_or_404()
     current_user_id = get_jwt_identity()
     
     # Check permissions
@@ -568,7 +569,7 @@ def get_hot_posts():
     algorithm = request.args.get('algorithm', 'trending')
     
     # Base query
-    query = Post.query
+    query = Post.query.filter(Post.is_deleted == False)
     
     # Different algorithms for hot posts
     if algorithm == 'trending':
@@ -667,6 +668,7 @@ def search_posts():
     if search_type == 'keyword':
         # Simple keyword search in title and content
         search_query = Post.query.filter(
+            Post.is_deleted == False,
             (Post.title.ilike(safe_query, escape='\\')) | 
             (Post.content.ilike(safe_query, escape='\\'))
         )

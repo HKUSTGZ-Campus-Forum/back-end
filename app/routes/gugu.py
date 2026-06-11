@@ -112,7 +112,7 @@ def send_message():
         content = bleach.clean(content)
 
         if reply_to_message_id is not None:
-            reply_to_message = GuguMessage.query.get(reply_to_message_id)
+            reply_to_message = GuguMessage.query.filter_by(id=reply_to_message_id, is_deleted=False).first()
             if not reply_to_message:
                 return jsonify({
                     'success': False,
@@ -175,7 +175,7 @@ def delete_message(message_id):
             }), 404
         
         # 查找消息
-        message = GuguMessage.query.get(message_id)
+        message = GuguMessage.query.filter_by(id=message_id, is_deleted=False).first()
         if not message:
             return jsonify({
                 'success': False,
@@ -212,16 +212,19 @@ def get_chat_stats():
     """获取咕咕聊天室统计信息"""
     try:
         # 获取总消息数
-        total_messages = GuguMessage.query.count()
+        total_messages = GuguMessage.query.filter_by(is_deleted=False).count()
         
         # 获取今日消息数
         today = datetime.now().date()
         today_messages = GuguMessage.query.filter(
+            GuguMessage.is_deleted == False,
             db.func.date(GuguMessage.created_at) == today
         ).count()
         
         # 获取活跃用户数（最近发过消息的用户）
-        active_users = db.session.query(GuguMessage.author_id).distinct().count()
+        active_users = db.session.query(GuguMessage.author_id).filter(
+            GuguMessage.is_deleted == False
+        ).distinct().count()
         
         return jsonify({
             'success': True,

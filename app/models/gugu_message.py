@@ -11,6 +11,8 @@ class GuguMessage(db.Model):
     author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     reply_to_message_id = db.Column(db.Integer, db.ForeignKey('gugu_messages.id'), nullable=True)
     display_identity_id = db.Column(db.Integer, db.ForeignKey('user_identities.id'), nullable=True)
+    is_deleted = db.Column(db.Boolean, default=False, nullable=False)
+    deleted_at = db.Column(db.DateTime(timezone=True))
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
@@ -36,11 +38,13 @@ class GuguMessage(db.Model):
             'author': self.author.username if self.author else None,
             'author_avatar': self.author.avatar_url if self.author else None,
             'reply_to_message_id': self.reply_to_message_id,
+            'is_deleted': self.is_deleted,
+            'deleted_at': self.deleted_at.isoformat() if self.deleted_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
-        if self.reply_to_message:
+        if self.reply_to_message and not self.reply_to_message.is_deleted:
             data['reply_to'] = {
                 'id': self.reply_to_message.id,
                 'content': self.reply_to_message.content,
@@ -62,7 +66,7 @@ class GuguMessage(db.Model):
     @classmethod
     def get_recent_messages(cls, limit=50):
         """获取最近的消息（按时间降序，最新在前）"""
-        return cls.query.order_by(cls.created_at.desc()).limit(limit).all()
+        return cls.query.filter_by(is_deleted=False).order_by(cls.created_at.desc()).limit(limit).all()
 
     @classmethod
     def get_messages_desc_paginated(cls, limit=50, before_id=None):
@@ -72,9 +76,9 @@ class GuguMessage(db.Model):
         """
         safe_limit = max(1, min(int(limit), 100))
         fetch_n = safe_limit + 1
-        q = cls.query
+        q = cls.query.filter_by(is_deleted=False)
         if before_id is not None:
-            anchor = cls.query.get(before_id)
+            anchor = cls.query.filter_by(id=before_id, is_deleted=False).first()
             if anchor is None:
                 return [], False
             q = q.filter(

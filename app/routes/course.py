@@ -17,7 +17,7 @@ from sqlalchemy import func, desc, asc
 from functools import wraps
 import bleach
 import re
-from app.services.course_domain import current_catalog_version
+from app.services.course_domain import current_catalog_version, display_course_code
 
 bp = Blueprint('course', __name__, url_prefix='/courses')
 COURSE_REVIEW_TAG = "course-review"
@@ -29,10 +29,26 @@ def _compact_course_code(value):
 
 
 def _display_course_code(value):
-    compact = _compact_course_code(value)
-    prefix = "".join(ch for ch in compact if ch.isalpha())
-    suffix = compact[len(prefix):]
-    return f"{prefix} {suffix}".strip() if prefix and suffix else compact
+    return display_course_code(value)
+
+
+def _base_catalog_code_for_course(course):
+    subject = (course.subject or "").strip().upper()
+    catalog_number = (course.catalog_number or "").strip().upper()
+    if len(subject) != 4 or not subject.isalpha():
+        return None
+    match = re.fullmatch(r"(\d{4})[A-Z]", catalog_number)
+    return f"{subject}{match.group(1)}" if match else None
+
+
+def _base_catalog_course_for_course(course):
+    base_code = _base_catalog_code_for_course(course)
+    if not base_code:
+        return None
+    base_course = _find_course_by_identifier(base_code)
+    if not base_course or base_course.id == course.id:
+        return None
+    return base_course
 
 
 def _parse_scheduler_semester_id(semester_id):
@@ -120,6 +136,26 @@ def _version_value(version, field_name, fallback):
         if value is not None:
             return value
     return fallback
+
+
+def _rule_value(version, base_version, base_course, field_name, fallback):
+    value = _version_value(version, field_name, fallback)
+    if value:
+        return value
+    if base_version is not None:
+        base_value = getattr(base_version, field_name)
+        if base_value:
+            return base_value
+    if base_course is not None:
+        course_field_name = {
+            "pre_requirement_raw": "pre_requirement",
+            "co_requirement_raw": "co_requirement",
+            "exclusion_raw": "exclusion",
+        }.get(field_name)
+        base_course_value = getattr(base_course, course_field_name, None)
+        if base_course_value:
+            return base_course_value
+    return value
 
 def admin_required(fn):
     """Decorator to ensure the user has admin privileges"""
@@ -435,21 +471,23 @@ def get_course_overview(code):
         academic_record = record.to_dict(include_grade=True) if record else None
 
     version = current_catalog_version(course)
+    base_course = _base_catalog_course_for_course(course)
+    base_version = current_catalog_version(base_course) if base_course else None
     compact_code = _compact_course_code(course.normalized_code or course.code)
     return jsonify({
         "course": {
             "id": course.id,
             "code": compact_code,
-            "display_code": course.display_code or _display_course_code(course.code),
+            "display_code": _display_course_code(course.code),
             "title": _version_value(version, "title", course.canonical_title or course.name),
             "credits": _version_value(version, "credits", course.credits),
             "description": _version_value(version, "description", course.description),
             "subject": course.subject,
             "catalog_number": course.catalog_number,
             "course_title_abbr": _version_value(version, "title_abbr", course.course_title_abbr),
-            "pre_requirement": _version_value(version, "pre_requirement_raw", course.pre_requirement),
-            "co_requirement": _version_value(version, "co_requirement_raw", course.co_requirement),
-            "exclusion": _version_value(version, "exclusion_raw", course.exclusion),
+            "pre_requirement": _rule_value(version, base_version, base_course, "pre_requirement_raw", course.pre_requirement),
+            "co_requirement": _rule_value(version, base_version, base_course, "co_requirement_raw", course.co_requirement),
+            "exclusion": _rule_value(version, base_version, base_course, "exclusion_raw", course.exclusion),
             "pg_course": _version_value(version, "pg_course", course.pg_course),
             "klms_course": _version_value(version, "klms_course", course.klms_course),
             "is_active": course.is_active,
