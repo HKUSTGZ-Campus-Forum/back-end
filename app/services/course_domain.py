@@ -166,6 +166,17 @@ def derive_user_course_state(user_id: int, course_id: int) -> dict:
             "source": "derived",
         }
 
+    if attempts:
+        return {
+            "user_id": user_id,
+            "course_id": course_id,
+            "status": "not_taken",
+            "best_attempt_id": None,
+            "best_grade_points": None,
+            "best_grade_letter": None,
+            "source": "derived",
+        }
+
     manual = UserCourseState.query.filter_by(user_id=user_id, course_id=course_id).first()
     if manual is not None:
         return {

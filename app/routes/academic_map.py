@@ -22,6 +22,7 @@ VALID_STATUSES = {
     UserCourseRecord.STATUS_PLANNED,
     UserCourseRecord.STATUS_INTERESTED,
     UserCourseRecord.STATUS_NOT_INTERESTED,
+    UserCourseRecord.STATUS_WITHDRAWN,
 }
 
 STRONG_STATUSES = {
@@ -64,6 +65,37 @@ def _import_row_key(row: dict) -> str:
     return _compact_course_code(row.get("matched_course_code") or row.get("course_code"))
 
 
+def _status_rank(status: str | None) -> int:
+    return {
+        UserCourseRecord.STATUS_COMPLETED: 0,
+        UserCourseRecord.STATUS_IN_PROGRESS: 1,
+        UserCourseRecord.STATUS_PLANNED: 2,
+        UserCourseRecord.STATUS_INTERESTED: 3,
+        UserCourseRecord.STATUS_WITHDRAWN: 4,
+        UserCourseRecord.STATUS_NOT_INTERESTED: 5,
+    }.get(status, 6)
+
+
+def _term_rank(row: dict) -> int:
+    term_code = str(row.get("term_code") or "").strip()
+    if term_code.isdigit():
+        return int(term_code)
+    semester_id = _semester_id_from_term_label(row.get("term_label"))
+    if semester_id and semester_id.isdigit():
+        return int(semester_id)
+    return -1
+
+
+def _is_stronger_import_row(candidate: dict, existing: dict) -> bool:
+    candidate_status = candidate.get("status")
+    existing_status = existing.get("status")
+    candidate_rank = _status_rank(candidate_status)
+    existing_rank = _status_rank(existing_status)
+    if candidate_rank != existing_rank:
+        return candidate_rank < existing_rank
+    return _term_rank(candidate) >= _term_rank(existing)
+
+
 def _dedupe_import_rows(rows: list) -> list:
     rows_by_code = {}
     passthrough = []
@@ -72,10 +104,29 @@ def _dedupe_import_rows(rows: list) -> list:
             continue
         key = _import_row_key(row)
         if key:
-            rows_by_code[key] = row
+            existing = rows_by_code.get(key)
+            if existing is None or _is_stronger_import_row(row, existing):
+                rows_by_code[key] = row
         else:
             passthrough.append(row)
     return passthrough + list(rows_by_code.values())
+
+
+def _group_import_rows(rows: list) -> list[tuple[dict, list[dict]]]:
+    by_code: dict[str, dict] = {}
+    passthrough = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        key = _import_row_key(row)
+        if not key:
+            passthrough.append((row, [row]))
+            continue
+        group = by_code.setdefault(key, {"display": row, "attempts": []})
+        group["attempts"].append(row)
+        if _is_stronger_import_row(row, group["display"]):
+            group["display"] = row
+    return passthrough + [(group["display"], group["attempts"]) for group in by_code.values()]
 
 
 def _clear_existing_import_for_course(user_id: int, matched_course, normalized_code: str) -> None:
@@ -129,7 +180,11 @@ def _sync_domain_record(user_id: int, matched_course, row: dict, status: str, *,
             db.session.delete(state)
         return
 
-    if status not in {UserCourseRecord.STATUS_COMPLETED, UserCourseRecord.STATUS_IN_PROGRESS}:
+    if status not in {
+        UserCourseRecord.STATUS_COMPLETED,
+        UserCourseRecord.STATUS_IN_PROGRESS,
+        UserCourseRecord.STATUS_WITHDRAWN,
+    }:
         return
 
     semester_id = row.get("term_code") or _semester_id_from_term_label(row.get("term_label"))
@@ -137,7 +192,12 @@ def _sync_domain_record(user_id: int, matched_course, row: dict, status: str, *,
     if offering is None:
         return
 
-    attempt_status = "completed" if status == UserCourseRecord.STATUS_COMPLETED else "in_progress"
+    if status == UserCourseRecord.STATUS_COMPLETED:
+        attempt_status = "completed"
+    elif status == UserCourseRecord.STATUS_WITHDRAWN:
+        attempt_status = "withdrawn"
+    else:
+        attempt_status = "in_progress"
     attempt = UserCourseAttempt.query.filter_by(
         user_id=user_id,
         course_id=matched_course.id,
@@ -155,7 +215,7 @@ def _sync_domain_record(user_id: int, matched_course, row: dict, status: str, *,
     attempt.status = attempt_status
     attempt.term_label = row.get("term_label")
     attempt.raw_payload = row
-    if attempt_status == "completed" and keep_grades and row.get("grade"):
+    if attempt_status in {"completed", "failed", "withdrawn"} and keep_grades and row.get("grade"):
         attempt.grade_letter = row.get("grade")
         attempt.grade_points = grade_points_for_letter(row.get("grade"))
     else:
@@ -318,10 +378,11 @@ def save_records_bulk():
     user_id = _current_user_id()
     data = request.get_json() or {}
     keep_grades = bool(data.get("keep_grades"))
-    rows = _dedupe_import_rows(data.get("records") if isinstance(data.get("records"), list) else [])
+    rows = data.get("records") if isinstance(data.get("records"), list) else []
+    row_groups = _group_import_rows(rows)
     saved = []
 
-    for row in rows:
+    for row, attempt_rows in row_groups:
         course_code = str(row.get("course_code", "")).strip().upper()
         if not course_code:
             continue
@@ -350,7 +411,9 @@ def save_records_bulk():
         )
         db.session.add(record)
         saved.append(record)
-        _sync_domain_record(user_id, matched_course, row, status, keep_grades=keep_grades)
+        for attempt_row in attempt_rows:
+            attempt_status = attempt_row.get("status") if attempt_row.get("status") in VALID_STATUSES else UserCourseRecord.STATUS_COMPLETED
+            _sync_domain_record(user_id, matched_course, attempt_row, attempt_status, keep_grades=keep_grades)
 
     db.session.commit()
     return jsonify({"records": [record.to_dict(include_grade=True) for record in saved]}), 200

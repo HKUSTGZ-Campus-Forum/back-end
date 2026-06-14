@@ -144,3 +144,44 @@ def test_database_helpers_find_course_offering_and_best_attempt(app):
         assert find_course_by_code("CDOM 3300").id == course.id
         assert find_offering(course, "2530").id == offering.id
         assert best_completed_attempt([failed, passed]).id == passed.id
+
+
+def test_withdrawn_attempts_derive_not_taken_state(app):
+    from app.services.course_domain import derive_user_course_state
+
+    with app.app_context():
+        course = Course(
+            code="CDOM4400",
+            normalized_code="CDOM4400",
+            display_code="CDOM 4400",
+            name="Withdrawn Course",
+            credits=3,
+        )
+        db.session.add(course)
+        db.session.flush()
+        offering = CourseOffering(
+            course_id=course.id,
+            semester_id="2530",
+            offering_code="CDOM4400",
+            title_snapshot=course.name,
+            credits_snapshot=3,
+            source="test",
+            status="offered",
+        )
+        db.session.add(offering)
+        db.session.flush()
+        db.session.add(UserCourseAttempt(
+            user_id=1,
+            course_id=course.id,
+            offering_id=offering.id,
+            status="withdrawn",
+            grade_letter="W",
+            source="manual",
+        ))
+        db.session.commit()
+
+        state = derive_user_course_state(1, course.id)
+
+    assert state["status"] == "not_taken"
+    assert state["best_attempt_id"] is None
+    assert state["best_grade_letter"] is None

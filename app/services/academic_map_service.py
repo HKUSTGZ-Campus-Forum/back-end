@@ -25,6 +25,7 @@ STATUS_RANK = {
     UserCourseRecord.STATUS_COMPLETED: 1,
     UserCourseRecord.STATUS_INTERESTED: 3,
     UserCourseRecord.STATUS_NOT_INTERESTED: 4,
+    UserCourseRecord.STATUS_WITHDRAWN: 5,
 }
 
 GRADE_POINTS = {
@@ -329,6 +330,10 @@ def _record_from_domain_attempts(user_id: int, course_id: int, attempts: list[Us
         status = UserCourseRecord.STATUS_IN_PROGRESS
         attempt = next(attempt for attempt in attempts if attempt.status == "in_progress")
         grade = None
+    elif any(attempt.status == "withdrawn" for attempt in attempts):
+        status = UserCourseRecord.STATUS_WITHDRAWN
+        attempt = max((attempt for attempt in attempts if attempt.status == "withdrawn"), key=lambda item: item.id or 0)
+        grade = attempt.grade_letter
     else:
         return None
     return DomainCourseRecordAdapter(
@@ -351,15 +356,16 @@ def _record_from_domain_attempts(user_id: int, course_id: int, attempts: list[Us
 def _domain_records_for_user(user_id: int) -> list[DomainCourseRecordAdapter]:
     records = []
     states = UserCourseState.query.filter_by(user_id=user_id).all()
-    state_course_ids = {state.course_id for state in states}
+    represented_course_ids = set()
     for state in states:
         record = _record_from_domain_state(state)
         if record is not None:
             records.append(record)
+            represented_course_ids.add(state.course_id)
 
     attempts_by_course: dict[int, list[UserCourseAttempt]] = {}
     for attempt in UserCourseAttempt.query.filter_by(user_id=user_id).all():
-        if attempt.course_id in state_course_ids:
+        if attempt.course_id in represented_course_ids:
             continue
         attempts_by_course.setdefault(attempt.course_id, []).append(attempt)
     for course_id, attempts in attempts_by_course.items():

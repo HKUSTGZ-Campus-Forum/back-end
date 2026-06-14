@@ -40,3 +40,21 @@ def test_parse_course_history_assigns_scheduler_term_code():
 
     assert rows[0]["term_label"] == "2024-25 Summer"
     assert rows[0]["term_code"] == "2440"
+
+
+def test_parse_course_history_marks_withdrawn_rows_without_completed_credit():
+    pasted = """Course\tDescription\tTerm\tGrade\tUnits\tStatus
+AIAA 2205\tIntroduction to AI\t2024-25 Fall\tW\t3.00\tWithdrawn
+DSAA 2011\tPython Programming\t2024-25 Fall\t\t3.00\tDropped
+"""
+
+    rows = parse_course_history_text(pasted)
+
+    assert rows[0]["grade"] == "W"
+    assert rows[0]["status"] == "withdrawn"
+    assert rows[0]["needs_review"] is False
+    assert rows[0]["course_title"] == "Introduction to AI"
+    assert rows[1]["grade"] is None
+    assert rows[1]["status"] == "withdrawn"
+    assert rows[1]["needs_review"] is False
+    assert rows[1]["course_title"] == "Python Programming"

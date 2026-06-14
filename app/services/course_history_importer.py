@@ -22,6 +22,8 @@ def _normalize_course_code(prefix: str, number: str) -> str:
 
 
 def _status_from_grade(grade: str | None) -> tuple[str, bool, str | None]:
+    if grade and grade.strip().upper() == "W":
+        return "withdrawn", False, None
     if grade:
         return "completed", False, None
     return "planned", True, "Missing grade; confirm whether this course is in progress or planned."

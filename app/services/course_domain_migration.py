@@ -432,6 +432,8 @@ def _attempt_status(record: UserCourseRecord) -> str | None:
         return "completed"
     if record.status in {UserCourseRecord.STATUS_IN_PROGRESS, UserCourseRecord.STATUS_PLANNED}:
         return "in_progress"
+    if record.status == UserCourseRecord.STATUS_WITHDRAWN:
+        return "withdrawn"
     return None
 
 
