@@ -202,6 +202,102 @@ def test_import_matches_course_catalog_by_normalized_code(client, app):
     assert summary_records[0]["domain_attempt_id"] is not None
 
 
+def test_import_withdrawn_course_does_not_count_completed_credit(client, app):
+    user_id, headers = create_user_and_headers(app, "withdrawn_import_user")
+    with app.app_context():
+        course = Course.query.filter_by(code="AIAA2205").one()
+        seed_offering(course, "2410")
+        db.session.commit()
+
+    pasted = "AIAA 2205\tIntroduction to Artificial Intelligence\t2024-25 Fall\tW\t3.00\tWithdrawn"
+    parse_response = client.post("/academic-map/import/parse", json={"text": pasted}, headers=headers)
+
+    assert parse_response.status_code == 200
+    parsed = parse_response.get_json()["rows"]
+    assert parsed[0]["status"] == "withdrawn"
+
+    save_response = client.post(
+        "/academic-map/records/bulk",
+        json={"keep_grades": True, "records": parsed},
+        headers=headers,
+    )
+
+    assert save_response.status_code == 200
+    with app.app_context():
+        course = Course.query.filter_by(code="AIAA2205").one()
+        attempt = UserCourseAttempt.query.filter_by(user_id=user_id, course_id=course.id).one()
+        assert attempt.status == "withdrawn"
+        assert attempt.grade_letter == "W"
+        state = UserCourseState.query.filter_by(user_id=user_id, course_id=course.id).one()
+        assert state.status == "not_taken"
+        assert state.best_attempt_id is None
+
+    summary_response = client.get("/academic-map/summary", headers=headers)
+
+    assert summary_response.status_code == 200
+    summary = summary_response.get_json()
+    assert summary["credits"]["total_completed"] == 0
+    assert summary["course_counts"]["completed"] == 0
+    assert summary["records"][0]["status"] == "withdrawn"
+    assert summary["records"][0]["course_code"] == "AIAA2205"
+
+
+def test_import_withdrawn_and_retake_counts_only_completed_retake(client, app):
+    user_id, headers = create_user_and_headers(app, "withdrawn_retake_user")
+    with app.app_context():
+        course = Course.query.filter_by(code="AIAA2205").one()
+        seed_offering(course, "2410")
+        seed_offering(course, "2430")
+        db.session.commit()
+
+    rows = [
+        {
+            "course_code": "AIAA2205",
+            "matched_course_code": "AIAA2205",
+            "course_title": "Introduction to Artificial Intelligence",
+            "term_label": "2024-25 Fall",
+            "term_code": "2410",
+            "units": 3,
+            "status": "withdrawn",
+            "grade": "W",
+        },
+        {
+            "course_code": "AIAA2205",
+            "matched_course_code": "AIAA2205",
+            "course_title": "Introduction to Artificial Intelligence",
+            "term_label": "2024-25 Spring",
+            "term_code": "2430",
+            "units": 3,
+            "status": "completed",
+            "grade": "A-",
+        },
+    ]
+
+    save_response = client.post(
+        "/academic-map/records/bulk",
+        json={"keep_grades": True, "records": rows},
+        headers=headers,
+    )
+
+    assert save_response.status_code == 200
+    with app.app_context():
+        course = Course.query.filter_by(code="AIAA2205").one()
+        attempts = UserCourseAttempt.query.filter_by(user_id=user_id, course_id=course.id).all()
+        assert sorted(attempt.status for attempt in attempts) == ["completed", "withdrawn"]
+        state = UserCourseState.query.filter_by(user_id=user_id, course_id=course.id).one()
+        assert state.status == "completed"
+        assert state.best_grade_letter == "A-"
+
+    summary_response = client.get("/academic-map/summary", headers=headers)
+
+    assert summary_response.status_code == 200
+    summary = summary_response.get_json()
+    assert summary["credits"]["total_completed"] == 3
+    assert summary["course_counts"]["completed"] == 1
+    assert summary["records"][0]["status"] == "completed"
+    assert summary["records"][0]["term_code"] == "2430"
+
+
 def test_import_with_unresolved_offering_stays_visible_as_raw_record(client, app):
     _user_id, headers = create_user_and_headers(app, "import_missing_offering_user")
     with app.app_context():
@@ -306,7 +402,7 @@ def test_record_update_and_delete_keep_domain_tables_in_sync(client, app):
         assert UserCourseState.query.filter_by(user_id=user_id, course_id=course.id).count() == 0
 
 
-def test_bulk_import_overwrites_existing_course_with_last_row(client, app):
+def test_bulk_import_keeps_strongest_display_record_and_preserves_domain_attempts(client, app):
     user_id, headers = create_user_and_headers(app, "bulk_overwrite_user")
     with app.app_context():
         course = Course.query.filter_by(code="AIAA1010").one()
@@ -361,9 +457,11 @@ def test_bulk_import_overwrites_existing_course_with_last_row(client, app):
         assert len(records) == 1
         assert records[0].term_code == "2440"
         attempts = UserCourseAttempt.query.filter_by(user_id=user_id, course_id=course.id).all()
-        assert len(attempts) == 1
-        assert attempts[0].offering.semester_id == "2440"
-        assert attempts[0].grade_letter == "A"
+        assert len(attempts) == 2
+        assert sorted((attempt.offering.semester_id, attempt.grade_letter) for attempt in attempts) == [
+            ("2410", "B+"),
+            ("2440", "A"),
+        ]
         state = UserCourseState.query.filter_by(user_id=user_id, course_id=course.id).one()
         assert state.best_grade_letter == "A"
 

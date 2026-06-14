@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-STATUS_WORDS = r"not\s*taken|in\s*progress|taken|completed|complete|registered|enrolled|planned|pending"
+STATUS_WORDS = r"not\s*taken|in\s*progress|withdrawn|withdraw|dropped|drop|taken|completed|complete|registered|enrolled|planned|pending"
 STATUS_TITLE_RE = re.compile(rf"\b({STATUS_WORDS})\b", re.IGNORECASE)
 
 
@@ -18,6 +18,8 @@ def status_from_text(value: str | None) -> str | None:
         return "planned"
     if normalized == "not taken":
         return "not_interested"
+    if normalized in {"withdrawn", "withdraw", "dropped", "drop"}:
+        return "withdrawn"
     return None
 
 

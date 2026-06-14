@@ -139,6 +139,7 @@ class UserCourseRecord(db.Model):
     STATUS_PLANNED = "planned"
     STATUS_INTERESTED = "interested"
     STATUS_NOT_INTERESTED = "not_interested"
+    STATUS_WITHDRAWN = "withdrawn"
 
     SOURCE_PASTE = "paste"
     SOURCE_SCREENSHOT = "screenshot"
