@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from itertools import combinations
+from itertools import combinations, islice
 from typing import Any
 
 
 CURRENT_STATUSES = {"completed", "in_progress"}
 PROJECTED_STATUSES = CURRENT_STATUSES | {"planned"}
+MAX_COMBINATIONS_PER_SIZE = 1024
 
 
 def normalize_code(value: Any) -> str:
@@ -201,16 +202,80 @@ def _leaf_progress_score(
     )
 
 
+def _constraint_match_score(leaf: dict[str, Any], code: str, courses_by_code: dict[str, dict]) -> int:
+    course = courses_by_code[code]
+    score = 0
+    for constraint in leaf.get("constraints", []):
+        if constraint.get("type") == "course_prefix":
+            if code.startswith(normalize_code(constraint.get("value"))):
+                score += 1
+        if constraint.get("type") == "course_area":
+            if normalize_code(course.get("area")) == normalize_code(constraint.get("value")):
+                score += 1
+    return score
+
+
+def _prioritized_codes(
+    leaf: dict[str, Any],
+    available_codes: list[str],
+    courses_by_code: dict[str, dict],
+) -> list[str]:
+    return sorted(
+        available_codes,
+        key=lambda code: (
+            -_constraint_match_score(leaf, code, courses_by_code),
+            -(courses_by_code[code].get("credits") or 0),
+            code,
+        ),
+    )
+
+
+def _target_option_size(
+    leaf: dict[str, Any],
+    available_codes: list[str],
+    courses_by_code: dict[str, dict],
+) -> int:
+    required_courses = _required_courses(leaf)
+    required_credits = _required_credits(leaf)
+    target = required_courses
+    for constraint in leaf.get("constraints", []):
+        target = max(target, int(constraint.get("min_courses") or 0))
+    if required_credits is not None:
+        credits = sorted(
+            [
+                courses_by_code[code].get("credits") or 0
+                for code in available_codes
+            ],
+            reverse=True,
+        )
+        running = 0
+        credit_target = len(available_codes)
+        for index, credit in enumerate(credits, start=1):
+            running += credit
+            if index >= required_courses and running >= required_credits:
+                credit_target = index
+                break
+        target = max(target, credit_target)
+    if target <= 0:
+        target = len(available_codes)
+    return min(target, len(available_codes))
+
+
 def _choose_options(
     leaf: dict[str, Any],
     available_codes: list[str],
     courses_by_code: dict[str, dict],
 ) -> list[tuple[str, ...]]:
-    options = [
-        option
-        for size in range(len(available_codes) + 1)
-        for option in combinations(available_codes, size)
-    ]
+    prioritized = _prioritized_codes(leaf, available_codes, courses_by_code)
+    target_size = _target_option_size(leaf, prioritized, courses_by_code)
+    option_set: set[tuple[str, ...]] = {()}
+    sizes = {target_size}
+    if target_size <= 4:
+        sizes.update(range(1, target_size + 1))
+    for size in sorted(size for size in sizes if size > 0):
+        for option in islice(combinations(prioritized, size), MAX_COMBINATIONS_PER_SIZE):
+            option_set.add(tuple(sorted(option)))
+    options = list(option_set)
     return sorted(
         options,
         key=lambda option: (
@@ -220,6 +285,37 @@ def _choose_options(
         ),
         reverse=True,
     )
+
+
+def _expand_satisfied_allocations(
+    leaves: list[dict[str, Any]],
+    allocations: dict[str, tuple[str, ...]],
+    courses_by_code: dict[str, dict],
+) -> dict[str, tuple[str, ...]]:
+    expanded = dict(allocations)
+    allocated_codes = {
+        code
+        for leaf in leaves
+        if not leaf.get("allow_reuse")
+        for code in expanded.get(leaf["_allocation_key"], ())
+    }
+    for leaf in leaves:
+        allocation_key = leaf["_allocation_key"]
+        selected = tuple(expanded.get(allocation_key, ()))
+        if not selected or not _constraints_satisfied(leaf, selected, courses_by_code):
+            continue
+        extras = []
+        for code in _candidate_codes(leaf, courses_by_code):
+            if code in selected:
+                continue
+            if not leaf.get("allow_reuse") and code in allocated_codes:
+                continue
+            extras.append(code)
+        if extras:
+            expanded[allocation_key] = tuple(sorted(set(selected) | set(extras)))
+            if not leaf.get("allow_reuse"):
+                allocated_codes.update(extras)
+    return expanded
 
 
 def _assignment_score(
@@ -301,9 +397,19 @@ def _evaluate_view(leaves: list[dict[str, Any]], courses_by_code: dict[str, dict
     )
     best_allocations = dict(allocations)
     best_score: tuple[Any, ...] | None = None
+    max_possible_satisfied = len(required_leaves) + sum(
+        1
+        for _index, leaf in ordered_choose_leaves
+        if any(
+            _constraints_satisfied(leaf, option, courses_by_code)
+            for option in _choose_options(leaf, _candidate_codes(leaf, courses_by_code), courses_by_code)
+        )
+    )
 
     def assign(index: int, used_codes: set[str]) -> None:
         nonlocal best_allocations, best_score
+        if best_score is not None and best_score[0] >= max_possible_satisfied:
+            return
         if index == len(ordered_choose_leaves):
             score = _assignment_score(leaves, allocations, courses_by_code)
             if best_score is None or score > best_score:
@@ -327,7 +433,7 @@ def _evaluate_view(leaves: list[dict[str, Any]], courses_by_code: dict[str, dict
         allocations.pop(leaf["_allocation_key"], None)
 
     assign(0, reserved)
-    allocations = best_allocations
+    allocations = _expand_satisfied_allocations(leaves, best_allocations, courses_by_code)
     satisfied_by_leaf = {
         leaf["_allocation_key"]: _constraints_satisfied(
             leaf,

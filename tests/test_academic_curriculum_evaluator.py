@@ -1,3 +1,7 @@
+import signal
+
+import pytest
+
 from app.services.academic_curriculum_evaluator import evaluate_requirement_group, evaluate_requirement_program
 
 
@@ -326,3 +330,66 @@ def test_evaluator_excludes_home_areas_from_common_core_broadening_electives():
         if cell["allocation_status"] == "counted"
     ]
     assert counted == ["UCUG1807"]
+
+
+def test_evaluator_handles_large_common_core_choice_pools_quickly():
+    courses = {
+        **{f"UCUG15{i:02d}": _course(f"UCUG15{i:02d}", "completed", area="A") for i in range(10)},
+        **{f"UCUG16{i:02d}": _course(f"UCUG16{i:02d}", "completed", area="H") for i in range(5)},
+        **{f"UCUG18{i:02d}": _course(f"UCUG18{i:02d}", "completed", area="SA") for i in range(10)},
+        **{f"UCUG23{i:02d}": _course(f"UCUG23{i:02d}", "completed", area="UxOP") for i in range(10)},
+    }
+    rule = {
+        "rule_tree": {
+            "type": "all_of",
+            "children": [
+                {
+                    "type": "choose",
+                    "key": "arts",
+                    "kind": "elective",
+                    "min_credits": 3,
+                    "courses": [code for code, course in courses.items() if course["area"] == "A"],
+                    "constraints": [{"type": "course_area", "value": "A", "min_credits": 3}],
+                },
+                {
+                    "type": "choose",
+                    "key": "humanities",
+                    "kind": "elective",
+                    "min_credits": 3,
+                    "courses": [code for code, course in courses.items() if course["area"] == "H"],
+                    "constraints": [{"type": "course_area", "value": "H", "min_credits": 3}],
+                },
+                {
+                    "type": "choose",
+                    "key": "social_analysis",
+                    "kind": "elective",
+                    "min_credits": 3,
+                    "courses": [code for code, course in courses.items() if course["area"] == "SA"],
+                    "constraints": [{"type": "course_area", "value": "SA", "min_credits": 3}],
+                },
+                {
+                    "type": "choose",
+                    "key": "experiencing",
+                    "kind": "elective",
+                    "min_credits": 3,
+                    "courses": list(courses),
+                },
+            ],
+        }
+    }
+
+    def timeout_handler(_signum, _frame):
+        raise TimeoutError("common core evaluation timed out")
+
+    previous = signal.signal(signal.SIGALRM, timeout_handler)
+    signal.setitimer(signal.ITIMER_REAL, 1.0)
+    try:
+        result = evaluate_requirement_group(rule, courses)
+    except TimeoutError as exc:
+        pytest.fail(str(exc))
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+    assert result["current"]["satisfied"] is True
+    assert result["current"]["counted_credits"] >= 12
