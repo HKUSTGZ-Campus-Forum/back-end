@@ -1,4 +1,5 @@
 import pytest
+import signal
 from flask_jwt_extended import create_access_token
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
@@ -12,6 +13,7 @@ from app.models.course_domain import CourseOffering, UserCourseAttempt, UserCour
 from app.services.course_catalog_matcher import find_course_by_normalized_code
 from app.models.user import User
 from app.models.user_role import UserRole
+from app.services.academic_curriculum_sync import sync_curriculum_requirements_from_file
 
 
 @compiles(JSONB, "sqlite")
@@ -106,6 +108,57 @@ def test_update_profile_and_get_summary(client, app):
     summary = client.get("/academic-map/summary", headers=headers)
     assert summary.status_code == 200
     assert summary.get_json()["profile"]["cohort"] == "2025"
+
+
+def test_summary_route_handles_common_core_many_records_and_targets_quickly(client, app):
+    user_id, headers = create_user_and_headers(app, "common_core_perf_user")
+    ucug_codes = [
+        "UCUG1000", "UCUG1001", "UCUG1050", "UCUG1051", "UCUG1052", "UCUG1052A",
+        "UCUG1052I", "UCUG1052S", "UCUG1053", "UCUG1070", "UCUG1071", "UCUG1072",
+        "UCUG1073", "UCUG1074", "UCUG1077", "UCUG1500", "UCUG1501", "UCUG1502",
+        "UCUG1503", "UCUG1504", "UCUG1505", "UCUG1506", "UCUG1507", "UCUG2500",
+        "UCUG2603", "UCUG1600", "UCUG1603", "UCUG1604", "UCUG1702", "UCUG1900",
+        "UCUG1903", "UCUG1905", "UCUG1907", "UCUG1800", "UCUG1804", "UCUG1807",
+        "UCUG1808", "UCUG1809", "UCUG3801", "UCUG2304",
+    ]
+    with app.app_context():
+        sync_curriculum_requirements_from_file()
+        profile = UserAcademicProfile.get_or_create_for_user(user_id)
+        profile.cohort = "2025"
+        profile.target_majors = ["AI", "DSA", "AMAT", "SMMG", "FTEC", "ROAS", "MICS"]
+        for code in ucug_codes:
+            course = Course.query.filter_by(code=code).first()
+            if course is None:
+                course = Course(code=code, normalized_code=code, display_code=code, name=code, credits=3)
+                db.session.add(course)
+                db.session.flush()
+            db.session.add(UserCourseRecord(
+                user_id=user_id,
+                course_id=course.id,
+                course_code=code,
+                course_title=course.name,
+                units=3,
+                status=UserCourseRecord.STATUS_COMPLETED,
+            ))
+        db.session.commit()
+
+    def timeout_handler(_signum, _frame):
+        raise TimeoutError("academic map summary timed out")
+
+    previous = signal.signal(signal.SIGALRM, timeout_handler)
+    signal.setitimer(signal.ITIMER_REAL, 2.0)
+    try:
+        summary = client.get("/academic-map/summary", headers=headers)
+    except TimeoutError as exc:
+        pytest.fail(str(exc))
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+    assert summary.status_code == 200
+    payload = summary.get_json()
+    assert len(payload["requirement_matrix"]) == 7
+    assert len(payload["records"]) == len(ucug_codes)
 
 
 def test_update_profile_normalizes_legacy_major_aliases(client, app):
