@@ -3,6 +3,7 @@ from app.extensions import db
 from app.models.tag import TagType
 from app.models.user_role import UserRole
 from app.models.identity_type import IdentityType
+from app.services.academic_curriculum_sync import sync_curriculum_requirements_from_file
 from sqlalchemy import text
 
 def init_tag_types():
@@ -115,11 +116,19 @@ def init_identity_types():
         db.session.commit()
         print("Identity types initialization completed")
 
+def init_curriculum_requirements():
+    """Synchronize bundled academic map curriculum requirements"""
+    app = create_app()
+    with app.app_context():
+        result = sync_curriculum_requirements_from_file()
+        print(f"Curriculum requirements synchronized: {result}")
+
 def init_db():
     """Initialize database with all required predefined data"""
     init_tag_types()
     init_user_roles()
     init_identity_types()  # Back to just populating data, not creating tables
+    init_curriculum_requirements()
     print("Database initialization completed")
 
 if __name__ == '__main__':

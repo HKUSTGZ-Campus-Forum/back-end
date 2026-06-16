@@ -1,7 +1,7 @@
 from app.services.academic_curriculum_evaluator import evaluate_requirement_group, evaluate_requirement_program
 
 
-def _course(code, status, credits=3, source="catalog"):
+def _course(code, status, credits=3, source="catalog", area=None):
     return {
         "course_code": code,
         "title": code,
@@ -9,6 +9,7 @@ def _course(code, status, credits=3, source="catalog"):
         "credits": credits,
         "credit_source": source,
         "shared_majors": [],
+        "area": area,
     }
 
 
@@ -271,3 +272,57 @@ def test_evaluator_allows_explicit_leaf_reuse():
 
     assert result[0]["current"]["satisfied"] is True
     assert result[1]["current"]["satisfied"] is True
+
+
+def test_evaluator_enforces_common_core_course_area_constraints():
+    rule = {
+        "rule_tree": {
+            "type": "choose",
+            "key": "broadening_arts",
+            "kind": "elective",
+            "min_credits": 3,
+            "courses": ["UCUG1500", "UCUG1600"],
+            "constraints": [{"type": "course_area", "value": "A", "min_credits": 3}],
+        }
+    }
+    courses = {
+        "UCUG1500": _course("UCUG1500", "completed", area="A"),
+        "UCUG1600": _course("UCUG1600", "completed", area="H"),
+    }
+
+    result = evaluate_requirement_group(rule, courses)
+
+    assert result["current"]["satisfied"] is True
+    counted = [
+        cell["course_code"]
+        for cell in result["sections"][0]["cells"]
+        if cell["allocation_status"] == "counted"
+    ]
+    assert counted == ["UCUG1500"]
+
+
+def test_evaluator_excludes_home_areas_from_common_core_broadening_electives():
+    rule = {
+        "rule_tree": {
+            "type": "choose",
+            "key": "broadening_elective",
+            "kind": "elective",
+            "min_credits": 3,
+            "courses": ["UCUG1702", "UCUG1807"],
+            "constraints": [{"type": "exclude_course_areas", "values": ["S", "T"]}],
+        }
+    }
+    courses = {
+        "UCUG1702": _course("UCUG1702", "completed", area="S"),
+        "UCUG1807": _course("UCUG1807", "completed", area="SA"),
+    }
+
+    result = evaluate_requirement_group(rule, courses)
+
+    assert result["current"]["satisfied"] is True
+    counted = [
+        cell["course_code"]
+        for cell in result["sections"][0]["cells"]
+        if cell["allocation_status"] == "counted"
+    ]
+    assert counted == ["UCUG1807"]

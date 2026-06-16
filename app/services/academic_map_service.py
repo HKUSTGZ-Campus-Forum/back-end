@@ -44,6 +44,49 @@ GRADE_POINTS = {
 
 NON_GPA_GRADES = {"AU", "DI", "I", "P", "PA", "PP", "T", "W"}
 
+UCUG_AREAS = {
+    "UCUG1000": "CTDL",
+    "UCUG1001": "HMW",
+    "UCUG1050": "E-Comm",
+    "UCUG1051": "E-Comm",
+    "UCUG1052": "E-Comm",
+    "UCUG1052A": "E-Comm",
+    "UCUG1052I": "E-Comm",
+    "UCUG1052S": "E-Comm",
+    "UCUG1053": "E-Comm",
+    "UCUG1070": "C-Comm",
+    "UCUG1071": "C-Comm",
+    "UCUG1072": "C-Comm",
+    "UCUG1073": "C-Comm",
+    "UCUG1074": "C-Comm",
+    "UCUG1077": "C-Comm",
+    "UCUG1500": "A",
+    "UCUG1501": "A",
+    "UCUG1502": "A",
+    "UCUG1503": "A",
+    "UCUG1504": "A",
+    "UCUG1505": "A",
+    "UCUG1506": "A",
+    "UCUG1507": "A",
+    "UCUG2500": "A",
+    "UCUG2603": "A",
+    "UCUG1600": "H",
+    "UCUG1603": "H",
+    "UCUG1604": "H",
+    "UCUG1702": "S",
+    "UCUG1900": "S",
+    "UCUG1903": "T",
+    "UCUG1905": "T",
+    "UCUG1907": "T",
+    "UCUG1800": "SA",
+    "UCUG1804": "SA",
+    "UCUG1807": "SA",
+    "UCUG1808": "SA",
+    "UCUG1809": "SA",
+    "UCUG3801": "SA",
+    "UCUG2304": "UxOP",
+}
+
 
 class DomainCourseRecordAdapter:
     import_source = "course_domain"
@@ -434,6 +477,7 @@ def _evaluation_courses(
             "record_status": record.status if record else None,
             "credits": credits,
             "credit_source": credit_source,
+            "area": UCUG_AREAS.get(code),
             "shared_majors": shared_map.get(code, []),
         }
     return result

@@ -266,6 +266,67 @@ def test_requirement_matrix_uses_catalog_title_for_unimported_courses(app):
     assert cell["title"] == "Calculus I"
 
 
+def test_requirement_matrix_returns_common_core_progress(app):
+    with app.app_context():
+        create_user(115, "common_core_progress")
+        program = CurriculumProgram(code="AI", name_en="Artificial Intelligence", cohort="2025", total_min_credits=120)
+        db.session.add(program)
+        db.session.flush()
+        db.session.add(CurriculumRequirementGroup(
+            program_id=program.id,
+            key="common_core",
+            name_en="University Common Core Courses",
+            category="common_core",
+            min_credits=30,
+            rule={
+                "rule_tree": {
+                    "type": "all_of",
+                    "children": [
+                        {
+                            "type": "choose",
+                            "key": "foundation_ctdl",
+                            "label_en": "CTDL",
+                            "min_courses": 1,
+                            "min_credits": 3,
+                            "courses": ["UCUG1000"],
+                            "area": "CTDL",
+                        },
+                        {
+                            "type": "choose",
+                            "key": "broadening_arts",
+                            "label_en": "Broadening: Arts",
+                            "kind": "elective",
+                            "min_credits": 3,
+                            "courses": ["UCUG1500", "UCUG1600"],
+                            "area": "A",
+                            "constraints": [{"type": "course_area", "value": "A", "min_credits": 3}],
+                        },
+                    ],
+                }
+            },
+            sort_order=1,
+        ))
+        db.session.add(UserAcademicProfile(user_id=115, cohort="2025", target_majors=["AI"]))
+        add_record(115, "UCUG1000", status="completed", units=3)
+        add_record(115, "UCUG1500", status="completed", units=3)
+        add_record(115, "UCUG1600", status="completed", units=3)
+        db.session.commit()
+
+        summary = build_academic_map_summary(115)
+
+    row = summary["requirement_matrix"][0]["rows"][0]
+    assert row["key"] == "common_core"
+    assert row["category"] == "common_core"
+    assert row["current"]["counted_credits"] == 6
+    assert row["current"]["required_credits"] == 6
+    assert [section["key"] for section in row["sections"]] == ["foundation_ctdl", "broadening_arts"]
+    broadening_cells = {cell["course_code"]: cell for cell in row["sections"][1]["cells"]}
+    assert broadening_cells["UCUG1500"]["allocation_status"] == "counted"
+    assert broadening_cells["UCUG1500"]["area"] == "A"
+    assert broadening_cells["UCUG1600"]["allocation_status"] == "candidate"
+    assert broadening_cells["UCUG1600"]["area"] == "H"
+
+
 def test_requirement_matrix_uses_choice_minimum_for_progress(app):
     with app.app_context():
         create_user(108, "matrix_choice")

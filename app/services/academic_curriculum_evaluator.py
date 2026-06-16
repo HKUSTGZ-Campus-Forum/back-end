@@ -115,8 +115,23 @@ def _candidate_codes(leaf: dict[str, Any], courses_by_code: dict[str, dict]) -> 
             normalize_code(code)
             for code in leaf.get("courses", [])
             if normalize_code(code) in courses_by_code
+            and _course_allowed_for_leaf(leaf, courses_by_code[normalize_code(code)])
         }
     )
+
+
+def _course_allowed_for_leaf(leaf: dict[str, Any], course: dict[str, Any]) -> bool:
+    course_area = course.get("area")
+    for constraint in leaf.get("constraints", []):
+        if constraint.get("type") == "course_area":
+            required_area = normalize_code(constraint.get("value"))
+            if normalize_code(course_area) != required_area:
+                return False
+        if constraint.get("type") == "exclude_course_areas":
+            excluded = {normalize_code(value) for value in constraint.get("values", [])}
+            if normalize_code(course_area) in excluded:
+                return False
+    return True
 
 
 def _constraints_satisfied(
@@ -138,6 +153,21 @@ def _constraints_satisfied(
             count = len([code for code in selected if code.startswith(prefix)])
             if count < int(constraint.get("min_courses") or 0):
                 return False
+        if constraint.get("type") == "course_area":
+            area = normalize_code(constraint.get("value"))
+            area_courses = [
+                code
+                for code in selected
+                if normalize_code(courses_by_code[code].get("area")) == area
+            ]
+            min_courses = constraint.get("min_courses")
+            if min_courses is not None and len(area_courses) < int(min_courses or 0):
+                return False
+            min_credits = constraint.get("min_credits")
+            if min_credits is not None:
+                area_credits = [courses_by_code[code].get("credits") for code in area_courses]
+                if any(value is None for value in area_credits) or sum(area_credits) < int(min_credits or 0):
+                    return False
     return True
 
 
@@ -155,6 +185,15 @@ def _leaf_progress_score(
             prefix = normalize_code(constraint.get("value"))
             required = int(constraint.get("min_courses") or 0)
             prefix_progress += min(len([code for code in selected if code.startswith(prefix)]), required)
+        if constraint.get("type") == "course_area":
+            area = normalize_code(constraint.get("value"))
+            area_codes = [
+                code
+                for code in selected
+                if normalize_code(courses_by_code[code].get("area")) == area
+            ]
+            required_courses = int(constraint.get("min_courses") or 0)
+            prefix_progress += min(len(area_codes), required_courses)
     return (
         min(len(selected), required_courses) if required_courses else 0,
         min(known_credits, required_credits) if required_credits is not None else 0,
@@ -374,6 +413,8 @@ def _merge_sections(
                     "counted_toward": allocated_elsewhere.get(code),
                     "credits": course.get("credits"),
                     "credit_source": course.get("credit_source"),
+                    "area": course.get("area"),
+                    "section_area": leaf.get("area"),
                     "shared_majors": course.get("shared_majors", []),
                 }
             )
