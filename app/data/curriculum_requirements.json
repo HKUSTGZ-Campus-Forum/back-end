@@ -18,6 +18,231 @@
       "source_file": "AI 25.pdf",
       "requirement_groups": [
         {
+          "key": "common_core",
+          "name_en": "University Common Core Courses",
+          "name_zh": "大学通识课程",
+          "category": "common_core",
+          "min_credits": 30,
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "type": "choose",
+                  "key": "foundation_ctdl",
+                  "label_en": "CTDL",
+                  "label_zh": "批判思维与数据素养",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1000"
+                  ],
+                  "area": "CTDL"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_hmw",
+                  "label_en": "HMW",
+                  "label_zh": "习惯、心态与身心健康",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1001"
+                  ],
+                  "area": "HMW"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_e_comm",
+                  "label_en": "English Communication",
+                  "label_zh": "英语沟通",
+                  "min_courses": 2,
+                  "min_credits": 6,
+                  "courses": [
+                    "UCUG1050",
+                    "UCUG1051",
+                    "UCUG1052",
+                    "UCUG1052A",
+                    "UCUG1052I",
+                    "UCUG1052S",
+                    "UCUG1053"
+                  ],
+                  "area": "E-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_c_comm",
+                  "label_en": "Chinese Communication",
+                  "label_zh": "中文沟通",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1070",
+                    "UCUG1071",
+                    "UCUG1072",
+                    "UCUG1073",
+                    "UCUG1074",
+                    "UCUG1077"
+                  ],
+                  "area": "C-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_arts",
+                  "label_en": "Broadening: Arts",
+                  "label_zh": "拓宽课程：艺术",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603"
+                  ],
+                  "area": "A",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "A",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_humanities",
+                  "label_en": "Broadening: Humanities",
+                  "label_zh": "拓宽课程：人文",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604"
+                  ],
+                  "area": "H",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "H",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_social_analysis",
+                  "label_en": "Broadening: Social Analysis",
+                  "label_zh": "拓宽课程：社会分析",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "area": "SA",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "SA",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_elective",
+                  "label_en": "Broadening elective",
+                  "label_zh": "拓宽选修",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "experiencing_uxop",
+                  "label_en": "Experiencing: UxOP or Broadening substitute",
+                  "label_zh": "体验课程：UxOP 或拓宽课程替代",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG2304",
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "allow_reuse": false,
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "sort_order": 5
+        },
+        {
           "key": "fundamental_courses",
           "name_en": "Fundamental Courses",
           "name_zh": "基础课程",
@@ -197,6 +422,231 @@
       ],
       "source_file": "AI 23 24.pdf",
       "requirement_groups": [
+        {
+          "key": "common_core",
+          "name_en": "University Common Core Courses",
+          "name_zh": "大学通识课程",
+          "category": "common_core",
+          "min_credits": 30,
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "type": "choose",
+                  "key": "foundation_ctdl",
+                  "label_en": "CTDL",
+                  "label_zh": "批判思维与数据素养",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1000"
+                  ],
+                  "area": "CTDL"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_hmw",
+                  "label_en": "HMW",
+                  "label_zh": "习惯、心态与身心健康",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1001"
+                  ],
+                  "area": "HMW"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_e_comm",
+                  "label_en": "English Communication",
+                  "label_zh": "英语沟通",
+                  "min_courses": 2,
+                  "min_credits": 6,
+                  "courses": [
+                    "UCUG1050",
+                    "UCUG1051",
+                    "UCUG1052",
+                    "UCUG1052A",
+                    "UCUG1052I",
+                    "UCUG1052S",
+                    "UCUG1053"
+                  ],
+                  "area": "E-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_c_comm",
+                  "label_en": "Chinese Communication",
+                  "label_zh": "中文沟通",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1070",
+                    "UCUG1071",
+                    "UCUG1072",
+                    "UCUG1073",
+                    "UCUG1074",
+                    "UCUG1077"
+                  ],
+                  "area": "C-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_arts",
+                  "label_en": "Broadening: Arts",
+                  "label_zh": "拓宽课程：艺术",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603"
+                  ],
+                  "area": "A",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "A",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_humanities",
+                  "label_en": "Broadening: Humanities",
+                  "label_zh": "拓宽课程：人文",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604"
+                  ],
+                  "area": "H",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "H",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_social_analysis",
+                  "label_en": "Broadening: Social Analysis",
+                  "label_zh": "拓宽课程：社会分析",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "area": "SA",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "SA",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_elective",
+                  "label_en": "Broadening elective",
+                  "label_zh": "拓宽选修",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "experiencing_uxop",
+                  "label_en": "Experiencing: UxOP or Broadening substitute",
+                  "label_zh": "体验课程：UxOP 或拓宽课程替代",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG2304",
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "allow_reuse": false,
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "sort_order": 5
+        },
         {
           "key": "fundamental_courses",
           "name_en": "Fundamental Courses",
@@ -385,6 +835,231 @@
       ],
       "source_file": "DSA 25.pdf",
       "requirement_groups": [
+        {
+          "key": "common_core",
+          "name_en": "University Common Core Courses",
+          "name_zh": "大学通识课程",
+          "category": "common_core",
+          "min_credits": 30,
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "type": "choose",
+                  "key": "foundation_ctdl",
+                  "label_en": "CTDL",
+                  "label_zh": "批判思维与数据素养",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1000"
+                  ],
+                  "area": "CTDL"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_hmw",
+                  "label_en": "HMW",
+                  "label_zh": "习惯、心态与身心健康",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1001"
+                  ],
+                  "area": "HMW"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_e_comm",
+                  "label_en": "English Communication",
+                  "label_zh": "英语沟通",
+                  "min_courses": 2,
+                  "min_credits": 6,
+                  "courses": [
+                    "UCUG1050",
+                    "UCUG1051",
+                    "UCUG1052",
+                    "UCUG1052A",
+                    "UCUG1052I",
+                    "UCUG1052S",
+                    "UCUG1053"
+                  ],
+                  "area": "E-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_c_comm",
+                  "label_en": "Chinese Communication",
+                  "label_zh": "中文沟通",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1070",
+                    "UCUG1071",
+                    "UCUG1072",
+                    "UCUG1073",
+                    "UCUG1074",
+                    "UCUG1077"
+                  ],
+                  "area": "C-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_arts",
+                  "label_en": "Broadening: Arts",
+                  "label_zh": "拓宽课程：艺术",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603"
+                  ],
+                  "area": "A",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "A",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_humanities",
+                  "label_en": "Broadening: Humanities",
+                  "label_zh": "拓宽课程：人文",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604"
+                  ],
+                  "area": "H",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "H",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_social_analysis",
+                  "label_en": "Broadening: Social Analysis",
+                  "label_zh": "拓宽课程：社会分析",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "area": "SA",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "SA",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_elective",
+                  "label_en": "Broadening elective",
+                  "label_zh": "拓宽选修",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "experiencing_uxop",
+                  "label_en": "Experiencing: UxOP or Broadening substitute",
+                  "label_zh": "体验课程：UxOP 或拓宽课程替代",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG2304",
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "allow_reuse": false,
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "sort_order": 5
+        },
         {
           "key": "fundamental_courses",
           "name_en": "Fundamental Courses",
@@ -612,6 +1287,231 @@
       ],
       "source_file": "DSA 24.pdf",
       "requirement_groups": [
+        {
+          "key": "common_core",
+          "name_en": "University Common Core Courses",
+          "name_zh": "大学通识课程",
+          "category": "common_core",
+          "min_credits": 30,
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "type": "choose",
+                  "key": "foundation_ctdl",
+                  "label_en": "CTDL",
+                  "label_zh": "批判思维与数据素养",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1000"
+                  ],
+                  "area": "CTDL"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_hmw",
+                  "label_en": "HMW",
+                  "label_zh": "习惯、心态与身心健康",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1001"
+                  ],
+                  "area": "HMW"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_e_comm",
+                  "label_en": "English Communication",
+                  "label_zh": "英语沟通",
+                  "min_courses": 2,
+                  "min_credits": 6,
+                  "courses": [
+                    "UCUG1050",
+                    "UCUG1051",
+                    "UCUG1052",
+                    "UCUG1052A",
+                    "UCUG1052I",
+                    "UCUG1052S",
+                    "UCUG1053"
+                  ],
+                  "area": "E-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_c_comm",
+                  "label_en": "Chinese Communication",
+                  "label_zh": "中文沟通",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1070",
+                    "UCUG1071",
+                    "UCUG1072",
+                    "UCUG1073",
+                    "UCUG1074",
+                    "UCUG1077"
+                  ],
+                  "area": "C-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_arts",
+                  "label_en": "Broadening: Arts",
+                  "label_zh": "拓宽课程：艺术",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603"
+                  ],
+                  "area": "A",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "A",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_humanities",
+                  "label_en": "Broadening: Humanities",
+                  "label_zh": "拓宽课程：人文",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604"
+                  ],
+                  "area": "H",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "H",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_social_analysis",
+                  "label_en": "Broadening: Social Analysis",
+                  "label_zh": "拓宽课程：社会分析",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "area": "SA",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "SA",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_elective",
+                  "label_en": "Broadening elective",
+                  "label_zh": "拓宽选修",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "experiencing_uxop",
+                  "label_en": "Experiencing: UxOP or Broadening substitute",
+                  "label_zh": "体验课程：UxOP 或拓宽课程替代",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG2304",
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "allow_reuse": false,
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "sort_order": 5
+        },
         {
           "key": "fundamental_courses",
           "name_en": "Fundamental Courses",
@@ -851,6 +1751,231 @@
       "source_file": "Curriculum Requirements - DSBD - 2023 cohort.pdf",
       "requirement_groups": [
         {
+          "key": "common_core",
+          "name_en": "University Common Core Courses",
+          "name_zh": "大学通识课程",
+          "category": "common_core",
+          "min_credits": 30,
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "type": "choose",
+                  "key": "foundation_ctdl",
+                  "label_en": "CTDL",
+                  "label_zh": "批判思维与数据素养",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1000"
+                  ],
+                  "area": "CTDL"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_hmw",
+                  "label_en": "HMW",
+                  "label_zh": "习惯、心态与身心健康",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1001"
+                  ],
+                  "area": "HMW"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_e_comm",
+                  "label_en": "English Communication",
+                  "label_zh": "英语沟通",
+                  "min_courses": 2,
+                  "min_credits": 6,
+                  "courses": [
+                    "UCUG1050",
+                    "UCUG1051",
+                    "UCUG1052",
+                    "UCUG1052A",
+                    "UCUG1052I",
+                    "UCUG1052S",
+                    "UCUG1053"
+                  ],
+                  "area": "E-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_c_comm",
+                  "label_en": "Chinese Communication",
+                  "label_zh": "中文沟通",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1070",
+                    "UCUG1071",
+                    "UCUG1072",
+                    "UCUG1073",
+                    "UCUG1074",
+                    "UCUG1077"
+                  ],
+                  "area": "C-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_arts",
+                  "label_en": "Broadening: Arts",
+                  "label_zh": "拓宽课程：艺术",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603"
+                  ],
+                  "area": "A",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "A",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_humanities",
+                  "label_en": "Broadening: Humanities",
+                  "label_zh": "拓宽课程：人文",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604"
+                  ],
+                  "area": "H",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "H",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_social_analysis",
+                  "label_en": "Broadening: Social Analysis",
+                  "label_zh": "拓宽课程：社会分析",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "area": "SA",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "SA",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_elective",
+                  "label_en": "Broadening elective",
+                  "label_zh": "拓宽选修",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "experiencing_uxop",
+                  "label_en": "Experiencing: UxOP or Broadening substitute",
+                  "label_zh": "体验课程：UxOP 或拓宽课程替代",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG2304",
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "allow_reuse": false,
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "sort_order": 5
+        },
+        {
           "key": "fundamental_courses",
           "name_en": "Fundamental Courses",
           "name_zh": "基础课程",
@@ -1066,6 +2191,231 @@
       "source_file": "AMAT Curriculum Updated.pdf",
       "requirement_groups": [
         {
+          "key": "common_core",
+          "name_en": "University Common Core Courses",
+          "name_zh": "大学通识课程",
+          "category": "common_core",
+          "min_credits": 30,
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "type": "choose",
+                  "key": "foundation_ctdl",
+                  "label_en": "CTDL",
+                  "label_zh": "批判思维与数据素养",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1000"
+                  ],
+                  "area": "CTDL"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_hmw",
+                  "label_en": "HMW",
+                  "label_zh": "习惯、心态与身心健康",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1001"
+                  ],
+                  "area": "HMW"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_e_comm",
+                  "label_en": "English Communication",
+                  "label_zh": "英语沟通",
+                  "min_courses": 2,
+                  "min_credits": 6,
+                  "courses": [
+                    "UCUG1050",
+                    "UCUG1051",
+                    "UCUG1052",
+                    "UCUG1052A",
+                    "UCUG1052I",
+                    "UCUG1052S",
+                    "UCUG1053"
+                  ],
+                  "area": "E-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_c_comm",
+                  "label_en": "Chinese Communication",
+                  "label_zh": "中文沟通",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1070",
+                    "UCUG1071",
+                    "UCUG1072",
+                    "UCUG1073",
+                    "UCUG1074",
+                    "UCUG1077"
+                  ],
+                  "area": "C-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_arts",
+                  "label_en": "Broadening: Arts",
+                  "label_zh": "拓宽课程：艺术",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603"
+                  ],
+                  "area": "A",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "A",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_humanities",
+                  "label_en": "Broadening: Humanities",
+                  "label_zh": "拓宽课程：人文",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604"
+                  ],
+                  "area": "H",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "H",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_social_analysis",
+                  "label_en": "Broadening: Social Analysis",
+                  "label_zh": "拓宽课程：社会分析",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "area": "SA",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "SA",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_elective",
+                  "label_en": "Broadening elective",
+                  "label_zh": "拓宽选修",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "experiencing_uxop",
+                  "label_en": "Experiencing: UxOP or Broadening substitute",
+                  "label_zh": "体验课程：UxOP 或拓宽课程替代",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG2304",
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "allow_reuse": false,
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "sort_order": 5
+        },
+        {
           "key": "fundamental_courses",
           "name_en": "Fundamental Courses",
           "name_zh": "基础课程",
@@ -1267,6 +2617,231 @@
       ],
       "source_file": "Curriculum Requirement - MSE - 2024 cohort - updated on May 19.pdf",
       "requirement_groups": [
+        {
+          "key": "common_core",
+          "name_en": "University Common Core Courses",
+          "name_zh": "大学通识课程",
+          "category": "common_core",
+          "min_credits": 30,
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "type": "choose",
+                  "key": "foundation_ctdl",
+                  "label_en": "CTDL",
+                  "label_zh": "批判思维与数据素养",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1000"
+                  ],
+                  "area": "CTDL"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_hmw",
+                  "label_en": "HMW",
+                  "label_zh": "习惯、心态与身心健康",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1001"
+                  ],
+                  "area": "HMW"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_e_comm",
+                  "label_en": "English Communication",
+                  "label_zh": "英语沟通",
+                  "min_courses": 2,
+                  "min_credits": 6,
+                  "courses": [
+                    "UCUG1050",
+                    "UCUG1051",
+                    "UCUG1052",
+                    "UCUG1052A",
+                    "UCUG1052I",
+                    "UCUG1052S",
+                    "UCUG1053"
+                  ],
+                  "area": "E-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_c_comm",
+                  "label_en": "Chinese Communication",
+                  "label_zh": "中文沟通",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1070",
+                    "UCUG1071",
+                    "UCUG1072",
+                    "UCUG1073",
+                    "UCUG1074",
+                    "UCUG1077"
+                  ],
+                  "area": "C-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_arts",
+                  "label_en": "Broadening: Arts",
+                  "label_zh": "拓宽课程：艺术",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603"
+                  ],
+                  "area": "A",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "A",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_humanities",
+                  "label_en": "Broadening: Humanities",
+                  "label_zh": "拓宽课程：人文",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604"
+                  ],
+                  "area": "H",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "H",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_social_analysis",
+                  "label_en": "Broadening: Social Analysis",
+                  "label_zh": "拓宽课程：社会分析",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "area": "SA",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "SA",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_elective",
+                  "label_en": "Broadening elective",
+                  "label_zh": "拓宽选修",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "experiencing_uxop",
+                  "label_en": "Experiencing: UxOP or Broadening substitute",
+                  "label_zh": "体验课程：UxOP 或拓宽课程替代",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG2304",
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "allow_reuse": false,
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "sort_order": 5
+        },
         {
           "key": "fundamental_courses",
           "name_en": "Fundamental Courses",
@@ -1489,6 +3064,231 @@
       ],
       "source_file": "SMMG 25.pdf",
       "requirement_groups": [
+        {
+          "key": "common_core",
+          "name_en": "University Common Core Courses",
+          "name_zh": "大学通识课程",
+          "category": "common_core",
+          "min_credits": 30,
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "type": "choose",
+                  "key": "foundation_ctdl",
+                  "label_en": "CTDL",
+                  "label_zh": "批判思维与数据素养",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1000"
+                  ],
+                  "area": "CTDL"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_hmw",
+                  "label_en": "HMW",
+                  "label_zh": "习惯、心态与身心健康",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1001"
+                  ],
+                  "area": "HMW"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_e_comm",
+                  "label_en": "English Communication",
+                  "label_zh": "英语沟通",
+                  "min_courses": 2,
+                  "min_credits": 6,
+                  "courses": [
+                    "UCUG1050",
+                    "UCUG1051",
+                    "UCUG1052",
+                    "UCUG1052A",
+                    "UCUG1052I",
+                    "UCUG1052S",
+                    "UCUG1053"
+                  ],
+                  "area": "E-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_c_comm",
+                  "label_en": "Chinese Communication",
+                  "label_zh": "中文沟通",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1070",
+                    "UCUG1071",
+                    "UCUG1072",
+                    "UCUG1073",
+                    "UCUG1074",
+                    "UCUG1077"
+                  ],
+                  "area": "C-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_arts",
+                  "label_en": "Broadening: Arts",
+                  "label_zh": "拓宽课程：艺术",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603"
+                  ],
+                  "area": "A",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "A",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_humanities",
+                  "label_en": "Broadening: Humanities",
+                  "label_zh": "拓宽课程：人文",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604"
+                  ],
+                  "area": "H",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "H",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_social_analysis",
+                  "label_en": "Broadening: Social Analysis",
+                  "label_zh": "拓宽课程：社会分析",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "area": "SA",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "SA",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_elective",
+                  "label_en": "Broadening elective",
+                  "label_zh": "拓宽选修",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "experiencing_uxop",
+                  "label_en": "Experiencing: UxOP or Broadening substitute",
+                  "label_zh": "体验课程：UxOP 或拓宽课程替代",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG2304",
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "allow_reuse": false,
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "sort_order": 5
+        },
         {
           "key": "fundamental_courses",
           "name_en": "Fundamental Courses",
@@ -1735,6 +3535,231 @@
       "source_file": "SMMG 23 24.pdf",
       "requirement_groups": [
         {
+          "key": "common_core",
+          "name_en": "University Common Core Courses",
+          "name_zh": "大学通识课程",
+          "category": "common_core",
+          "min_credits": 30,
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "type": "choose",
+                  "key": "foundation_ctdl",
+                  "label_en": "CTDL",
+                  "label_zh": "批判思维与数据素养",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1000"
+                  ],
+                  "area": "CTDL"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_hmw",
+                  "label_en": "HMW",
+                  "label_zh": "习惯、心态与身心健康",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1001"
+                  ],
+                  "area": "HMW"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_e_comm",
+                  "label_en": "English Communication",
+                  "label_zh": "英语沟通",
+                  "min_courses": 2,
+                  "min_credits": 6,
+                  "courses": [
+                    "UCUG1050",
+                    "UCUG1051",
+                    "UCUG1052",
+                    "UCUG1052A",
+                    "UCUG1052I",
+                    "UCUG1052S",
+                    "UCUG1053"
+                  ],
+                  "area": "E-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_c_comm",
+                  "label_en": "Chinese Communication",
+                  "label_zh": "中文沟通",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1070",
+                    "UCUG1071",
+                    "UCUG1072",
+                    "UCUG1073",
+                    "UCUG1074",
+                    "UCUG1077"
+                  ],
+                  "area": "C-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_arts",
+                  "label_en": "Broadening: Arts",
+                  "label_zh": "拓宽课程：艺术",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603"
+                  ],
+                  "area": "A",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "A",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_humanities",
+                  "label_en": "Broadening: Humanities",
+                  "label_zh": "拓宽课程：人文",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604"
+                  ],
+                  "area": "H",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "H",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_social_analysis",
+                  "label_en": "Broadening: Social Analysis",
+                  "label_zh": "拓宽课程：社会分析",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "area": "SA",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "SA",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_elective",
+                  "label_en": "Broadening elective",
+                  "label_zh": "拓宽选修",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "experiencing_uxop",
+                  "label_en": "Experiencing: UxOP or Broadening substitute",
+                  "label_zh": "体验课程：UxOP 或拓宽课程替代",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG2304",
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "allow_reuse": false,
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "sort_order": 5
+        },
+        {
           "key": "fundamental_courses",
           "name_en": "Fundamental Courses",
           "name_zh": "基础课程",
@@ -1954,6 +3979,219 @@
       "source_file": "FTEC 25.pdf",
       "requirement_groups": [
         {
+          "key": "common_core",
+          "name_en": "University Common Core Courses",
+          "name_zh": "大学通识课程",
+          "category": "common_core",
+          "min_credits": 30,
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "type": "choose",
+                  "key": "foundation_ctdl",
+                  "label_en": "CTDL",
+                  "label_zh": "批判思维与数据素养",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1000"
+                  ],
+                  "area": "CTDL"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_hmw",
+                  "label_en": "HMW",
+                  "label_zh": "习惯、心态与身心健康",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1001"
+                  ],
+                  "area": "HMW"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_e_comm",
+                  "label_en": "English Communication",
+                  "label_zh": "英语沟通",
+                  "min_courses": 2,
+                  "min_credits": 6,
+                  "courses": [
+                    "UCUG1050",
+                    "UCUG1051",
+                    "UCUG1052",
+                    "UCUG1052A",
+                    "UCUG1052I",
+                    "UCUG1052S",
+                    "UCUG1053"
+                  ],
+                  "area": "E-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_c_comm",
+                  "label_en": "Chinese Communication",
+                  "label_zh": "中文沟通",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1070",
+                    "UCUG1071",
+                    "UCUG1072",
+                    "UCUG1073",
+                    "UCUG1074",
+                    "UCUG1077"
+                  ],
+                  "area": "C-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_arts",
+                  "label_en": "Broadening: Arts",
+                  "label_zh": "拓宽课程：艺术",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603"
+                  ],
+                  "area": "A",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "A",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_humanities",
+                  "label_en": "Broadening: Humanities",
+                  "label_zh": "拓宽课程：人文",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604"
+                  ],
+                  "area": "H",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "H",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_science",
+                  "label_en": "Broadening: Science",
+                  "label_zh": "拓宽课程：科学",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1702",
+                    "UCUG1900"
+                  ],
+                  "area": "S",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "S",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_elective",
+                  "label_en": "Broadening elective",
+                  "label_zh": "拓宽选修",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1702",
+                    "UCUG1900"
+                  ],
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "T",
+                        "SA"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "experiencing_uxop",
+                  "label_en": "Experiencing: UxOP or Broadening substitute",
+                  "label_zh": "体验课程：UxOP 或拓宽课程替代",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG2304",
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1702",
+                    "UCUG1900"
+                  ],
+                  "allow_reuse": false,
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "T",
+                        "SA"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "sort_order": 5
+        },
+        {
           "key": "fundamental_courses",
           "name_en": "Fundamental Courses",
           "name_zh": "基础课程",
@@ -2118,6 +4356,214 @@
       ],
       "source_file": "ROAS 25.pdf",
       "requirement_groups": [
+        {
+          "key": "common_core",
+          "name_en": "University Common Core Courses",
+          "name_zh": "大学通识课程",
+          "category": "common_core",
+          "min_credits": 30,
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "type": "choose",
+                  "key": "foundation_ctdl",
+                  "label_en": "CTDL",
+                  "label_zh": "批判思维与数据素养",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1000"
+                  ],
+                  "area": "CTDL"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_hmw",
+                  "label_en": "HMW",
+                  "label_zh": "习惯、心态与身心健康",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1001"
+                  ],
+                  "area": "HMW"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_e_comm",
+                  "label_en": "English Communication",
+                  "label_zh": "英语沟通",
+                  "min_courses": 2,
+                  "min_credits": 6,
+                  "courses": [
+                    "UCUG1050",
+                    "UCUG1051",
+                    "UCUG1052",
+                    "UCUG1052A",
+                    "UCUG1052I",
+                    "UCUG1052S",
+                    "UCUG1053"
+                  ],
+                  "area": "E-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_c_comm",
+                  "label_en": "Chinese Communication",
+                  "label_zh": "中文沟通",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1070",
+                    "UCUG1071",
+                    "UCUG1072",
+                    "UCUG1073",
+                    "UCUG1074",
+                    "UCUG1077"
+                  ],
+                  "area": "C-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_arts",
+                  "label_en": "Broadening: Arts",
+                  "label_zh": "拓宽课程：艺术",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603"
+                  ],
+                  "area": "A",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "A",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_humanities",
+                  "label_en": "Broadening: Humanities",
+                  "label_zh": "拓宽课程：人文",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604"
+                  ],
+                  "area": "H",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "H",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_science",
+                  "label_en": "Broadening: Science",
+                  "label_zh": "拓宽课程：科学",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1702",
+                    "UCUG1900"
+                  ],
+                  "area": "S",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "S",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_social_analysis",
+                  "label_en": "Broadening: Social Analysis",
+                  "label_zh": "拓宽课程：社会分析",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "area": "SA",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "SA",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "experiencing_uxop",
+                  "label_en": "Experiencing: UxOP or Broadening substitute",
+                  "label_zh": "体验课程：UxOP 或拓宽课程替代",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG2304",
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1702",
+                    "UCUG1900",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "allow_reuse": false,
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "T"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "sort_order": 5
+        },
         {
           "key": "fundamental_courses",
           "name_en": "Fundamental Courses",
@@ -2307,6 +4753,231 @@
       "source_file": "MICS 25.pdf",
       "requirement_groups": [
         {
+          "key": "common_core",
+          "name_en": "University Common Core Courses",
+          "name_zh": "大学通识课程",
+          "category": "common_core",
+          "min_credits": 30,
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "type": "choose",
+                  "key": "foundation_ctdl",
+                  "label_en": "CTDL",
+                  "label_zh": "批判思维与数据素养",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1000"
+                  ],
+                  "area": "CTDL"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_hmw",
+                  "label_en": "HMW",
+                  "label_zh": "习惯、心态与身心健康",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1001"
+                  ],
+                  "area": "HMW"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_e_comm",
+                  "label_en": "English Communication",
+                  "label_zh": "英语沟通",
+                  "min_courses": 2,
+                  "min_credits": 6,
+                  "courses": [
+                    "UCUG1050",
+                    "UCUG1051",
+                    "UCUG1052",
+                    "UCUG1052A",
+                    "UCUG1052I",
+                    "UCUG1052S",
+                    "UCUG1053"
+                  ],
+                  "area": "E-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_c_comm",
+                  "label_en": "Chinese Communication",
+                  "label_zh": "中文沟通",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1070",
+                    "UCUG1071",
+                    "UCUG1072",
+                    "UCUG1073",
+                    "UCUG1074",
+                    "UCUG1077"
+                  ],
+                  "area": "C-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_arts",
+                  "label_en": "Broadening: Arts",
+                  "label_zh": "拓宽课程：艺术",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603"
+                  ],
+                  "area": "A",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "A",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_humanities",
+                  "label_en": "Broadening: Humanities",
+                  "label_zh": "拓宽课程：人文",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604"
+                  ],
+                  "area": "H",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "H",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_social_analysis",
+                  "label_en": "Broadening: Social Analysis",
+                  "label_zh": "拓宽课程：社会分析",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "area": "SA",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "SA",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_elective",
+                  "label_en": "Broadening elective",
+                  "label_zh": "拓宽选修",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "experiencing_uxop",
+                  "label_en": "Experiencing: UxOP or Broadening substitute",
+                  "label_zh": "体验课程：UxOP 或拓宽课程替代",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG2304",
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "allow_reuse": false,
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "sort_order": 5
+        },
+        {
           "key": "fundamental_courses",
           "name_en": "Fundamental Courses",
           "name_zh": "基础课程",
@@ -2486,6 +5157,231 @@
       ],
       "source_file": "SEEN 26.pdf",
       "requirement_groups": [
+        {
+          "key": "common_core",
+          "name_en": "University Common Core Courses",
+          "name_zh": "大学通识课程",
+          "category": "common_core",
+          "min_credits": 30,
+          "rule": {
+            "rule_tree": {
+              "type": "all_of",
+              "children": [
+                {
+                  "type": "choose",
+                  "key": "foundation_ctdl",
+                  "label_en": "CTDL",
+                  "label_zh": "批判思维与数据素养",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1000"
+                  ],
+                  "area": "CTDL"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_hmw",
+                  "label_en": "HMW",
+                  "label_zh": "习惯、心态与身心健康",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1001"
+                  ],
+                  "area": "HMW"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_e_comm",
+                  "label_en": "English Communication",
+                  "label_zh": "英语沟通",
+                  "min_courses": 2,
+                  "min_credits": 6,
+                  "courses": [
+                    "UCUG1050",
+                    "UCUG1051",
+                    "UCUG1052",
+                    "UCUG1052A",
+                    "UCUG1052I",
+                    "UCUG1052S",
+                    "UCUG1053"
+                  ],
+                  "area": "E-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "foundation_c_comm",
+                  "label_en": "Chinese Communication",
+                  "label_zh": "中文沟通",
+                  "min_courses": 1,
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1070",
+                    "UCUG1071",
+                    "UCUG1072",
+                    "UCUG1073",
+                    "UCUG1074",
+                    "UCUG1077"
+                  ],
+                  "area": "C-Comm"
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_arts",
+                  "label_en": "Broadening: Arts",
+                  "label_zh": "拓宽课程：艺术",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603"
+                  ],
+                  "area": "A",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "A",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_humanities",
+                  "label_en": "Broadening: Humanities",
+                  "label_zh": "拓宽课程：人文",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604"
+                  ],
+                  "area": "H",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "H",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_social_analysis",
+                  "label_en": "Broadening: Social Analysis",
+                  "label_zh": "拓宽课程：社会分析",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "area": "SA",
+                  "constraints": [
+                    {
+                      "type": "course_area",
+                      "value": "SA",
+                      "min_credits": 3
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "broadening_elective",
+                  "label_en": "Broadening elective",
+                  "label_zh": "拓宽选修",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "choose",
+                  "key": "experiencing_uxop",
+                  "label_en": "Experiencing: UxOP or Broadening substitute",
+                  "label_zh": "体验课程：UxOP 或拓宽课程替代",
+                  "kind": "elective",
+                  "min_credits": 3,
+                  "courses": [
+                    "UCUG2304",
+                    "UCUG1500",
+                    "UCUG1501",
+                    "UCUG1502",
+                    "UCUG1503",
+                    "UCUG1504",
+                    "UCUG1505",
+                    "UCUG1506",
+                    "UCUG1507",
+                    "UCUG2500",
+                    "UCUG2603",
+                    "UCUG1600",
+                    "UCUG1603",
+                    "UCUG1604",
+                    "UCUG1800",
+                    "UCUG1804",
+                    "UCUG1807",
+                    "UCUG1808",
+                    "UCUG1809",
+                    "UCUG3801"
+                  ],
+                  "allow_reuse": false,
+                  "constraints": [
+                    {
+                      "type": "exclude_course_areas",
+                      "values": [
+                        "S",
+                        "T"
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "sort_order": 5
+        },
         {
           "key": "fundamental_courses",
           "name_en": "Fundamental Courses",

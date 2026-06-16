@@ -93,6 +93,13 @@ def test_deploy_workflows_fail_on_migration_errors_and_use_committed_revisions()
         assert "flask db migrate" not in deploy_workflow
 
 
+def test_dev_database_initialization_syncs_curriculum_requirements():
+    init_script = (ROOT / "app" / "scripts" / "init_db.py").read_text(encoding="utf-8")
+
+    assert "sync_curriculum_requirements_from_file" in init_script
+    assert init_script.index("init_identity_types()") < init_script.index("init_curriculum_requirements()")
+
+
 def test_production_deploy_backfills_2024_25_scheduler_offerings():
     deploy_workflow = (ROOT / ".github" / "workflows" / "deploy-backend-prod.yml").read_text(encoding="utf-8")
 

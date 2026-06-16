@@ -41,6 +41,57 @@ def _leaf_keys(group):
     return [leaf["key"] for leaf in group["rule"]["rule_tree"]["children"]]
 
 
+def test_bundled_payload_includes_common_core_for_every_program():
+    missing = [
+        (program["code"], program.get("cohorts") or [program.get("cohort")])
+        for program in PAYLOAD["programs"]
+        if not any(group["key"] == "common_core" for group in program["requirement_groups"])
+    ]
+    assert missing == []
+
+
+def test_ai_2025_common_core_matches_broadening_table():
+    common_core = _group("AI", "2025", "common_core")
+    leaves = {leaf["key"]: leaf for leaf in common_core["rule"]["rule_tree"]["children"]}
+
+    assert leaves["broadening_arts"]["min_credits"] == 3
+    assert leaves["broadening_humanities"]["min_credits"] == 3
+    assert leaves["broadening_social_analysis"]["min_credits"] == 3
+    assert leaves["broadening_elective"]["min_credits"] == 3
+    assert "broadening_science" not in leaves
+    assert "broadening_technology" not in leaves
+    assert leaves["broadening_elective"]["constraints"] == [
+        {"type": "exclude_course_areas", "values": ["S", "T"]}
+    ]
+
+
+def test_ftec_2025_common_core_matches_broadening_table():
+    common_core = _group("FTEC", "2025", "common_core")
+    leaves = {leaf["key"]: leaf for leaf in common_core["rule"]["rule_tree"]["children"]}
+
+    assert leaves["broadening_arts"]["min_credits"] == 3
+    assert leaves["broadening_humanities"]["min_credits"] == 3
+    assert leaves["broadening_science"]["min_credits"] == 3
+    assert leaves["broadening_elective"]["min_credits"] == 3
+    assert "broadening_technology" not in leaves
+    assert "broadening_social_analysis" not in leaves
+    assert leaves["broadening_elective"]["constraints"] == [
+        {"type": "exclude_course_areas", "values": ["T", "SA"]}
+    ]
+
+
+def test_roas_2025_common_core_matches_broadening_table():
+    common_core = _group("ROAS", "2025", "common_core")
+    leaves = {leaf["key"]: leaf for leaf in common_core["rule"]["rule_tree"]["children"]}
+
+    assert leaves["broadening_arts"]["min_credits"] == 3
+    assert leaves["broadening_humanities"]["min_credits"] == 3
+    assert leaves["broadening_science"]["min_credits"] == 3
+    assert leaves["broadening_social_analysis"]["min_credits"] == 3
+    assert "broadening_technology" not in leaves
+    assert "broadening_elective" not in leaves
+
+
 def test_ai_2025_linear_algebra_is_not_fixed():
     group = _group("AI", "2025", "fundamental_courses")
     fixed = _leaf(group, "fixed_courses")
