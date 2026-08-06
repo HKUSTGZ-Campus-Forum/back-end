@@ -225,6 +225,7 @@ def _auto_init_course_domain_support():
         UserSectionSelection,
         CoursePostOfferingTarget,
     )
+    from app.models.scheduler_popularity import SchedulerPopularityEvent
 
     db.metadata.create_all(bind=db.engine, tables=[Course.__table__], checkfirst=True)
 
@@ -259,6 +260,7 @@ def _auto_init_course_domain_support():
             UserOfferingCart.__table__,
             UserSectionSelection.__table__,
             CoursePostOfferingTarget.__table__,
+            SchedulerPopularityEvent.__table__,
         ],
         checkfirst=True,
     )

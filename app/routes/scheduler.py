@@ -8,10 +8,19 @@ from app.models.course_domain import (
     UserSectionSelection,
 )
 from app.models.scheduler_map import SchedulerMapComponent, SchedulerMapLine
+from app.models.user import User
 from app.extensions import db
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func, or_
 from app.services.course_domain import current_catalog_version, find_offering, normalize_course_code
+from app.services.scheduler_popularity import (
+    build_popularity_snapshot,
+    is_canonical_popularity_user,
+    is_eligible_popularity_user,
+    normalize_popularity_course_codes,
+    popularity_state,
+    record_popularity_transition,
+)
 
 bp = Blueprint('scheduler', __name__, url_prefix='/scheduler')
 
@@ -29,6 +38,35 @@ def _json_body():
     if not isinstance(data, dict):
         return None, (jsonify({'error': 'Invalid JSON body'}), 400)
     return data, None
+
+
+def _requested_enabled(data, default):
+    if 'enabled' not in data:
+        return default, None
+    enabled = data['enabled']
+    if not isinstance(enabled, bool):
+        return None, (jsonify({'error': 'enabled must be a boolean'}), 400)
+    return enabled, None
+
+
+def _offered_offering(course, semester):
+    offering = find_offering(course, semester) if course else None
+    if offering is None or offering.status != 'offered':
+        return None
+    return offering
+
+
+def _request_user():
+    try:
+        user_id = int(get_jwt_identity())
+    except (TypeError, ValueError):
+        return None
+    return db.session.get(User, user_id)
+
+
+def _eligible_popularity_contributor(user_id):
+    user = db.session.get(User, user_id)
+    return is_eligible_popularity_user(user) and is_canonical_popularity_user(user)
 
 
 def _find_course_by_code(code):
@@ -297,6 +335,37 @@ def get_course_detail(code):
     })
 
 
+# --- Popularity ---
+
+@bp.route('/popularity/<semester>', methods=['GET'])
+@jwt_required()
+def get_popularity(semester):
+    """Return anonymous current planner counts for courses in the viewer's cart."""
+    viewer = _request_user()
+    if viewer is None or viewer.is_deleted:
+        return jsonify({'error': 'Authenticated user not found'}), 401
+    if not is_eligible_popularity_user(viewer) or not is_canonical_popularity_user(viewer):
+        return jsonify({'error': 'verified_institutional_account_required'}), 403
+
+    try:
+        course_codes = normalize_popularity_course_codes(
+            request.args.getlist('course_codes'),
+            limit=30,
+        )
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+
+    payload = build_popularity_snapshot(
+        viewer_id=viewer.id,
+        semester_id=str(semester).strip(),
+        course_codes=course_codes,
+    )
+    response = jsonify(payload)
+    response.headers['Cache-Control'] = 'private, no-store'
+    response.headers['Vary'] = 'Authorization'
+    return response
+
+
 # --- Cart CRUD ---
 
 def _serialize_cart_item(cart_item):
@@ -401,7 +470,7 @@ def add_to_cart(semester):
     if not course:
         return jsonify({'error': 'Course not found'}), 404
 
-    offering = find_offering(course, semester)
+    offering = _offered_offering(course, semester)
     if offering:
         existing = UserOfferingCart.query.filter_by(user_id=user_id, offering_id=offering.id).first()
         if existing:
@@ -413,6 +482,14 @@ def add_to_cart(semester):
 
         cart = UserOfferingCart(user_id=user_id, offering_id=offering.id, enabled=False)
         db.session.add(cart)
+        contributor_is_eligible = _eligible_popularity_contributor(user_id)
+        record_popularity_transition(
+            contributor_is_eligible=contributor_is_eligible,
+            offering_id=offering.id,
+            from_state=None,
+            to_state='looking',
+            reason='cart_added',
+        )
         for section in sections:
             db.session.add(UserSectionSelection(
                 user_id=user_id,
@@ -421,6 +498,14 @@ def add_to_cart(semester):
                 enabled=True,
                 source="cart",
             ))
+            record_popularity_transition(
+                contributor_is_eligible=contributor_is_eligible,
+                offering_id=offering.id,
+                section=section,
+                from_state=None,
+                to_state='looking',
+                reason='cart_added',
+            )
         db.session.commit()
         return jsonify(_serialize_cart_item(cart))
 
@@ -433,10 +518,45 @@ def remove_from_cart(semester, code):
     """Remove a course from the cart."""
     user_id = int(get_jwt_identity())
     course = _find_course_by_code(code)
-    offering = find_offering(course, semester) if course else None
+    offering = _offered_offering(course, semester)
     if offering:
-        cart = UserOfferingCart.query.filter_by(user_id=user_id, offering_id=offering.id).first()
+        cart = (
+            UserOfferingCart.query
+            .filter_by(user_id=user_id, offering_id=offering.id)
+            .with_for_update()
+            .first()
+        )
         if cart:
+            selected = (
+                UserSectionSelection.query
+                .join(CourseSection, CourseSection.id == UserSectionSelection.section_id)
+                .filter(
+                    UserSectionSelection.user_id == user_id,
+                    UserSectionSelection.offering_id == offering.id,
+                    UserSectionSelection.enabled.is_(True),
+                    CourseSection.offering_id == offering.id,
+                )
+                .with_for_update()
+                .all()
+            )
+            contributor_is_eligible = _eligible_popularity_contributor(user_id)
+            state = popularity_state(cart.enabled)
+            record_popularity_transition(
+                contributor_is_eligible=contributor_is_eligible,
+                offering_id=offering.id,
+                from_state=state,
+                to_state=None,
+                reason='cart_removed',
+            )
+            for selection in selected:
+                record_popularity_transition(
+                    contributor_is_eligible=contributor_is_eligible,
+                    offering_id=offering.id,
+                    section=selection.section,
+                    from_state=state,
+                    to_state=None,
+                    reason='cart_removed',
+                )
             UserSectionSelection.query.filter_by(user_id=user_id, offering_id=offering.id).delete()
             db.session.delete(cart)
             db.session.commit()
@@ -454,12 +574,53 @@ def toggle_course_enabled(semester, code):
     if error:
         return error
     course = _find_course_by_code(code)
-    offering = find_offering(course, semester) if course else None
+    offering = _offered_offering(course, semester)
     if offering:
-        cart = UserOfferingCart.query.filter_by(user_id=user_id, offering_id=offering.id).first()
+        cart = (
+            UserOfferingCart.query
+            .filter_by(user_id=user_id, offering_id=offering.id)
+            .with_for_update()
+            .first()
+        )
         if not cart:
             return jsonify({'error': 'Not in cart'}), 404
-        cart.enabled = data.get('enabled', not cart.enabled)
+        new_state, state_error = _requested_enabled(data, not cart.enabled)
+        if state_error:
+            return state_error
+        old_state = bool(cart.enabled)
+        if old_state != new_state:
+            selected = (
+                UserSectionSelection.query
+                .join(CourseSection, CourseSection.id == UserSectionSelection.section_id)
+                .filter(
+                    UserSectionSelection.user_id == user_id,
+                    UserSectionSelection.offering_id == offering.id,
+                    UserSectionSelection.enabled.is_(True),
+                    CourseSection.offering_id == offering.id,
+                )
+                .with_for_update()
+                .all()
+            )
+            contributor_is_eligible = _eligible_popularity_contributor(user_id)
+            old_popularity = popularity_state(old_state)
+            new_popularity = popularity_state(new_state)
+            record_popularity_transition(
+                contributor_is_eligible=contributor_is_eligible,
+                offering_id=offering.id,
+                from_state=old_popularity,
+                to_state=new_popularity,
+                reason='course_toggled',
+            )
+            for selection in selected:
+                record_popularity_transition(
+                    contributor_is_eligible=contributor_is_eligible,
+                    offering_id=offering.id,
+                    section=selection.section,
+                    from_state=old_popularity,
+                    to_state=new_popularity,
+                    reason='course_toggled',
+                )
+        cart.enabled = new_state
         db.session.commit()
         return jsonify({'course_code': course.code, 'enabled': cart.enabled})
 
@@ -475,9 +636,14 @@ def toggle_bundle_enabled(semester, code, bundle_id, layer):
     if error:
         return error
     course = _find_course_by_code(code)
-    offering = find_offering(course, semester) if course else None
+    offering = _offered_offering(course, semester)
     if offering:
-        cart = UserOfferingCart.query.filter_by(user_id=user_id, offering_id=offering.id).first()
+        cart = (
+            UserOfferingCart.query
+            .filter_by(user_id=user_id, offering_id=offering.id)
+            .with_for_update()
+            .first()
+        )
         sections = CourseSection.query.filter_by(
             offering_id=offering.id,
             bundle=bundle_id,
@@ -485,20 +651,27 @@ def toggle_bundle_enabled(semester, code, bundle_id, layer):
         ).all()
         if not cart or not sections:
             return jsonify({'error': 'Bundle not found'}), 404
-        new_state = data.get('enabled')
-        if new_state is None:
-            existing = UserSectionSelection.query.filter_by(
-                user_id=user_id,
-                offering_id=offering.id,
-                section_id=sections[0].id,
-            ).first()
-            new_state = not (existing.enabled if existing else True)
+        existing_selections = (
+            UserSectionSelection.query
+            .filter(
+                UserSectionSelection.user_id == user_id,
+                UserSectionSelection.offering_id == offering.id,
+                UserSectionSelection.section_id.in_([section.id for section in sections]),
+            )
+            .with_for_update()
+            .all()
+        )
+        selection_map = {selection.section_id: selection for selection in existing_selections}
+        first = selection_map.get(sections[0].id)
+        implicit_state = not (first.enabled if first else True)
+        new_state, state_error = _requested_enabled(data, implicit_state)
+        if state_error:
+            return state_error
+        contributor_is_eligible = _eligible_popularity_contributor(user_id)
+        selected_state = popularity_state(cart.enabled)
         for section in sections:
-            selection = UserSectionSelection.query.filter_by(
-                user_id=user_id,
-                offering_id=offering.id,
-                section_id=section.id,
-            ).first()
+            selection = selection_map.get(section.id)
+            was_enabled = bool(selection.enabled) if selection is not None else False
             if selection is None:
                 selection = UserSectionSelection(
                     user_id=user_id,
@@ -507,9 +680,18 @@ def toggle_bundle_enabled(semester, code, bundle_id, layer):
                     source="cart",
                 )
                 db.session.add(selection)
-            selection.enabled = bool(new_state)
+            selection.enabled = new_state
+            if was_enabled != new_state:
+                record_popularity_transition(
+                    contributor_is_eligible=contributor_is_eligible,
+                    offering_id=offering.id,
+                    section=section,
+                    from_state=selected_state if was_enabled else None,
+                    to_state=selected_state if new_state else None,
+                    reason='bundle_toggled',
+                )
         db.session.commit()
-        return jsonify({'id': bundle_id, 'layer': layer, 'enabled': bool(new_state)})
+        return jsonify({'id': bundle_id, 'layer': layer, 'enabled': new_state})
 
     return jsonify({'error': 'Bundle not found'}), 404
 
@@ -523,24 +705,38 @@ def toggle_layer_enabled(semester, code, layer):
     if error:
         return error
     course = _find_course_by_code(code)
-    offering = find_offering(course, semester) if course else None
+    offering = _offered_offering(course, semester)
     if offering:
-        cart = UserOfferingCart.query.filter_by(user_id=user_id, offering_id=offering.id).first()
+        cart = (
+            UserOfferingCart.query
+            .filter_by(user_id=user_id, offering_id=offering.id)
+            .with_for_update()
+            .first()
+        )
         sections = CourseSection.query.filter_by(offering_id=offering.id, layer=layer).all()
         if not cart or not sections:
             return jsonify({'error': 'No bundles found'}), 404
-        existing = UserSectionSelection.query.filter_by(
-            user_id=user_id,
-            offering_id=offering.id,
-            section_id=sections[0].id,
-        ).first()
-        new_state = data.get('enabled', not (existing.enabled if existing else True))
+        existing_selections = (
+            UserSectionSelection.query
+            .filter(
+                UserSectionSelection.user_id == user_id,
+                UserSectionSelection.offering_id == offering.id,
+                UserSectionSelection.section_id.in_([section.id for section in sections]),
+            )
+            .with_for_update()
+            .all()
+        )
+        selection_map = {selection.section_id: selection for selection in existing_selections}
+        first = selection_map.get(sections[0].id)
+        implicit_state = not (first.enabled if first else True)
+        new_state, state_error = _requested_enabled(data, implicit_state)
+        if state_error:
+            return state_error
+        contributor_is_eligible = _eligible_popularity_contributor(user_id)
+        selected_state = popularity_state(cart.enabled)
         for section in sections:
-            selection = UserSectionSelection.query.filter_by(
-                user_id=user_id,
-                offering_id=offering.id,
-                section_id=section.id,
-            ).first()
+            selection = selection_map.get(section.id)
+            was_enabled = bool(selection.enabled) if selection is not None else False
             if selection is None:
                 selection = UserSectionSelection(
                     user_id=user_id,
@@ -549,9 +745,18 @@ def toggle_layer_enabled(semester, code, layer):
                     source="cart",
                 )
                 db.session.add(selection)
-            selection.enabled = bool(new_state)
+            selection.enabled = new_state
+            if was_enabled != new_state:
+                record_popularity_transition(
+                    contributor_is_eligible=contributor_is_eligible,
+                    offering_id=offering.id,
+                    section=section,
+                    from_state=selected_state if was_enabled else None,
+                    to_state=selected_state if new_state else None,
+                    reason='layer_toggled',
+                )
         db.session.commit()
-        return jsonify({'ok': True, 'enabled': bool(new_state), 'count': len(sections)})
+        return jsonify({'ok': True, 'enabled': new_state, 'count': len(sections)})
 
     return jsonify({'error': 'No bundles found'}), 404
 

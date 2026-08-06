@@ -440,6 +440,129 @@ def test_apply_offerings_preserves_user_section_choices(app, tmp_path):
         assert selection.enabled is False
 
 
+def test_apply_offerings_backfills_new_section_choices_from_bundle_layer(app, tmp_path):
+    first_snapshot = load_offerings_file(write_payload(tmp_path, payload()))
+
+    with app.app_context():
+        apply_offerings(first_snapshot)
+        course = Course.query.filter_by(code="TEST1001").one()
+        offering = CourseOffering.query.filter_by(
+            course_id=course.id,
+            semester_id="2540",
+        ).one()
+        original = CourseSection.query.filter_by(
+            offering_id=offering.id,
+            source_section_id="TEST1001-L01",
+        ).one()
+        role = UserRole.query.filter_by(name="user").first() or UserRole(name="user")
+        db.session.add(role)
+        db.session.flush()
+        user = User(
+            username="scheduler_new_section_user",
+            email="scheduler_new_section@hkust-gz.edu.cn",
+            email_verified=True,
+            role_id=role.id,
+        )
+        user.set_password("password123")
+        db.session.add(user)
+        db.session.flush()
+        db.session.add(UserOfferingCart(
+            user_id=user.id,
+            offering_id=offering.id,
+            enabled=False,
+        ))
+        db.session.add(UserSectionSelection(
+            user_id=user.id,
+            offering_id=offering.id,
+            section_id=original.id,
+            enabled=False,
+            source="cart",
+        ))
+        db.session.commit()
+
+        updated_payload = payload()
+        updated_payload["courses"][0]["sections"].extend([
+            {
+                "semester_id": "2540",
+                "section_id": "TEST1001-L02",
+                "course_code": "TEST1001",
+                "section_type": "L",
+                "name": "L02",
+                "bundle": 1,
+                "layer": 0,
+                "quota": 50,
+                "is_main": True,
+                "lectures": [],
+            },
+            {
+                "semester_id": "2540",
+                "section_id": "TEST1001-T01",
+                "course_code": "TEST1001",
+                "section_type": "T",
+                "name": "T01",
+                "bundle": 1,
+                "layer": 1,
+                "quota": 25,
+                "is_main": False,
+                "lectures": [],
+            },
+        ])
+        apply_offerings(load_offerings_file(write_payload(tmp_path, updated_payload)))
+
+        selections = {
+            selection.section.source_section_id: selection.enabled
+            for selection in UserSectionSelection.query.filter_by(
+                user_id=user.id,
+                offering_id=offering.id,
+            ).all()
+        }
+
+        assert selections == {
+            "TEST1001-L01": False,
+            "TEST1001-L02": False,
+            "TEST1001-T01": True,
+        }
+
+
+def test_apply_offerings_backfills_missing_existing_section_choices(app, tmp_path):
+    snapshot = load_offerings_file(write_payload(tmp_path, payload()))
+
+    with app.app_context():
+        apply_offerings(snapshot)
+        course = Course.query.filter_by(code="TEST1001").one()
+        offering = CourseOffering.query.filter_by(
+            course_id=course.id,
+            semester_id="2540",
+        ).one()
+        role = UserRole.query.filter_by(name="user").first() or UserRole(name="user")
+        db.session.add(role)
+        db.session.flush()
+        user = User(
+            username="scheduler_missing_selection_user",
+            email="scheduler_missing_selection@hkust-gz.edu.cn",
+            email_verified=True,
+            role_id=role.id,
+        )
+        user.set_password("password123")
+        db.session.add(user)
+        db.session.flush()
+        db.session.add(UserOfferingCart(
+            user_id=user.id,
+            offering_id=offering.id,
+            enabled=False,
+        ))
+        db.session.commit()
+
+        apply_offerings(snapshot)
+
+        selections = UserSectionSelection.query.filter_by(
+            user_id=user.id,
+            offering_id=offering.id,
+        ).all()
+        assert len(selections) == 1
+        assert selections[0].enabled is True
+
+
 def test_deploy_update_dry_run_does_not_write_database(app, tmp_path):
     path = write_payload(tmp_path, payload())
     digest = file_sha256(path)
