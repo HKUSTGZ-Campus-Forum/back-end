@@ -9,6 +9,12 @@ from app.models.oauth_client import OAuthClient
 import re
 from app.extensions import db
 from app.services.content_moderation_service import content_moderation
+from app.services.institutional_email import (
+    acquire_email_transaction_lock,
+    active_email_owner,
+    is_institutional_email,
+    normalize_email,
+)
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timezone
 from sqlalchemy.sql import func
@@ -196,15 +202,33 @@ def update_user(user_id):
         user.username = data['username']
         
     if 'email' in data:
+        normalized_email = normalize_email(data['email'])
+
         # Validate email format
-        is_valid, error_msg = validate_email(data['email'])
+        is_valid, error_msg = validate_email(normalized_email)
         if not is_valid:
             return jsonify({"msg": error_msg}), 400
-            
-        user.email = data['email']
-        # Reset email verification if email changed
-        if data['email'] != user.email:
+
+        if not is_institutional_email(normalized_email):
+            return jsonify({
+                "msg": "Only HKUST-GZ email addresses are allowed (connect.hkust-gz.edu.cn or hkust-gz.edu.cn)"
+            }), 400
+
+        current_normalized_email = normalize_email(user.email)
+        if normalized_email != current_normalized_email:
+            acquire_email_transaction_lock(normalized_email)
+            if active_email_owner(normalized_email, exclude_user_id=user.id):
+                db.session.rollback()
+                return jsonify({"msg": "Email already registered by another user"}), 400
+
+            user.email = normalized_email
             user.email_verified = False
+            user.email_verification_code = None
+            user.email_verification_expires_at = None
+        elif user.email != normalized_email:
+            # Canonicalize legacy mixed-case storage without invalidating an
+            # already verified principal when the identity did not change.
+            user.email = normalized_email
             
     if 'phone_number' in data:
         # Validate phone format
@@ -361,7 +385,7 @@ def add_email_to_existing_user(user_id):
         return jsonify({"msg": "User not found"}), 404
     
     data = request.get_json() or {}
-    email = data.get('email', '').strip().lower()
+    email = normalize_email(data.get('email'))
     
     if not email:
         return jsonify({"msg": "Email is required"}), 400
@@ -371,17 +395,15 @@ def add_email_to_existing_user(user_id):
     if not is_valid:
         return jsonify({"msg": error_msg}), 400
     
-    # Check HKUST domain requirement (reuse from auth.py)
-    from app.routes.auth import is_hkust_email
-    if not is_hkust_email(email):
+    if not is_institutional_email(email):
         return jsonify({"msg": "Only HKUST-GZ email addresses are allowed (connect.hkust-gz.edu.cn or hkust-gz.edu.cn)"}), 400
     
-    # Check if email already exists
-    existing_user = User.query.filter_by(email=email, is_deleted=False).first()
-    if existing_user and existing_user.id != user_id:
-        return jsonify({"msg": "Email already registered by another user"}), 400
-    
     try:
+        acquire_email_transaction_lock(email)
+        if active_email_owner(email, exclude_user_id=user_id):
+            db.session.rollback()
+            return jsonify({"msg": "Email already registered by another user"}), 400
+
         # Update email and reset verification status
         user.email = email
         user.email_verified = False
