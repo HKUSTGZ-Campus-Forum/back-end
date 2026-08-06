@@ -15,20 +15,11 @@ jobs:
     - name: Checkout the code
       uses: actions/checkout@v3
 
-    - name: Run scheduler integration tests
+    - name: Run backend tests
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements-dev.txt
-        python -m pytest \
-          tests/test_scheduler_models.py \
-          tests/test_scheduler_routes.py \
-          tests/test_scheduler_schema_support.py \
-          tests/test_scheduler_data_import.py \
-          tests/test_import_scheduler_offerings.py \
-          tests/test_scheduler_map_seed.py \
-          tests/test_course_domain_migration.py \
-          tests/test_course_domain_routes.py \
-          -q
+        python -m pytest tests/ -q
 
     - name: Deploy via SSH
       uses: appleboy/ssh-action@master
