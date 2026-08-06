@@ -126,6 +126,50 @@ def test_register_normalizes_email_and_rejects_case_insensitive_duplicate(app, c
         assert user.email == "new.student@connect.hkust-gz.edu.cn"
 
 
+def test_legacy_users_post_uses_hardened_registration_and_default_role(app, client):
+    with app.app_context():
+        admin_role = UserRole(name=UserRole.ADMIN, description="Administrator")
+        db.session.add(admin_role)
+        db.session.commit()
+        admin_role_id = admin_role.id
+
+    created = client.post("/users", json={
+        "username": "legacyroute",
+        "password": "password",
+        "email": " Legacy.Route@CONNECT.HKUST-GZ.EDU.CN ",
+        "role_id": admin_role_id,
+    })
+    assert created.status_code == 201
+
+    duplicate = client.post("/users", json={
+        "username": "legacyduplicate",
+        "password": "password",
+        "email": "legacy.route@connect.hkust-gz.edu.cn",
+    })
+    assert duplicate.status_code == 400
+    assert duplicate.get_json()["msg"] == "Email already registered"
+
+    external = client.post("/users", json={
+        "username": "legacyexternal",
+        "password": "password",
+        "email": "legacy@example.com",
+    })
+    assert external.status_code == 400
+
+    missing_email = client.post("/users", json={
+        "username": "legacymissing",
+        "password": "password",
+    })
+    assert missing_email.status_code == 400
+
+    with app.app_context():
+        user = User.query.filter_by(username="legacyroute").one()
+        assert user.email == "legacy.route@connect.hkust-gz.edu.cn"
+        assert user.email_verified is False
+        assert user.email_verification_code
+        assert user.role.name == UserRole.USER
+
+
 def test_update_email_resets_verification_and_clears_old_code(app, client):
     user_id = create_user(app, "verified", "old@hkust-gz.edu.cn", verified=True)
     with app.app_context():
