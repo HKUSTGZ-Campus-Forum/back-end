@@ -368,7 +368,11 @@ def get_cart(semester):
     domain_items = (
         UserOfferingCart.query
         .join(CourseOffering)
-        .filter(UserOfferingCart.user_id == user_id, CourseOffering.semester_id == semester)
+        .filter(
+            UserOfferingCart.user_id == user_id,
+            CourseOffering.semester_id == semester,
+            CourseOffering.status == 'offered',
+        )
         .all()
     )
     result = []

@@ -36,6 +36,7 @@ from app.services.course_domain import (
     normalize_course_code,
     subject_for_code,
 )
+from app.services.scheduler_domain_sync import sync_offering_sections
 from app.utils.semester import normalize_offering_identifier
 
 
@@ -345,9 +346,15 @@ def _current_version_for_course(course_id: int) -> CourseCatalogVersion | None:
     )
 
 
-def migrate_offerings(*, apply: bool, semester_ids: Iterable[str] | None = None) -> MigrationSummary:
+def migrate_offerings(
+    *,
+    apply: bool,
+    semester_ids: Iterable[str] | None = None,
+    archive_missing: bool = False,
+) -> MigrationSummary:
     summary = MigrationSummary()
     section_query = SchedulerSection.query
+    normalized_semester_ids = None
     if semester_ids is not None:
         normalized_semester_ids = [str(semester_id) for semester_id in semester_ids]
         section_query = section_query.filter(SchedulerSection.semester_id.in_(normalized_semester_ids))
@@ -357,6 +364,17 @@ def migrate_offerings(*, apply: bool, semester_ids: Iterable[str] | None = None)
     for section in sections:
         groups.setdefault((section.course_id, section.semester_id), []).append(section)
         summary.scanned += 1
+
+    if apply and archive_missing and normalized_semester_ids:
+        incoming_keys = set(groups)
+        existing_offerings = CourseOffering.query.filter(
+            CourseOffering.semester_id.in_(normalized_semester_ids)
+        ).all()
+        for offering in existing_offerings:
+            if (offering.course_id, offering.semester_id) in incoming_keys:
+                continue
+            offering.status = "archived"
+            sync_offering_sections(offering, [])
 
     for (course_id, semester_id), group_sections in groups.items():
         course = db.session.get(Course, course_id)
@@ -382,45 +400,15 @@ def migrate_offerings(*, apply: bool, semester_ids: Iterable[str] | None = None)
             db.session.add(offering)
             db.session.flush()
         elif apply:
-            section_ids = [
-                section_id for (section_id,) in (
-                    db.session.query(CourseSection.id)
-                    .filter_by(offering_id=offering.id)
-                    .all()
-                )
-            ]
-            if section_ids:
-                CourseMeeting.query.filter(CourseMeeting.section_id.in_(section_ids)).delete(synchronize_session=False)
-            CourseSection.query.filter_by(offering_id=offering.id).delete(synchronize_session=False)
+            offering.catalog_version_id = version.id if version else offering.catalog_version_id
+            offering.offering_code = course.normalized_code or normalize_course_code(course.code)
+            offering.title_snapshot = version.title if version else course.name
+            offering.credits_snapshot = version.credits if version else course.credits
+            offering.status = "offered"
 
         if not apply:
             continue
-        for legacy_section in group_sections:
-            section = CourseSection(
-                offering_id=offering.id,
-                source_section_id=legacy_section.section_id,
-                name=legacy_section.name,
-                section_type=legacy_section.section_type,
-                bundle=legacy_section.bundle,
-                layer=legacy_section.layer,
-                quota=legacy_section.quota,
-                is_main=legacy_section.is_main,
-            )
-            db.session.add(section)
-            db.session.flush()
-            lectures = SchedulerLecture.query.filter_by(
-                semester_id=legacy_section.semester_id,
-                section_id=legacy_section.section_id,
-            ).all()
-            for lecture in lectures:
-                db.session.add(CourseMeeting(
-                    section_id=section.id,
-                    day=lecture.day,
-                    start_time=lecture.start_time,
-                    end_time=lecture.end_time,
-                    room=lecture.room,
-                    instructor_text=lecture.instructor,
-                ))
+        sync_offering_sections(offering, group_sections)
 
     return summary
 

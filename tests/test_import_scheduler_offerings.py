@@ -9,7 +9,14 @@ from app import create_app
 from app.config import Config
 from app.extensions import db
 from app.models.course import Course
-from app.models.course_domain import CourseCatalogVersion, CourseMeeting, CourseOffering, CourseSection
+from app.models.course_domain import (
+    CourseCatalogVersion,
+    CourseMeeting,
+    CourseOffering,
+    CourseSection,
+    UserOfferingCart,
+    UserSectionSelection,
+)
 from app.models.scheduler_cart import SchedulerUserCourseCart
 from app.models.scheduler_lecture import SchedulerLecture
 from app.models.scheduler_section import SchedulerSection
@@ -366,6 +373,71 @@ def test_apply_offerings_preserves_existing_course_rules_when_snapshot_rules_are
     assert course.pre_requirement == "(UFUG 1501 or UFUG 1503) AND (UFUG 1102 or UFUG 1105)"
     assert course.co_requirement is None
     assert course.exclusion == "UFUG 1502"
+
+
+def test_apply_offerings_preserves_user_section_choices(app, tmp_path):
+    first_snapshot = load_offerings_file(write_payload(tmp_path, payload()))
+
+    with app.app_context():
+        apply_offerings(first_snapshot)
+        course = Course.query.filter_by(code="TEST1001").one()
+        offering = CourseOffering.query.filter_by(
+            course_id=course.id,
+            semester_id="2540",
+        ).one()
+        section = CourseSection.query.filter_by(
+            offering_id=offering.id,
+            source_section_id="TEST1001-L01",
+        ).one()
+        original_section_id = section.id
+
+        role = UserRole.query.filter_by(name="user").first() or UserRole(name="user")
+        db.session.add(role)
+        db.session.flush()
+        user = User(
+            username="scheduler_choice_user",
+            email="scheduler_choice@hkust-gz.edu.cn",
+            email_verified=True,
+            role_id=role.id,
+        )
+        user.set_password("password123")
+        db.session.add(user)
+        db.session.flush()
+        db.session.add(UserOfferingCart(
+            user_id=user.id,
+            offering_id=offering.id,
+            enabled=True,
+        ))
+        db.session.add(UserSectionSelection(
+            user_id=user.id,
+            offering_id=offering.id,
+            section_id=section.id,
+            enabled=False,
+            source="cart",
+        ))
+        db.session.commit()
+
+        updated_payload = payload()
+        updated_payload["courses"][0]["sections"][0]["quota"] = 60
+        updated_payload["courses"][0]["sections"][0]["lectures"][0]["room"] = "Room 202"
+        second_snapshot = load_offerings_file(write_payload(tmp_path, updated_payload))
+        apply_offerings(second_snapshot)
+        db.session.expire_all()
+
+        refreshed_section = CourseSection.query.filter_by(
+            offering_id=offering.id,
+            source_section_id="TEST1001-L01",
+        ).one()
+        selection = UserSectionSelection.query.filter_by(
+            user_id=user.id,
+            offering_id=offering.id,
+            section_id=refreshed_section.id,
+        ).one()
+
+        assert refreshed_section.id == original_section_id
+        assert refreshed_section.quota == 60
+        assert refreshed_section.meetings.one().room == "Room 202"
+        assert selection.enabled is False
 
 
 def test_deploy_update_dry_run_does_not_write_database(app, tmp_path):
