@@ -22,6 +22,7 @@ from app.models.course import Course
 from app.models.scheduler_lecture import SchedulerLecture
 from app.models.scheduler_map import SchedulerMapComponent, SchedulerMapLine
 from app.models.scheduler_section import SchedulerSection
+from app.services.course_domain_migration import migrate_offerings
 
 
 class SnapshotValidationError(RuntimeError):
@@ -197,6 +198,14 @@ def import_snapshot(source_conn):
                 x_coordinate=row[3],
                 category=row[4],
             ))
+        db.session.flush()
+
+        semester_ids = sorted({row[0] for row in snapshot.sections})
+        migrate_offerings(
+            apply=True,
+            semester_ids=semester_ids,
+            archive_missing=True,
+        )
         db.session.flush()
 
         summary = {

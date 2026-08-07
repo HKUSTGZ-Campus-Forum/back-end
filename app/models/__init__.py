@@ -34,6 +34,7 @@ from .scheduler_section import SchedulerSection
 from .scheduler_lecture import SchedulerLecture
 from .scheduler_map import SchedulerMapComponent, SchedulerMapLine
 from .scheduler_cart import SchedulerUserCourseCart, SchedulerUserBundleCart
+from .scheduler_popularity import SchedulerPopularityEvent
 from .course_domain import (
     CourseCatalogVersion,
     CourseCatalogRequirement,

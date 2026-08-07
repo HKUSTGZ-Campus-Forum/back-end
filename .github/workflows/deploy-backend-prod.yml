@@ -15,20 +15,11 @@ jobs:
     - name: Checkout the code
       uses: actions/checkout@v3
 
-    - name: Run tests locally (if available)
+    - name: Run backend tests
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        # Check if pytest is in requirements, if not skip tests
-        if grep -q "pytest" requirements.txt; then
-          python -m pytest tests/ || exit 1
-        else
-          echo "No pytest in requirements, skipping tests"
-          # Set minimal env vars for import test
-          export OSS_BUCKET_NAME="dummy"
-          export OSS_ENDPOINT="dummy.endpoint.com"
-          python -c "import sys; sys.path.append('.'); print('Basic import test passed')" || echo "Import test skipped"
-        fi
+        pip install -r requirements-dev.txt
+        python -m pytest tests/ -q
 
     - name: Deploy via SSH
       uses: appleboy/ssh-action@master

@@ -8,6 +8,7 @@ from app import create_app
 from app.config import Config
 from app.extensions import db
 from app.models.course import Course
+from app.models.course_domain import CourseMeeting, CourseOffering, CourseSection
 from app.models.scheduler_lecture import SchedulerLecture
 from app.models.scheduler_map import SchedulerMapComponent, SchedulerMapLine
 from app.models.scheduler_section import SchedulerSection
@@ -94,6 +95,10 @@ def test_import_snapshot_is_repeatable(app):
         assert Course.query.filter_by(code='AIAA1001').count() == 1
         assert SchedulerSection.query.count() == 1
         assert SchedulerLecture.query.count() == 1
+        offering = CourseOffering.query.filter_by(semester_id='2530').one()
+        section = CourseSection.query.filter_by(offering_id=offering.id).one()
+        assert section.source_section_id == 'L01'
+        assert CourseMeeting.query.filter_by(section_id=section.id).count() == 1
 
 
 def test_import_snapshot_rejects_orphan_lecture_without_mutating_destination(app):
