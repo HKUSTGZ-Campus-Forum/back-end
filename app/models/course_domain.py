@@ -277,6 +277,12 @@ class UserOfferingCart(db.Model):
     __table_args__ = (
         db.UniqueConstraint("user_id", "offering_id", name="uq_user_offering_cart"),
         db.Index("idx_user_offering_carts_user", "user_id"),
+        db.Index(
+            "idx_user_offering_carts_popularity",
+            "offering_id",
+            "enabled",
+            "user_id",
+        ),
     )
 
 
@@ -303,6 +309,13 @@ class UserSectionSelection(db.Model):
             name="valid_user_section_selection_source",
         ),
         db.Index("idx_user_section_selections_user_offering", "user_id", "offering_id"),
+        db.Index(
+            "idx_user_section_selections_popularity",
+            "offering_id",
+            "enabled",
+            "section_id",
+            "user_id",
+        ),
     )
 
 

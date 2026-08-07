@@ -72,6 +72,15 @@ def test_auto_initialized_migrations_are_idempotent():
             "20260607_course_domain_redesign.py",
             ["domain_tables.issubset"],
         ),
+        (
+            "20260807_scheduler_popularity.py",
+            [
+                '"scheduler_popularity_events" not in inspector.get_table_names()',
+                '"idx_user_offering_carts_popularity" not in cart_indexes',
+                '"idx_user_section_selections_popularity" not in selection_indexes',
+                'INSERT INTO user_section_selections',
+            ],
+        ),
     ]
 
     for filename, guard_texts in guarded_migrations:

@@ -69,3 +69,41 @@ def test_database_url_schema_query_maps_to_postgres_search_path():
 
     assert uri == "postgresql://user:pass@localhost/course_scheduler"
     assert engine_options["connect_args"]["options"] == "-csearch_path=public"
+
+
+def test_auto_init_course_domain_support_includes_popularity_table_and_indexes():
+    flask_app = Flask(__name__)
+    flask_app.config.update(
+        TESTING=True,
+        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    )
+    db.init_app(flask_app)
+
+    with flask_app.app_context():
+        with db.engine.begin() as conn:
+            conn.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY)"))
+            conn.execute(text("CREATE TABLE posts (id INTEGER PRIMARY KEY)"))
+            conn.execute(text(
+                """
+                CREATE TABLE courses (
+                    id INTEGER PRIMARY KEY,
+                    code VARCHAR(20) NOT NULL UNIQUE,
+                    name VARCHAR(255) NOT NULL,
+                    credits INTEGER NOT NULL,
+                    is_deleted BOOLEAN NOT NULL DEFAULT false
+                )
+                """
+            ))
+
+        app_package._auto_init_course_domain_support()
+        app_package._auto_init_course_domain_support()
+
+        inspector = inspect(db.engine)
+        assert "scheduler_popularity_events" in inspector.get_table_names()
+        cart_indexes = {index["name"] for index in inspector.get_indexes("user_offering_carts")}
+        selection_indexes = {
+            index["name"] for index in inspector.get_indexes("user_section_selections")
+        }
+        assert "idx_user_offering_carts_popularity" in cart_indexes
+        assert "idx_user_section_selections_popularity" in selection_indexes

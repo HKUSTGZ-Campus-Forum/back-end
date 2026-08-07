@@ -32,11 +32,12 @@ from app.config import Config, normalize_database_config
 from app.extensions import db
 from app import models as _models  # noqa: F401
 from app.models.course import Course
-from app.models.course_domain import CourseCatalogVersion, CourseMeeting, CourseOffering, CourseSection
+from app.models.course_domain import CourseCatalogVersion, CourseOffering
 from app.models.scheduler_cart import SchedulerUserCourseCart
 from app.models.scheduler_lecture import SchedulerLecture
 from app.models.scheduler_section import SchedulerSection
 from app.services.course_domain import display_course_code, normalize_course_code
+from app.services.scheduler_domain_sync import sync_offering_sections
 
 
 logger = logging.getLogger(__name__)
@@ -430,29 +431,6 @@ def apply_offerings(snapshot: OfferingSnapshot) -> ImportPlan:
     plan = build_import_plan(snapshot)
 
     try:
-        target_offering_ids = [
-            offering_id for (offering_id,) in (
-                db.session.query(CourseOffering.id)
-                .filter_by(semester_id=snapshot.semester_id)
-                .all()
-            )
-        ]
-        if target_offering_ids:
-            target_section_ids = [
-                section_id for (section_id,) in (
-                    db.session.query(CourseSection.id)
-                    .filter(CourseSection.offering_id.in_(target_offering_ids))
-                    .all()
-                )
-            ]
-            if target_section_ids:
-                CourseMeeting.query.filter(CourseMeeting.section_id.in_(target_section_ids)).delete(
-                    synchronize_session=False
-                )
-            CourseSection.query.filter(CourseSection.offering_id.in_(target_offering_ids)).delete(
-                synchronize_session=False
-            )
-
         SchedulerLecture.query.filter_by(semester_id=snapshot.semester_id).delete(
             synchronize_session=False
         )
@@ -532,10 +510,15 @@ def apply_offerings(snapshot: OfferingSnapshot) -> ImportPlan:
             version_by_code[item.course_code] = version
         db.session.flush()
 
-        offered_course_codes = {item.course_code for item in snapshot.courses if item.sections}
+        offered_course_codes = {
+            normalize_course_code(item.course_code)
+            for item in snapshot.courses
+            if item.sections
+        }
         for offering in CourseOffering.query.filter_by(semester_id=snapshot.semester_id).all():
             if normalize_course_code(offering.course.code) not in offered_course_codes:
                 offering.status = "archived"
+                sync_offering_sections(offering, [])
 
         for item in snapshot.courses:
             course = course_by_code[item.course_code]
@@ -562,30 +545,9 @@ def apply_offerings(snapshot: OfferingSnapshot) -> ImportPlan:
                 offering.source = "scheduler_offerings"
                 offering.status = "offered"
                 db.session.flush()
+                sync_offering_sections(offering, item.sections)
 
             for section in item.sections:
-                domain_section = CourseSection(
-                    offering_id=offering.id,
-                    source_section_id=section.section_id,
-                    name=section.name,
-                    section_type=section.section_type,
-                    bundle=section.bundle,
-                    layer=section.layer,
-                    quota=section.quota,
-                    is_main=section.is_main,
-                )
-                db.session.add(domain_section)
-                db.session.flush()
-                for lecture in section.lectures:
-                    db.session.add(CourseMeeting(
-                        section_id=domain_section.id,
-                        day=lecture.day,
-                        start_time=lecture.start_time,
-                        end_time=lecture.end_time,
-                        room=lecture.room,
-                        instructor_text=lecture.instructor,
-                    ))
-
                 db.session.add(SchedulerSection(
                     semester_id=section.semester_id,
                     section_id=section.section_id,

@@ -1,6 +1,5 @@
 from flask import Blueprint, request, jsonify
 from app.models.user import User
-from app.models.user_role import UserRole as UserRoleModel
 from app.models.post import Post
 from app.models.comment import Comment
 from app.models.reaction import Reaction
@@ -9,6 +8,12 @@ from app.models.oauth_client import OAuthClient
 import re
 from app.extensions import db
 from app.services.content_moderation_service import content_moderation
+from app.services.institutional_email import (
+    acquire_email_transaction_lock,
+    active_email_owner,
+    is_institutional_email,
+    normalize_email,
+)
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timezone
 from sqlalchemy.sql import func
@@ -54,73 +59,17 @@ def validate_phone(phone):
         return False, "Phone number must be 10-15 digits, optionally with a + prefix"
     return True, ""
 
-# Add a try-except block to the create_user function
 @bp.route('', methods=['POST'])
 def create_user():
-    try:
-        data = request.get_json() or {}
-        
-        # Required fields
-        if not data.get('username'):
-            return jsonify({"msg": "Username is required"}), 400
-        if not data.get('password'):  # Changed from password_hash
-            return jsonify({"msg": "Password is required"}), 400
-        
-        # Validate username format
-        is_valid, error_msg = validate_username(data['username'])
-        if not is_valid:
-            return jsonify({"msg": error_msg}), 400
-        
-        # Content moderation check for username
-        moderation_result = content_moderation.moderate_text(
-            content=data['username'],
-            data_id=f"username_create_{datetime.now().timestamp()}"
-        )
-        
-        if not moderation_result['is_safe']:
-            from flask import current_app
-            current_app.logger.warning(f"Content moderation blocked username creation: {data['username']} - {moderation_result['reason']}")
-            return jsonify({
-                "msg": "Username violates community guidelines and cannot be used",
-                "details": moderation_result['reason'],
-                "risk_level": moderation_result['risk_level']
-            }), 400
-        
-        # Validate email format if provided
-        is_valid, error_msg = validate_email(data.get('email', ''))
-        if not is_valid:
-            return jsonify({"msg": error_msg}), 400
-        
-        # Validate phone format if provided
-        is_valid, error_msg = validate_phone(data.get('phone_number', ''))
-        if not is_valid:
-            return jsonify({"msg": error_msg}), 400
-        
-        # Check if username already exists
-        if User.query.filter_by(username=data['username'], is_deleted=False).first():
-            return jsonify({"msg": "Username already exists"}), 400
-        
-        # Get default role_id (regular user)
-        default_role = UserRoleModel.query.filter_by(name=UserRoleModel.USER).first()
-        if not default_role:
-            return jsonify({"msg": "Default user role not found in database"}), 500
-        
-        # Create new user (no avatar on creation, must be uploaded separately)
-        user = User(
-            username=data['username'],
-            email=data.get('email', ''),
-            phone_number=data.get('phone_number', ''),
-            role_id=data.get('role_id', default_role.id)  # Use role_id from role table
-        )
-        user.set_password(data['password'])  # Changed from password_hash
-        
-        db.session.add(user)
-        db.session.commit()
-        
-        return jsonify(user.to_dict(include_contact=True)), 201
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"msg": f"An error occurred: {str(e)}"}), 500
+    """Compatibility alias for the canonical public registration endpoint.
+
+    Keeping all unauthenticated account creation on one code path prevents this
+    legacy endpoint from bypassing institutional-email ownership, verification
+    setup, or the forced default user role.
+    """
+    from app.routes.auth import register
+
+    return register()
 
 @bp.route('/<int:user_id>', methods=['GET'])
 @jwt_required()
@@ -196,15 +145,33 @@ def update_user(user_id):
         user.username = data['username']
         
     if 'email' in data:
+        normalized_email = normalize_email(data['email'])
+
         # Validate email format
-        is_valid, error_msg = validate_email(data['email'])
+        is_valid, error_msg = validate_email(normalized_email)
         if not is_valid:
             return jsonify({"msg": error_msg}), 400
-            
-        user.email = data['email']
-        # Reset email verification if email changed
-        if data['email'] != user.email:
+
+        if not is_institutional_email(normalized_email):
+            return jsonify({
+                "msg": "Only HKUST-GZ email addresses are allowed (connect.hkust-gz.edu.cn or hkust-gz.edu.cn)"
+            }), 400
+
+        current_normalized_email = normalize_email(user.email)
+        if normalized_email != current_normalized_email:
+            acquire_email_transaction_lock(normalized_email)
+            if active_email_owner(normalized_email, exclude_user_id=user.id):
+                db.session.rollback()
+                return jsonify({"msg": "Email already registered by another user"}), 400
+
+            user.email = normalized_email
             user.email_verified = False
+            user.email_verification_code = None
+            user.email_verification_expires_at = None
+        elif user.email != normalized_email:
+            # Canonicalize legacy mixed-case storage without invalidating an
+            # already verified principal when the identity did not change.
+            user.email = normalized_email
             
     if 'phone_number' in data:
         # Validate phone format
@@ -361,7 +328,7 @@ def add_email_to_existing_user(user_id):
         return jsonify({"msg": "User not found"}), 404
     
     data = request.get_json() or {}
-    email = data.get('email', '').strip().lower()
+    email = normalize_email(data.get('email'))
     
     if not email:
         return jsonify({"msg": "Email is required"}), 400
@@ -371,17 +338,15 @@ def add_email_to_existing_user(user_id):
     if not is_valid:
         return jsonify({"msg": error_msg}), 400
     
-    # Check HKUST domain requirement (reuse from auth.py)
-    from app.routes.auth import is_hkust_email
-    if not is_hkust_email(email):
+    if not is_institutional_email(email):
         return jsonify({"msg": "Only HKUST-GZ email addresses are allowed (connect.hkust-gz.edu.cn or hkust-gz.edu.cn)"}), 400
     
-    # Check if email already exists
-    existing_user = User.query.filter_by(email=email, is_deleted=False).first()
-    if existing_user and existing_user.id != user_id:
-        return jsonify({"msg": "Email already registered by another user"}), 400
-    
     try:
+        acquire_email_transaction_lock(email)
+        if active_email_owner(email, exclude_user_id=user_id):
+            db.session.rollback()
+            return jsonify({"msg": "Email already registered by another user"}), 400
+
         # Update email and reset verification status
         user.email = email
         user.email_verified = False
