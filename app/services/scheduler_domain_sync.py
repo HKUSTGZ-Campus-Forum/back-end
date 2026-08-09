@@ -93,6 +93,9 @@ def sync_offering_sections(
         section.bundle = source.bundle
         section.layer = source.layer
         section.quota = source.quota
+        section.enrol = getattr(source, "enrol", None)
+        section.avail = getattr(source, "avail", None)
+        section.wait = getattr(source, "wait", None)
         section.is_main = source.is_main
         db.session.flush()
 

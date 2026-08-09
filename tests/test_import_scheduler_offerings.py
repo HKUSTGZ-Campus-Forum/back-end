@@ -98,6 +98,9 @@ def payload():
                         "bundle": 1,
                         "layer": 0,
                         "quota": 50,
+                        "enrol": 47,
+                        "avail": 3,
+                        "wait": 2,
                         "is_main": True,
                         "lectures": [
                             {
@@ -199,6 +202,51 @@ def test_load_offerings_file_accepts_zero_scheduler_numbers(tmp_path):
     assert snapshot.courses[0].credit == 0
     section = snapshot.courses[0].sections[0]
     assert (section.quota, section.bundle, section.layer) == (0, 0, 0)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [("enrol", -1), ("wait", -2)],
+)
+def test_load_offerings_file_rejects_invalid_optional_occupancy(
+    tmp_path,
+    field_name,
+    value,
+):
+    data = payload()
+    data["courses"][0]["sections"][0][field_name] = value
+
+    with pytest.raises(OfferingValidationError, match="greater than or equal"):
+        load_offerings_file(write_payload(tmp_path, data))
+
+
+def test_load_offerings_file_preserves_occupancy_sentinels(tmp_path):
+    data = payload()
+    data["courses"][0]["sections"][0].update({"avail": -3, "wait": -1})
+
+    snapshot = load_offerings_file(write_payload(tmp_path, data))
+
+    section = snapshot.courses[0].sections[0]
+    assert (section.avail, section.wait) == (-3, -1)
+
+
+def test_apply_offerings_preserves_section_occupancy(app, tmp_path):
+    snapshot = load_offerings_file(write_payload(tmp_path, payload()))
+
+    with app.app_context():
+        apply_snapshot(snapshot)
+
+        section = (
+            CourseSection.query.join(CourseOffering)
+            .filter(CourseOffering.semester_id == "2540")
+            .one()
+        )
+        assert (section.quota, section.enrol, section.avail, section.wait) == (
+            50,
+            47,
+            3,
+            2,
+        )
 
 
 def test_load_offerings_file_rejects_empty_snapshot(tmp_path):

@@ -114,6 +114,9 @@ class NormalizedSection:
     bundle: int
     layer: int
     quota: int
+    enrol: int | None
+    avail: int | None
+    wait: int | None
     is_main: bool
     lectures: list[NormalizedLecture]
 
@@ -225,6 +228,21 @@ def _non_negative_int(value: Any, context: str) -> int:
     return parsed
 
 
+def _optional_int(value: Any, context: str) -> int | None:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return _int(value, context)
+
+
+def _optional_min_int(value: Any, context: str, *, minimum: int) -> int | None:
+    parsed = _optional_int(value, context)
+    if parsed is not None and parsed < minimum:
+        raise OfferingValidationError(
+            f"{context}: expected an integer greater than or equal to {minimum}"
+        )
+    return parsed
+
+
 def _hhmm(value: Any, context: str) -> int:
     parsed = _int(value, context)
     if parsed < 0 or parsed > 2359 or parsed % 100 >= 60:
@@ -324,6 +342,11 @@ def _parse_section(
         bundle=_non_negative_int(_field(data, "bundle", context), f"{context}.bundle"),
         layer=_non_negative_int(_field(data, "layer", context), f"{context}.layer"),
         quota=_non_negative_int(_field(data, "quota", context), f"{context}.quota"),
+        enrol=_optional_min_int(data.get("enrol"), f"{context}.enrol", minimum=0),
+        # Availability can be negative when a section is over-enrolled.  WCQ
+        # also uses -1 for a wait-list value that is not available.
+        avail=_optional_int(data.get("avail"), f"{context}.avail"),
+        wait=_optional_min_int(data.get("wait"), f"{context}.wait", minimum=-1),
         is_main=_bool(_field(data, "is_main", context), f"{context}.is_main"),
         lectures=[
             _parse_lecture(lecture, f"{context}.lectures[{lecture_index}]")
