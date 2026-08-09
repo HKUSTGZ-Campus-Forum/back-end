@@ -3,7 +3,12 @@ from app import create_app
 from app.config import Config
 from app.extensions import db
 from app.models.course import Course
-from app.models.course_domain import CourseMeeting, CourseOffering, CourseSection
+from app.models.course_domain import (
+    CourseCatalogVersion,
+    CourseMeeting,
+    CourseOffering,
+    CourseSection,
+)
 from app.models.scheduler_section import SchedulerSection
 from app.models.scheduler_map import SchedulerMapComponent, SchedulerMapLine
 from app.models.user import User
@@ -160,12 +165,53 @@ def test_list_semesters_includes_25_26_summer_label(client, app):
     assert summer['name_zh'] == '25-26夏'
 
 
+def test_list_semesters_includes_26_27_fall_label(client, app):
+    with app.app_context():
+        course = Course(code="FALL1001", name="Fall Course", credits=3)
+        db.session.add(course)
+        db.session.flush()
+        add_domain_section(
+            course,
+            semester_id="2610",
+            source_section_id="FALL-L01",
+        )
+        db.session.commit()
+
+    resp = client.get('/scheduler/semesters')
+    assert resp.status_code == 200
+    fall = next(item for item in resp.get_json() if item['id'] == '2610')
+    assert fall['name'] == '2026-27 Fall'
+    assert fall['name_zh'] == '26-27秋'
+
+
 def test_search_courses(client, seed_courses):
     resp = client.get('/scheduler/courses/search?query=English&semester=2530')
     assert resp.status_code == 200
     data = resp.get_json()
     assert data['total'] >= 1
     assert data['items'][0]['course_code'] == 'TEST1001'
+
+
+def test_search_courses_preserves_zero_catalog_credit(client, app):
+    with app.app_context():
+        course = Course(code="ZERO2000", name="Legacy Credit", credits=3)
+        db.session.add(course)
+        db.session.flush()
+        db.session.add(CourseCatalogVersion(
+            course_id=course.id,
+            source="test",
+            source_version="2610",
+            title="Zero Credit Course",
+            credits=0,
+            effective_from_semester_id="2610",
+        ))
+        db.session.commit()
+
+    resp = client.get('/scheduler/courses/search?query=ZERO2000')
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['total'] == 1
+    assert data['items'][0]['credit'] == 0
 
 
 def test_search_courses_ignores_legacy_scheduler_only_semester_rows(client, app):

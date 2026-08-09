@@ -30,6 +30,7 @@ SEMESTER_META = {
     '2510': {'name': '2025-26 Fall', 'name_zh': '25-26秋'},
     '2530': {'name': '2025-26 Spring', 'name_zh': '25-26春'},
     '2540': {'name': '2025-26 Summer', 'name_zh': '25-26夏'},
+    '2610': {'name': '2026-27 Fall', 'name_zh': '26-27秋'},
 }
 
 
@@ -113,7 +114,9 @@ def _course_title(course):
 
 def _course_credit(course):
     version = current_catalog_version(course)
-    return (version.credits if version else None) or course.credits
+    if version is not None and version.credits is not None:
+        return version.credits
+    return course.credits
 
 
 def _course_title_abbr(course):
