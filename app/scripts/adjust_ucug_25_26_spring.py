@@ -21,6 +21,7 @@ from sqlalchemy import delete
 from app.extensions import db
 from app.models.course import Course
 from app.models.tag import Tag, TagType, post_tags
+from app.services.course_domain import find_course_by_code, normalize_course_code
 from app.utils.semester import parse_semester_tag
 
 TARGET_SPRING_YEAR = "2025"
@@ -104,8 +105,9 @@ def apply_ucug_25_26_spring_adjustments(*, dry_run: bool = False, verbose: bool 
     if to_remove:
         log(f"Removed {len(to_remove)} semester tag(s); unlinked {unlinked} post_tag row(s).")
 
-    for code, name, credits in NEW_COURSES:
-        course = Course.query.filter_by(code=code, is_deleted=False).first()
+    for source_code, name, credits in NEW_COURSES:
+        code = normalize_course_code(source_code)
+        course = find_course_by_code(code)
         if course:
             course.name = name
             course.credits = credits
@@ -113,6 +115,7 @@ def apply_ucug_25_26_spring_adjustments(*, dry_run: bool = False, verbose: bool 
         else:
             course = Course(
                 code=code,
+                normalized_code=code,
                 name=name,
                 credits=credits,
                 is_active=True,
@@ -121,7 +124,7 @@ def apply_ucug_25_26_spring_adjustments(*, dry_run: bool = False, verbose: bool 
             db.session.add(course)
             db.session.flush()
 
-        tag_name = f"{course.code}-{TAG_SUFFIX}"
+        tag_name = f"{code}-{TAG_SUFFIX}"
         if Tag.query.filter_by(name=tag_name).first():
             log(f"[skip] tag exists: {tag_name}")
             continue

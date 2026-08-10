@@ -22,6 +22,7 @@ from app.models.course import Course
 from app.models.scheduler_lecture import SchedulerLecture
 from app.models.scheduler_map import SchedulerMapComponent, SchedulerMapLine
 from app.models.scheduler_section import SchedulerSection
+from app.services.course_domain import normalize_course_code
 from app.services.course_domain_migration import migrate_offerings
 
 
@@ -84,9 +85,23 @@ def validate_snapshot(snapshot):
     course_codes = {row[0] for row in snapshot.courses}
     section_keys = {(row[0], row[1]) for row in snapshot.sections}
     component_ids = {row[0] for row in snapshot.components}
+    source_codes_by_normalized = {}
 
     if not snapshot.sections:
         raise SnapshotValidationError('snapshot contains no sections')
+
+    for row in snapshot.courses:
+        source_code = row[0]
+        normalized_code = normalize_course_code(source_code)
+        if not normalized_code:
+            raise SnapshotValidationError('snapshot contains an empty course code')
+        previous_code = source_codes_by_normalized.get(normalized_code)
+        if previous_code is not None:
+            raise SnapshotValidationError(
+                'snapshot contains duplicate normalized course identity '
+                f'{normalized_code}: {previous_code!r}, {source_code!r}'
+            )
+        source_codes_by_normalized[normalized_code] = source_code
 
     for row in snapshot.sections:
         if row[2] not in course_codes:
@@ -125,20 +140,89 @@ def _normalized_subject(subject):
     return subject.strip().upper() if isinstance(subject, str) else subject
 
 
+def _existing_courses_by_normalized_code(course_codes):
+    normalized_codes = {
+        normalize_course_code(course_code)
+        for course_code in course_codes
+        if normalize_course_code(course_code)
+    }
+    if not normalized_codes:
+        return {}
+
+    identity_rows = db.session.query(
+        Course.id,
+        Course.code,
+        Course.normalized_code,
+    ).all()
+    candidate_ids_by_code = {}
+    for course_id, code, normalized_code in identity_rows:
+        stored_code = normalize_course_code(normalized_code)
+        derived_code = normalize_course_code(code)
+        if not ({stored_code, derived_code} & normalized_codes):
+            continue
+        if stored_code and stored_code != derived_code:
+            raise SnapshotValidationError(
+                'course normalization is inconsistent for existing row '
+                f'id={course_id}: code={code!r}, normalized_code={normalized_code!r}'
+            )
+        candidate_code = stored_code or derived_code
+        candidate_ids_by_code.setdefault(candidate_code, []).append(course_id)
+
+    ambiguous = {
+        normalized_code: matching_ids
+        for normalized_code, matching_ids in candidate_ids_by_code.items()
+        if len(matching_ids) > 1
+    }
+    if ambiguous:
+        details = '; '.join(
+            f'{normalized_code}=rows[{",".join(str(course_id) for course_id in matching_ids)}]'
+            for normalized_code, matching_ids in sorted(ambiguous.items())
+        )
+        raise SnapshotValidationError(
+            'ambiguous existing course rows for normalized scheduler codes: ' + details
+        )
+
+    candidate_ids = [
+        matching_ids[0]
+        for matching_ids in candidate_ids_by_code.values()
+    ]
+    candidates_by_id = {
+        course.id: course
+        for course in Course.query.filter(Course.id.in_(candidate_ids)).all()
+    } if candidate_ids else {}
+    return {
+        normalized_code: candidates_by_id[matching_ids[0]]
+        for normalized_code, matching_ids in candidate_ids_by_code.items()
+    }
+
+
 def import_snapshot(source_conn):
     snapshot = load_snapshot(source_conn)
     validate_snapshot(snapshot)
 
     try:
+        courses_by_normalized_code = _existing_courses_by_normalized_code(
+            [row[0] for row in snapshot.courses]
+        )
         SchedulerMapLine.query.delete()
         SchedulerMapComponent.query.delete()
         SchedulerLecture.query.delete()
         SchedulerSection.query.delete()
 
+        courses_by_source_code = {}
         for row in snapshot.courses:
-            course = Course.query.filter_by(code=row[0]).first()
+            normalized_code = normalize_course_code(row[0])
+            course = courses_by_normalized_code.get(normalized_code)
             if course is None:
-                course = Course(code=row[0], name=row[1], credits=row[7])
+                course = Course(
+                    code=normalized_code,
+                    normalized_code=normalized_code,
+                    name=row[1],
+                    credits=row[7],
+                )
+                courses_by_normalized_code[normalized_code] = course
+            else:
+                course.normalized_code = normalized_code
             course.name = row[1]
             course.course_title_abbr = row[2]
             course.description = row[3] or ''
@@ -152,14 +236,14 @@ def import_snapshot(source_conn):
             course.klms_course = row[11]
             course.vector = row[12]
             db.session.add(course)
+            courses_by_source_code[row[0]] = course
         db.session.flush()
 
-        courses = {course.code: course for course in Course.query.all()}
         for row in snapshot.sections:
             db.session.add(SchedulerSection(
                 semester_id=row[0],
                 section_id=row[1],
-                course_id=courses[row[2]].id,
+                course_id=courses_by_source_code[row[2]].id,
                 name=row[3],
                 bundle=row[4],
                 layer=row[5],

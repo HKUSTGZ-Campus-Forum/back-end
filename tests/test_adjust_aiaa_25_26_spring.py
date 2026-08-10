@@ -114,3 +114,9 @@ def test_apply_aiaa_adjustments_syncs_spring_from_fall_and_normalizes_tags(app):
         compact_spring_tag = Tag.query.filter_by(name="AIAA5033-2025spring").first()
         assert compact_spring_tag is not None
         assert linked_tag_ids == {compact_spring_tag.id}
+
+        new_course = Course.query.filter_by(code="AIAA2711").one()
+        assert new_course.normalized_code == "AIAA2711"
+        assert Course.query.filter_by(code="AIAA 2711").first() is None
+        assert Tag.query.filter_by(name="AIAA2711-2025spring").one()
+        assert Tag.query.filter_by(name="AIAA 2711-2025spring").first() is None
