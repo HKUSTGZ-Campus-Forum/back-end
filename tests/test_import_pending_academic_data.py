@@ -107,7 +107,7 @@ EXPECTED_COUNTS = CurriculumExpectations(
 
 PENDING_DATA_DIR = Path(__file__).resolve().parents[1] / "app" / "data" / "pending"
 REVIEWED_SCHEDULER_SHA256 = (
-    "64cf81e1cabe6bef350b6be1c29206329fe22bfe7e6d820eedd812c419d347cc"
+    "4ec2cb305a31348944cba064dba9435825f19d5c1b99f9e2e8177e233eddfbff"
 )
 REVIEWED_CURRICULUM_SHA256 = (
     "a99cbe5c120ba5fcd707651f4609a6ca08e6d5bfa205734979ad6d9739f6b056"
@@ -126,7 +126,19 @@ def test_reviewed_pending_scheduler_package_matches_locked_controls():
 
     assert file_sha256(path) == REVIEWED_SCHEDULER_SHA256
     snapshot = load_offerings_file(path, "2610")
-    assert snapshot_counts(snapshot) == SnapshotExpectations(383, 383, 801, 824)
+    assert snapshot_counts(snapshot) == SnapshotExpectations(383, 383, 801, 820)
+
+    raw_snapshot = json.loads(path.read_text(encoding="utf-8"))
+    unscheduled = raw_snapshot["provenance"]["unscheduled_sections"]
+    assert [
+        (section["course_code"], section["section_id"])
+        for section in unscheduled
+    ] == [("UFUG1301", "6951"), ("UFUG1302", "6952")]
+    assert not {
+        section["section_id"]
+        for course in raw_snapshot["courses"]
+        for section in course["sections"]
+    } & {"6951", "6952"}
 
 
 def test_reviewed_pending_curriculum_package_matches_locked_controls():

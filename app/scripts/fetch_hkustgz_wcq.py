@@ -33,9 +33,9 @@ from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Iterable, Sequence
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urljoin, urlparse
-from urllib.request import Request, urlopen
+
+import requests
 
 
 DEFAULT_TERM = "2610"
@@ -44,7 +44,8 @@ DEFAULT_EXPECTED_SUBJECTS = 29
 DEFAULT_EXPECTED_COURSES = 383
 DEFAULT_EXPECTED_OFFERED_COURSES = 383
 DEFAULT_EXPECTED_SECTIONS = 801
-DEFAULT_EXPECTED_LECTURES = 824
+DEFAULT_EXPECTED_LECTURES = 820
+DEFAULT_EXPECTED_UNSCHEDULED_SECTIONS = 2
 DEFAULT_BASE_URL = "https://w5.hkust-gz.edu.cn/wcq/cgi-bin/"
 DEFAULT_OUTPUT = (
     Path(__file__).resolve().parents[1]
@@ -67,6 +68,9 @@ COURSE_HEADING_RE = re.compile(
 SECTION_RE = re.compile(r"^(?P<type>[A-Z]+)(?P<number>\d+)[A-Z]*$")
 SECTION_CELL_RE = re.compile(
     r"^(?P<name>[A-Z]+\d+[A-Z]*)\s*\((?P<section_id>[^()]+)\)$"
+)
+UNSCHEDULED_SECTION_CELL_RE = re.compile(
+    r"^(?P<name>TBA)\s*\((?P<section_id>[^()]+)\)$"
 )
 MEETING_RE = re.compile(
     r"(?P<days>(?:(?:Mo|Tu|We|Th|Fr|Sa|Su))+)[ \t]+"
@@ -94,6 +98,34 @@ SECTION_TYPE_DISPLAY = {
     "T": "Tutorial",
     "LA": "Lab",
     "R": "Research",
+}
+REVIEWED_UNSCHEDULED_SECTIONS: dict[
+    tuple[str, str, str], dict[str, object]
+] = {
+    ("2610", "UFUG1301", "6951"): {
+        "matching": "[Matching between Lecture & Lab required]",
+        "remarks": (
+            "> If the lab sessions listed in the course schedule are not "
+            "suitable for your availability, or if you were unable to enroll "
+            "in a session, you can contact the instructor to request access "
+            'to the "TBA" section. The lab class schedule will be coordinated '
+            "later based on the availability of students who select "
+            '"TBA." Please pay attention to further notifications.',
+            "Instructor Consent Required",
+        ),
+        "review_basis": (
+            "The source note explicitly identifies this as an opt-in lab "
+            "fallback whose meeting will be coordinated later."
+        ),
+    },
+    ("2610", "UFUG1302", "6952"): {
+        "matching": "[Matching between Lecture & Tutorial required]",
+        "remarks": ("Instructor Consent Required",),
+        "review_basis": (
+            "The source supplies no component type or meeting and only marks "
+            "the row as requiring instructor consent."
+        ),
+    },
 }
 VOID_TAGS = {
     "area",
@@ -173,6 +205,13 @@ class SubjectReference:
 class ParsedPage:
     subject: str
     courses: list[dict[str, object]]
+    unscheduled_sections: list[dict[str, object]]
+
+
+@dataclass(frozen=True)
+class ParsedSections:
+    schedulable: list[dict[str, object]]
+    unscheduled: list[dict[str, object]]
 
 
 def _parse_tree(html: str) -> HtmlNode:
@@ -405,6 +444,103 @@ def _integer_cell(
     raise WCQPreparationError(f"{context}: expected an integer")
 
 
+def _popup_details(cell: HtmlNode) -> list[str]:
+    return [
+        detail
+        for detail in (
+            _text(node)
+            for node in _find_all(cell, "div", class_name="popupdetail")
+        )
+        if detail
+    ]
+
+
+def _reviewed_unscheduled_section(
+    row: HtmlNode,
+    cells: list[HtmlNode],
+    *,
+    course_code: str,
+    semester_id: str,
+    matching: str,
+    section_label: str,
+    section_id: str,
+) -> dict[str, object]:
+    identity = (semester_id, course_code, section_id)
+    policy = REVIEWED_UNSCHEDULED_SECTIONS.get(identity)
+    if policy is None:
+        raise WCQPreparationError(
+            f"{course_code}: unreviewed unscheduled section {section_label!r}; "
+            "review its semantics before excluding it from the scheduler"
+        )
+    if len(cells) != 9:
+        raise WCQPreparationError(
+            f"{course_code}/{section_label}: reviewed unscheduled section changed "
+            f"from 9 source cells to {len(cells)}"
+        )
+
+    date_time = _text(cells[1], preserve_breaks=True)
+    room = _room(cells[2])
+    instructor = _instructor(cells[3])
+    quota = _integer_cell(
+        cells[4], f"{course_code}/{section_label} quota", minimum=0
+    )
+    enrol = _integer_cell(
+        cells[5], f"{course_code}/{section_label} enrol", minimum=0
+    )
+    avail = _integer_cell(cells[6], f"{course_code}/{section_label} avail")
+    wait = _integer_cell(
+        cells[7], f"{course_code}/{section_label} wait", minimum=-1
+    )
+    remarks = _popup_details(cells[8])
+    reviewed_values: dict[str, object] = {
+        "matching": matching,
+        "date_time": date_time,
+        "room": room,
+        "instructor": instructor,
+        "quota": quota,
+        "remarks": tuple(remarks),
+    }
+    expected_values: dict[str, object] = {
+        "matching": policy["matching"],
+        "date_time": "TBA",
+        "room": "TBA",
+        "instructor": "TBA",
+        "quota": 5,
+        "remarks": policy["remarks"],
+    }
+    changed = [
+        name
+        for name, expected in expected_values.items()
+        if reviewed_values[name] != expected
+    ]
+    if changed:
+        raise WCQPreparationError(
+            f"{course_code}/{section_label}: reviewed unscheduled section changed "
+            f"({', '.join(changed)}); review it before scheduler omission"
+        )
+
+    return {
+        "course_code": course_code,
+        "semester_id": semester_id,
+        "source_name": "TBA",
+        "source_label": section_label,
+        "section_id": section_id,
+        "date_time": date_time,
+        "room": room,
+        "instructor": instructor,
+        "quota": quota,
+        "enrol": enrol,
+        "avail": avail,
+        "wait": wait,
+        "remarks": remarks,
+        "review_basis": policy["review_basis"],
+        "source_row_classes": sorted(_classes(row)),
+        "source_cell_values": [
+            _text(cell, preserve_breaks=True) for cell in cells
+        ],
+    }
+
+
 def _joined_distinct(existing: str, incoming: str) -> str:
     values: list[str] = []
     for raw_value in (existing, incoming):
@@ -477,7 +613,7 @@ def _parse_sections(
     course_code: str,
     semester_id: str,
     matching: str,
-) -> list[dict[str, object]]:
+) -> ParsedSections:
     tables = _find_all(course_node, "table", class_name="sections")
     if len(tables) != 1:
         raise WCQPreparationError(
@@ -485,8 +621,10 @@ def _parse_sections(
         )
 
     sections: list[dict[str, object]] = []
+    unscheduled_sections: list[dict[str, object]] = []
     current: dict[str, object] | None = None
     skipping_cancelled_section = False
+    skipped_unscheduled_section: str | None = None
     for row in _find_all(tables[0], "tr"):
         cells = _direct_children(row, "td")
         if not cells:
@@ -502,8 +640,26 @@ def _parse_sections(
             if CANCELLED_RE.search(row_status):
                 current = None
                 skipping_cancelled_section = True
+                skipped_unscheduled_section = None
                 continue
             skipping_cancelled_section = False
+            skipped_unscheduled_section = None
+            unscheduled_match = UNSCHEDULED_SECTION_CELL_RE.fullmatch(section_label)
+            if unscheduled_match:
+                unscheduled_sections.append(
+                    _reviewed_unscheduled_section(
+                        row,
+                        cells,
+                        course_code=course_code,
+                        semester_id=semester_id,
+                        matching=matching,
+                        section_label=section_label,
+                        section_id=unscheduled_match.group("section_id").strip(),
+                    )
+                )
+                current = None
+                skipped_unscheduled_section = section_label
+                continue
             section_match = SECTION_CELL_RE.fullmatch(section_label)
             if not section_match:
                 raise WCQPreparationError(
@@ -541,6 +697,11 @@ def _parse_sections(
         else:
             if skipping_cancelled_section:
                 continue
+            if skipped_unscheduled_section is not None:
+                raise WCQPreparationError(
+                    f"{course_code}/{skipped_unscheduled_section}: reviewed "
+                    "unscheduled section unexpectedly has a continuation row"
+                )
             if current is None:
                 raise WCQPreparationError(
                     f"{course_code}: continuation row precedes its section"
@@ -563,9 +724,9 @@ def _parse_sections(
         )
 
     if not sections:
-        # A course with only explicitly cancelled rows remains useful catalog
-        # data but is intentionally not an offered course in this snapshot.
-        return []
+        # A course with only explicitly cancelled or reviewed-unscheduled rows
+        # remains useful catalog data but is intentionally not offered here.
+        return ParsedSections([], unscheduled_sections)
 
     type_order: list[str] = []
     for section in sections:
@@ -649,7 +810,7 @@ def _parse_sections(
             str(item["name"]),
         )
     )
-    return sections
+    return ParsedSections(sections, unscheduled_sections)
 
 
 def parse_subject_page(
@@ -683,6 +844,7 @@ def parse_subject_page(
         raise WCQPreparationError(f"{expected_subject}: page contains no courses")
 
     courses: list[dict[str, object]] = []
+    unscheduled_sections: list[dict[str, object]] = []
     for course_node in course_nodes:
         headings = _find_all(course_node, "h2")
         if len(headings) != 1:
@@ -712,14 +874,16 @@ def parse_subject_page(
             normalized_info[label] = value
         leading_number = re.match(r"\d+", catalog_number)
         numeric_catalog = int(leading_number.group(0)) if leading_number else 0
+        parsed_sections = _parse_sections(
+            course_node,
+            course_code=course_code,
+            semester_id=semester_id,
+            matching=matching,
+        )
+        unscheduled_sections.extend(parsed_sections.unscheduled)
         course: dict[str, object] = {
             "course_code": course_code,
-            "sections": _parse_sections(
-                course_node,
-                course_code=course_code,
-                semester_id=semester_id,
-                matching=matching,
-            ),
+            "sections": parsed_sections.schedulable,
             "subject": subject,
             "catalog_number": catalog_number,
             "course_title": match.group("title"),
@@ -730,34 +894,55 @@ def parse_subject_page(
             "exclusion": info.get("EXCLUSION"),
             "pg_course": numeric_catalog >= 5000,
             "klms_course": False,
-            "vector": None,
+            "vector": info.get("VECTOR"),
             "matching": matching,
             "course_info": normalized_info,
         }
         courses.append(course)
 
     courses.sort(key=lambda item: str(item["course_code"]))
-    return ParsedPage(subject=actual_subject, courses=courses)
+    unscheduled_sections.sort(
+        key=lambda item: (
+            str(item["course_code"]),
+            str(item["section_id"]),
+        )
+    )
+    return ParsedPage(
+        subject=actual_subject,
+        courses=courses,
+        unscheduled_sections=unscheduled_sections,
+    )
 
 
 def _fetch_text(url: str, *, timeout: float) -> str:
-    request = Request(
-        url,
-        headers={
-            "User-Agent": USER_AGENT,
-            "Accept": "text/html,application/xhtml+xml",
-        },
-    )
     try:
-        with urlopen(request, timeout=timeout) as response:
-            content_type = response.headers.get_content_type()
-            if content_type not in {"text/html", "application/xhtml+xml"}:
-                raise WCQPreparationError(
-                    f"{url}: expected HTML, received {content_type}"
-                )
-            charset = response.headers.get_content_charset() or "utf-8"
-            return response.read().decode(charset, errors="strict")
-    except (HTTPError, URLError, TimeoutError, UnicodeError) as exc:
+        response = requests.get(
+            url,
+            timeout=timeout,
+            headers={
+                "User-Agent": USER_AGENT,
+                "Accept": "text/html,application/xhtml+xml",
+            },
+        )
+        response.raise_for_status()
+        content_type_header = response.headers.get("Content-Type", "")
+        content_type = content_type_header.split(";", 1)[0].strip().lower()
+        if content_type not in {"text/html", "application/xhtml+xml"}:
+            raise WCQPreparationError(
+                f"{url}: expected HTML, received {content_type or 'unknown'}"
+            )
+        charset_match = re.search(
+            r'''(?:^|;)\s*charset\s*=\s*(?:"([^"]+)"|'([^']+)'|([^;\s]+))''',
+            content_type_header,
+            re.IGNORECASE,
+        )
+        charset = (
+            next(value for value in charset_match.groups() if value)
+            if charset_match
+            else "utf-8"
+        )
+        return response.content.decode(charset, errors="strict")
+    except (requests.RequestException, LookupError, UnicodeError) as exc:
         raise WCQPreparationError(f"failed to fetch {url}: {exc}") from exc
 
 
@@ -799,8 +984,12 @@ def _iso_timestamp(value: str | None) -> str:
 def snapshot_counts(snapshot: dict[str, object]) -> dict[str, int]:
     courses = snapshot["courses"]
     assert isinstance(courses, list)
+    provenance = snapshot["provenance"]
+    assert isinstance(provenance, dict)
+    unscheduled_sections = provenance["unscheduled_sections"]
+    assert isinstance(unscheduled_sections, list)
     return {
-        "subjects": len(snapshot["provenance"]["subjects"]),  # type: ignore[index]
+        "subjects": len(provenance["subjects"]),  # type: ignore[arg-type]
         "courses": len(courses),
         "offered_courses": sum(
             bool(course["sections"]) for course in courses  # type: ignore[index]
@@ -811,6 +1000,7 @@ def snapshot_counts(snapshot: dict[str, object]) -> dict[str, int]:
             for course in courses
             for section in course["sections"]  # type: ignore[index]
         ),
+        "unscheduled_sections": len(unscheduled_sections),
     }
 
 
@@ -822,6 +1012,7 @@ def validate_snapshot(
     expected_offered_courses: int | None = None,
     expected_sections: int | None = None,
     expected_lectures: int | None = None,
+    expected_unscheduled_sections: int | None = None,
 ) -> dict[str, int]:
     """Validate identities and optional independently reviewed control totals."""
 
@@ -853,6 +1044,36 @@ def validate_snapshot(
                 )
             seen_sections.add(key)
 
+    provenance = snapshot.get("provenance")
+    if not isinstance(provenance, dict):
+        raise WCQPreparationError("snapshot provenance must be an object")
+    unscheduled_sections = provenance.get("unscheduled_sections")
+    if not isinstance(unscheduled_sections, list):
+        raise WCQPreparationError(
+            "snapshot provenance.unscheduled_sections must be a list"
+        )
+    seen_unscheduled: set[tuple[str, str]] = set()
+    for source_section in unscheduled_sections:
+        if not isinstance(source_section, dict):
+            raise WCQPreparationError("unscheduled source section must be an object")
+        key = (
+            str(source_section.get("semester_id", "")),
+            str(source_section.get("section_id", "")),
+        )
+        if not all(key):
+            raise WCQPreparationError(
+                "unscheduled source section identity is incomplete"
+            )
+        if key in seen_sections:
+            raise WCQPreparationError(
+                f"unscheduled source section {key[0]}/{key[1]} is also schedulable"
+            )
+        if key in seen_unscheduled:
+            raise WCQPreparationError(
+                f"duplicate unscheduled source section {key[0]}/{key[1]}"
+            )
+        seen_unscheduled.add(key)
+
     counts = snapshot_counts(snapshot)
     expectations = {
         "subjects": expected_subjects,
@@ -860,6 +1081,7 @@ def validate_snapshot(
         "offered_courses": expected_offered_courses,
         "sections": expected_sections,
         "lectures": expected_lectures,
+        "unscheduled_sections": expected_unscheduled_sections,
     }
     mismatches = [
         f"{name}={counts[name]} (expected {expected})"
@@ -895,6 +1117,7 @@ def build_snapshot(
         )
 
     courses: list[dict[str, object]] = []
+    unscheduled_sections: list[dict[str, object]] = []
     for reference in references:
         page = parse_subject_page(
             subject_html[reference.code],
@@ -902,7 +1125,14 @@ def build_snapshot(
             semester_id=term,
         )
         courses.extend(page.courses)
+        unscheduled_sections.extend(page.unscheduled_sections)
     courses.sort(key=lambda item: str(item["course_code"]))
+    unscheduled_sections.sort(
+        key=lambda item: (
+            str(item["course_code"]),
+            str(item["section_id"]),
+        )
+    )
 
     approximations: list[dict[str, object]] = []
     for course in courses:
@@ -938,6 +1168,26 @@ def build_snapshot(
                     ),
                 }
             )
+
+    for source_section in unscheduled_sections:
+        approximations.append(
+            {
+                "kind": "unscheduled_source_section_omitted",
+                "course_code": str(source_section["course_code"]),
+                "semester_id": str(source_section["semester_id"]),
+                "section_id": str(source_section["section_id"]),
+                "source_label": str(source_section["source_label"]),
+                "retained_at": "provenance.unscheduled_sections",
+                "review_basis": str(source_section["review_basis"]),
+                "explanation": (
+                    "The official row has no component type or meeting time. "
+                    "Mapping it to a scheduler section would invent a type, "
+                    "layer, and bundle that could incorrectly make the row a "
+                    "required choice. It is omitted from schedulable sections; "
+                    "all source fields remain in provenance.unscheduled_sections."
+                ),
+            }
+        )
 
     date_range_meetings = []
     for course in courses:
@@ -978,6 +1228,7 @@ def build_snapshot(
             "retrieved_at": retrieved_at,
             "term_index_sha256": hashlib.sha256(index_html.encode("utf-8")).hexdigest(),
             "approximations": approximations,
+            "unscheduled_sections": unscheduled_sections,
             "subjects": [
                 {
                     "code": reference.code,
@@ -1080,6 +1331,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "--expected-lectures", type=int, default=DEFAULT_EXPECTED_LECTURES
     )
     parser.add_argument(
+        "--expected-unscheduled-sections",
+        type=int,
+        default=DEFAULT_EXPECTED_UNSCHEDULED_SECTIONS,
+        help=(
+            "reviewed source rows intentionally retained only as provenance "
+            f"(default: {DEFAULT_EXPECTED_UNSCHEDULED_SECTIONS})"
+        ),
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="replace an existing pending JSON file after explicit review",
@@ -1102,6 +1362,7 @@ def run(args: argparse.Namespace) -> tuple[Path, dict[str, int]]:
         "expected_offered_courses",
         "expected_sections",
         "expected_lectures",
+        "expected_unscheduled_sections",
     ):
         value = getattr(args, name)
         if value is not None and value < 0:
@@ -1152,6 +1413,7 @@ def run(args: argparse.Namespace) -> tuple[Path, dict[str, int]]:
         expected_offered_courses=args.expected_offered_courses,
         expected_sections=args.expected_sections,
         expected_lectures=args.expected_lectures,
+        expected_unscheduled_sections=args.expected_unscheduled_sections,
     )
     _atomic_write_json(args.output, snapshot, force=args.force)
     return args.output, counts
@@ -1168,7 +1430,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"prepared {output}: subjects={counts['subjects']} "
         f"courses={counts['courses']} offered_courses={counts['offered_courses']} "
         f"sections={counts['sections']} "
-        f"lectures={counts['lectures']}"
+        f"lectures={counts['lectures']} "
+        f"unscheduled_sections={counts['unscheduled_sections']}"
     )
     print("No database import or deployment was performed.")
     return 0

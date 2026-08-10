@@ -5,7 +5,7 @@
   "provenance": {
     "source_name": "HKUST-GZ Class Schedule & Quota",
     "term_url": "https://w5.hkust-gz.edu.cn/wcq/cgi-bin/2610/",
-    "retrieved_at": "2026-08-09T15:18:42Z",
+    "retrieved_at": "2026-08-10T19:37:12Z",
     "term_index_sha256": "82dc21664b9ca06502022e7dfada4fa81814deb8aabd96ec5c58d73654c3d86e",
     "approximations": [
       {
@@ -183,10 +183,99 @@
         "explanation": "The source uses duplicate numeric bundle suffixes for A/B alternatives. The current (layer,bundle) schema cannot preserve both lecture-to-section pairing and alternative choice, so this type uses an independent layer with unique bundles; cross-pair choices may be generated. Original names and section IDs are retained."
       },
       {
+        "kind": "unscheduled_source_section_omitted",
+        "course_code": "UFUG1301",
+        "semester_id": "2610",
+        "section_id": "6951",
+        "source_label": "TBA (6951)",
+        "retained_at": "provenance.unscheduled_sections",
+        "review_basis": "The source note explicitly identifies this as an opt-in lab fallback whose meeting will be coordinated later.",
+        "explanation": "The official row has no component type or meeting time. Mapping it to a scheduler section would invent a type, layer, and bundle that could incorrectly make the row a required choice. It is omitted from schedulable sections; all source fields remain in provenance.unscheduled_sections."
+      },
+      {
+        "kind": "unscheduled_source_section_omitted",
+        "course_code": "UFUG1302",
+        "semester_id": "2610",
+        "section_id": "6952",
+        "source_label": "TBA (6952)",
+        "retained_at": "provenance.unscheduled_sections",
+        "review_basis": "The source supplies no component type or meeting and only marks the row as requiring instructor consent.",
+        "explanation": "The official row has no component type or meeting time. Mapping it to a scheduler section would invent a type, layer, and bundle that could incorrectly make the row a required choice. It is omitted from schedulable sections; all source fields remain in provenance.unscheduled_sections."
+      },
+      {
         "kind": "date_ranges_collapsed_to_weekly_meetings",
         "affected_canonical_meetings": 143,
         "retained_date_range_values": 415,
         "explanation": "The current meeting schema stores weekday and time but no effective date range. Date-specific WCQ rows are therefore collapsed to canonical weekly slots. Every original date/time cell is retained in source_date_times for audit and a future date-aware schema migration."
+      }
+    ],
+    "unscheduled_sections": [
+      {
+        "course_code": "UFUG1301",
+        "semester_id": "2610",
+        "source_name": "TBA",
+        "source_label": "TBA (6951)",
+        "section_id": "6951",
+        "date_time": "TBA",
+        "room": "TBA",
+        "instructor": "TBA",
+        "quota": 5,
+        "enrol": 0,
+        "avail": 5,
+        "wait": 0,
+        "remarks": [
+          "> If the lab sessions listed in the course schedule are not suitable for your availability, or if you were unable to enroll in a session, you can contact the instructor to request access to the \"TBA\" section. The lab class schedule will be coordinated later based on the availability of students who select \"TBA.\" Please pay attention to further notifications.",
+          "Instructor Consent Required"
+        ],
+        "review_basis": "The source note explicitly identifies this as an opt-in lab fallback whose meeting will be coordinated later.",
+        "source_row_classes": [
+          "newsect",
+          "sectodd"
+        ],
+        "source_cell_values": [
+          "TBA (6951)",
+          "TBA",
+          "TBA",
+          "TBA",
+          "5",
+          "0",
+          "5",
+          "0",
+          "> If the lab sessions listed in the course schedule are not suitable for your availability, or if you were unable to enroll in a session, you can contact the instructor to request access to the \"TBA\" section. The lab class schedule will be coordinated later based on the availability of students who select \"TBA.\" Please pay attention to further notifications.Instructor Consent Required"
+        ]
+      },
+      {
+        "course_code": "UFUG1302",
+        "semester_id": "2610",
+        "source_name": "TBA",
+        "source_label": "TBA (6952)",
+        "section_id": "6952",
+        "date_time": "TBA",
+        "room": "TBA",
+        "instructor": "TBA",
+        "quota": 5,
+        "enrol": 0,
+        "avail": 5,
+        "wait": 0,
+        "remarks": [
+          "Instructor Consent Required"
+        ],
+        "review_basis": "The source supplies no component type or meeting and only marks the row as requiring instructor consent.",
+        "source_row_classes": [
+          "newsect",
+          "secteven"
+        ],
+        "source_cell_values": [
+          "TBA (6952)",
+          "TBA",
+          "TBA",
+          "TBA",
+          "5",
+          "0",
+          "5",
+          "0",
+          "Instructor Consent Required"
+        ]
       }
     ],
     "subjects": [
@@ -350,13 +439,13 @@
         "code": "UCUG",
         "classification": "ug",
         "url": "https://w5.hkust-gz.edu.cn/wcq/cgi-bin/index.php?term=2610&subject=UCUG",
-        "sha256": "e15f81aee380c634679ca5cb851ae6e332369fad2bf7614dde6597932c380606"
+        "sha256": "4c504e994d171adc03f7a8dc948da994de36524ec306e068709be176fb64358f"
       },
       {
         "code": "UFUG",
         "classification": "ug",
         "url": "https://w5.hkust-gz.edu.cn/wcq/cgi-bin/index.php?term=2610&subject=UFUG",
-        "sha256": "41cfe3ef28d2f9b73e381264b8082feb36fc2fbe69f0398461357baca8e7c803"
+        "sha256": "5b737f3b7dffb22d18a62ffcca82194401098c3b40b074d396548bed88c8a019"
       },
       {
         "code": "UGOD",
@@ -10528,7 +10617,7 @@
       "exclusion": null,
       "pg_course": true,
       "klms_course": false,
-      "vector": null,
+      "vector": "[0-0-0:0]",
       "matching": "",
       "course_info": {
         "DESCRIPTION": "This course provides a foundational introduction to microeconomics, game theory, and algorithmic mechanism design, with a specific focus on their application to modern multi-agent systems for AIoT. Students will explore how economic principles and strategic interactions govern the behavior of agents in a variety of networked environments, including adversarial defense, information systems, communication networks, social networks, and cyber-physical systems like energy and transportation grids. The curriculum bridges theoretical concepts with practical applications. Core topics include market mechanisms, consumer preferences, and the objectives of cost and welfare maximization. A significant portion of the course is dedicated to multi-agent game theory, covering strategic games, pure and mixed strategy Nash equilibrium, correlated equilibrium, and the dynamics of repeated games. We will also explore extensive-form games, solution concepts like backward induction and subgame perfect equilibrium, and games of incomplete information, such as Bayesian games. The course then advances to contemporary multi-agent paradigms, examining bandit and reinforcement learning algorithms for sequential decision-making under uncertainty, the principles of federated learning algorithms for privacy-preserving distributed optimization, and their connections to multi-agent mechanism design—including auctions, pricing, contracts, facility location, and information manipulation. The course concludes by tying these elements together within the context of distributed systems that underpin these multi-agent interactions.",
@@ -10575,7 +10664,7 @@
       "exclusion": null,
       "pg_course": true,
       "klms_course": false,
-      "vector": null,
+      "vector": "[3-0-0:3]",
       "matching": "",
       "course_info": {
         "DESCRIPTION": "This course introduces fundamental and advanced machine learning techniques for ubiquitous computing systems, with a focus on sensor-driven human-centric applications. It covers representation learning from multimodal sensor data, self-supervised learning, generative AI, and challenges such as domain shift, personalization, and on-device deployment. Through case studies in wearable AI, mobile computing, and smart cities, students will learn how to design, analyze, and deploy scalable learning systems in real-world ubiquitous settings.",
@@ -19500,18 +19589,18 @@
           "name": "T01",
           "bundle": 1,
           "semester_id": "2610",
-          "section_id": "6267",
-          "quota": 25,
+          "section_id": "6269",
+          "quota": 20,
           "enrol": 0,
-          "avail": 25,
+          "avail": 20,
           "wait": 0,
           "lectures": [
             {
               "day": 2,
               "start_time": "0900",
               "end_time": "1020",
-              "room": "Rm 202, W4",
-              "instructor": "LI, Bing",
+              "room": "Rm 201, W2",
+              "instructor": "HONG, Xuancu",
               "source_date_times": [
                 "TuTh 09:00AM - 10:20AM"
               ]
@@ -19520,8 +19609,8 @@
               "day": 4,
               "start_time": "0900",
               "end_time": "1020",
-              "room": "Rm 202, W4",
-              "instructor": "LI, Bing",
+              "room": "Rm 201, W2",
+              "instructor": "HONG, Xuancu",
               "source_date_times": [
                 "TuTh 09:00AM - 10:20AM"
               ]
@@ -19536,82 +19625,10 @@
           "name": "T02",
           "bundle": 2,
           "semester_id": "2610",
-          "section_id": "6268",
-          "quota": 25,
-          "enrol": 0,
-          "avail": 25,
-          "wait": 0,
-          "lectures": [
-            {
-              "day": 2,
-              "start_time": "1200",
-              "end_time": "1320",
-              "room": "Rm 221, W1",
-              "instructor": "LI, Bing",
-              "source_date_times": [
-                "TuTh 12:00PM - 01:20PM"
-              ]
-            },
-            {
-              "day": 4,
-              "start_time": "1200",
-              "end_time": "1320",
-              "room": "Rm 221, W1",
-              "instructor": "LI, Bing",
-              "source_date_times": [
-                "TuTh 12:00PM - 01:20PM"
-              ]
-            }
-          ],
-          "is_main": true,
-          "layer": 0
-        },
-        {
-          "course_code": "UCUG1050",
-          "section_type": "T",
-          "name": "T03",
-          "bundle": 3,
-          "semester_id": "2610",
-          "section_id": "6269",
-          "quota": 25,
-          "enrol": 0,
-          "avail": 25,
-          "wait": 0,
-          "lectures": [
-            {
-              "day": 2,
-              "start_time": "0900",
-              "end_time": "1020",
-              "room": "Rm 201, W2",
-              "instructor": "HONG, Xuancu",
-              "source_date_times": [
-                "TuTh 09:00AM - 10:20AM"
-              ]
-            },
-            {
-              "day": 4,
-              "start_time": "0900",
-              "end_time": "1020",
-              "room": "Rm 201, W2",
-              "instructor": "HONG, Xuancu",
-              "source_date_times": [
-                "TuTh 09:00AM - 10:20AM"
-              ]
-            }
-          ],
-          "is_main": true,
-          "layer": 0
-        },
-        {
-          "course_code": "UCUG1050",
-          "section_type": "T",
-          "name": "T04",
-          "bundle": 4,
-          "semester_id": "2610",
           "section_id": "6270",
-          "quota": 25,
+          "quota": 20,
           "enrol": 0,
-          "avail": 25,
+          "avail": 20,
           "wait": 0,
           "lectures": [
             {
@@ -20198,6 +20215,36 @@
               ]
             }
           ],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "UCUG1051",
+          "section_type": "T",
+          "name": "T16",
+          "bundle": 16,
+          "semester_id": "2610",
+          "section_id": "6949",
+          "quota": 1,
+          "enrol": 0,
+          "avail": 1,
+          "wait": 0,
+          "lectures": [],
+          "is_main": true,
+          "layer": 0
+        },
+        {
+          "course_code": "UCUG1051",
+          "section_type": "T",
+          "name": "T17",
+          "bundle": 17,
+          "semester_id": "2610",
+          "section_id": "6950",
+          "quota": 1,
+          "enrol": 0,
+          "avail": 1,
+          "wait": 0,
+          "lectures": [],
           "is_main": true,
           "layer": 0
         }
@@ -29379,7 +29426,7 @@
       "exclusion": null,
       "pg_course": true,
       "klms_course": false,
-      "vector": null,
+      "vector": "[3-0-0:3]",
       "matching": "",
       "course_info": {
         "DESCRIPTION": "This course examines how AI-enabled decision systems are governed in urban domains such as transport, housing, labor, and public services, and how governance choices shape access, accountability, and the distribution of risks and resources. Students gain working literacy in core AI concepts and common algorithmic system types used in digital society, and learn to apply risk-based governance and accountability instruments across the system lifecycle (Govern–Map–Measure–Manage), including algorithmic impact assessments, transparency registers, audit and continuous monitoring requirements, and data-sharing and privacy frameworks, to ensure legality, reliability, and public value in real policy contexts. This course also provides an initial, case-based lens for students to engage more deeply with sociological explanations in the subsequent course UGOD 5050 Cities and Society in spring term.",
