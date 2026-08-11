@@ -1,0 +1,338 @@
+name: Backend Operations API
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - production
+      operation:
+        description: "Allowlisted operation"
+        required: true
+        type: choice
+        options:
+          - verify-release
+          - scheduler-import
+          - curriculum-sync
+          - course-duplicates
+          - database-upgrade-heads
+      mode:
+        description: "Run mode (verify is dry-run; database upgrade is apply)"
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - apply
+      package_id:
+        description: "Committed package id; blank unless importing data"
+        required: false
+        type: string
+      request_id:
+        description: "Idempotency id; blank uses the GitHub run id"
+        required: false
+        type: string
+      approved_dry_run_id:
+        description: "Successful matching dry-run request id required for apply"
+        required: false
+        type: string
+      expected_database:
+        description: "Required only for duplicate reconciliation apply"
+        required: false
+        type: string
+      expected_plan_sha256:
+        description: "Required only for duplicate reconciliation apply"
+        required: false
+        type: string
+      expected_pairs:
+        description: "Required only for duplicate reconciliation apply"
+        required: false
+        type: string
+      expected_records:
+        description: "Required only for duplicate reconciliation apply"
+        required: false
+        type: string
+      expected_tags:
+        description: "Required only for duplicate reconciliation apply"
+        required: false
+        type: string
+      confirmation:
+        description: "Apply requires APPLY_DEV or APPLY_PRODUCTION"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      target: ${{ steps.request.outputs.target }}
+      operation: ${{ steps.request.outputs.operation }}
+      mode: ${{ steps.request.outputs.mode }}
+      package_id: ${{ steps.request.outputs.package_id }}
+      request_id: ${{ steps.request.outputs.request_id }}
+      approved_dry_run_id: ${{ steps.request.outputs.approved_dry_run_id }}
+      expected_database: ${{ steps.request.outputs.expected_database }}
+      expected_plan_sha256: ${{ steps.request.outputs.expected_plan_sha256 }}
+      expected_pairs: ${{ steps.request.outputs.expected_pairs }}
+      expected_records: ${{ steps.request.outputs.expected_records }}
+      expected_tags: ${{ steps.request.outputs.expected_tags }}
+      confirmation: ${{ steps.request.outputs.confirmation }}
+    steps:
+      - name: Validate and normalize request
+        id: request
+        env:
+          RAW_TARGET: ${{ inputs.target }}
+          RAW_OPERATION: ${{ inputs.operation }}
+          RAW_MODE: ${{ inputs.mode }}
+          RAW_PACKAGE_ID: ${{ inputs.package_id }}
+          RAW_REQUEST_ID: ${{ inputs.request_id }}
+          RAW_APPROVED_DRY_RUN_ID: ${{ inputs.approved_dry_run_id }}
+          RAW_EXPECTED_DATABASE: ${{ inputs.expected_database }}
+          RAW_EXPECTED_PLAN_SHA256: ${{ inputs.expected_plan_sha256 }}
+          RAW_EXPECTED_PAIRS: ${{ inputs.expected_pairs }}
+          RAW_EXPECTED_RECORDS: ${{ inputs.expected_records }}
+          RAW_EXPECTED_TAGS: ${{ inputs.expected_tags }}
+          RAW_CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -Eeuo pipefail
+
+          target="$RAW_TARGET"
+          operation="$RAW_OPERATION"
+          mode="$RAW_MODE"
+          package_id="$RAW_PACKAGE_ID"
+          request_id="${RAW_REQUEST_ID:-${GITHUB_RUN_ID}}"
+          approved_dry_run_id="$RAW_APPROVED_DRY_RUN_ID"
+          expected_database="$RAW_EXPECTED_DATABASE"
+          expected_plan_sha256="$RAW_EXPECTED_PLAN_SHA256"
+          expected_pairs="$RAW_EXPECTED_PAIRS"
+          expected_records="$RAW_EXPECTED_RECORDS"
+          expected_tags="$RAW_EXPECTED_TAGS"
+          confirmation="$RAW_CONFIRMATION"
+
+          case "$target" in
+            dev)
+              test "$GITHUB_REF" = "refs/heads/main"
+              expected_confirmation="APPLY_DEV"
+              ;;
+            production)
+              test "$GITHUB_REF" = "refs/heads/production"
+              expected_confirmation="APPLY_PRODUCTION"
+              ;;
+            *) exit 2 ;;
+          esac
+
+          case "$operation:$mode" in
+            verify-release:dry-run|scheduler-import:dry-run|scheduler-import:apply|curriculum-sync:dry-run|curriculum-sync:apply|course-duplicates:dry-run|course-duplicates:apply|database-upgrade-heads:apply) ;;
+            *) echo "Unsupported operation/mode pair" >&2; exit 2 ;;
+          esac
+
+          case "$operation:$package_id" in
+            scheduler-import:scheduler-2610-v1|curriculum-sync:curriculum-2026-v1|verify-release:|course-duplicates:|database-upgrade-heads:) ;;
+            *) echo "Operation/package pair is not allowlisted" >&2; exit 2 ;;
+          esac
+
+          [[ "$request_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]
+          [[ -z "$approved_dry_run_id" || "$approved_dry_run_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]
+          [[ -z "$expected_database" || "$expected_database" =~ ^[A-Za-z_][A-Za-z0-9_-]{0,62}$ ]]
+          [[ -z "$expected_plan_sha256" || "$expected_plan_sha256" =~ ^[0-9a-f]{64}$ ]]
+          [[ -z "$expected_pairs" || "$expected_pairs" =~ ^[0-9]+$ ]]
+          [[ -z "$expected_records" || "$expected_records" =~ ^[0-9]+$ ]]
+          [[ -z "$expected_tags" || "$expected_tags" =~ ^[0-9]+$ ]]
+          case "$confirmation" in
+            ""|APPLY_DEV|APPLY_PRODUCTION) ;;
+            *) echo "Confirmation value is invalid" >&2; exit 2 ;;
+          esac
+
+          if [ "$mode" = "apply" ]; then
+            test "$confirmation" = "$expected_confirmation"
+            if [ "$operation" != "database-upgrade-heads" ]; then
+              test -n "$approved_dry_run_id"
+            fi
+          fi
+
+          if [ "$operation:$mode" = "course-duplicates:apply" ]; then
+            test -n "$expected_database"
+            test -n "$expected_plan_sha256"
+            test -n "$expected_pairs"
+            test -n "$expected_records"
+            test -n "$expected_tags"
+          elif [ -n "$expected_database$expected_plan_sha256$expected_pairs$expected_records$expected_tags" ]; then
+            echo "Reconciliation controls are only accepted for course-duplicates apply" >&2
+            exit 2
+          fi
+
+          {
+            printf 'target=%s\n' "$target"
+            printf 'operation=%s\n' "$operation"
+            printf 'mode=%s\n' "$mode"
+            printf 'package_id=%s\n' "$package_id"
+            printf 'request_id=%s\n' "$request_id"
+            printf 'approved_dry_run_id=%s\n' "$approved_dry_run_id"
+            printf 'expected_database=%s\n' "$expected_database"
+            printf 'expected_plan_sha256=%s\n' "$expected_plan_sha256"
+            printf 'expected_pairs=%s\n' "$expected_pairs"
+            printf 'expected_records=%s\n' "$expected_records"
+            printf 'expected_tags=%s\n' "$expected_tags"
+            printf 'confirmation=%s\n' "$confirmation"
+          } >> "$GITHUB_OUTPUT"
+
+  operate-dev:
+    if: needs.validate.outputs.target == 'dev'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: backend-mutations-dev
+      cancel-in-progress: false
+    steps:
+      - name: Run allowlisted dev operation
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        env:
+          OPS_TARGET: ${{ needs.validate.outputs.target }}
+          OPS_OPERATION: ${{ needs.validate.outputs.operation }}
+          OPS_MODE: ${{ needs.validate.outputs.mode }}
+          OPS_PACKAGE_ID: ${{ needs.validate.outputs.package_id }}
+          OPS_REQUEST_ID: ${{ needs.validate.outputs.request_id }}
+          OPS_APPROVED_DRY_RUN_ID: ${{ needs.validate.outputs.approved_dry_run_id }}
+          OPS_EXPECTED_DATABASE: ${{ needs.validate.outputs.expected_database }}
+          OPS_EXPECTED_PLAN_SHA256: ${{ needs.validate.outputs.expected_plan_sha256 }}
+          OPS_EXPECTED_PAIRS: ${{ needs.validate.outputs.expected_pairs }}
+          OPS_EXPECTED_RECORDS: ${{ needs.validate.outputs.expected_records }}
+          OPS_EXPECTED_TAGS: ${{ needs.validate.outputs.expected_tags }}
+          OPS_CONFIRMATION: ${{ needs.validate.outputs.confirmation }}
+          OPS_RELEASE_SHA: ${{ github.sha }}
+          OPS_ACTOR: ${{ github.actor }}
+          OPS_WORKFLOW_RUN_ID: ${{ github.run_id }}
+          OPS_WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
+        with:
+          host: ${{ secrets.DEV_HOST }}
+          username: ${{ secrets.DEV_USER }}
+          key: ${{ secrets.DEV_SSH_KEY }}
+          command_timeout: 45m
+          envs: OPS_TARGET,OPS_OPERATION,OPS_MODE,OPS_PACKAGE_ID,OPS_REQUEST_ID,OPS_APPROVED_DRY_RUN_ID,OPS_EXPECTED_DATABASE,OPS_EXPECTED_PLAN_SHA256,OPS_EXPECTED_PAIRS,OPS_EXPECTED_RECORDS,OPS_EXPECTED_TAGS,OPS_CONFIRMATION,OPS_RELEASE_SHA,OPS_ACTOR,OPS_WORKFLOW_RUN_ID,OPS_WORKFLOW_RUN_ATTEMPT
+          script: |
+            set -Eeuo pipefail
+            umask 027
+            cd /data/dev_unikorn/back-end
+            test "$(git branch --show-current)" = "main"
+            test -z "$(git status --porcelain)"
+            test "$(git rev-parse HEAD)" = "$OPS_RELEASE_SHA"
+            source venv/bin/activate
+            export BACKEND_OPERATION_REPORT_DIR=/data/dev_unikorn/operation-reports
+            mkdir -p "$BACKEND_OPERATION_REPORT_DIR" /data/dev_unikorn/backups
+            exec 9>/tmp/unikorn-backend-mutation-dev.lock
+            flock -n 9
+            backup_sha256=""
+            if [ "$OPS_MODE" = "apply" ]; then
+              report_file="${BACKEND_OPERATION_REPORT_DIR}/${OPS_REQUEST_ID}.json"
+              if [ -f "$report_file" ]; then
+                backup_sha256="$(python -c 'import json, re, sys; value = json.load(open(sys.argv[1], encoding="utf-8")).get("backup_sha256") or "0" * 64; assert re.fullmatch(r"[0-9a-f]{64}", value), "existing report has an invalid backup digest"; print(value)' "$report_file")"
+              else
+                backup_file="/data/dev_unikorn/backups/backend-operation-${OPS_REQUEST_ID}-${OPS_WORKFLOW_RUN_ID}-${OPS_WORKFLOW_RUN_ATTEMPT}.dump"
+                python -m app.scripts.create_verified_database_backup \
+                  --output "$backup_file" \
+                  --expected-database dev_unikorn
+                backup_sha256="$(sha256sum "$backup_file" | awk '{print $1}')"
+              fi
+            fi
+            set -- python -m app.scripts.run_backend_operation --request-id "$OPS_REQUEST_ID" --workflow-run-id "$OPS_WORKFLOW_RUN_ID" --operation "$OPS_OPERATION" --mode "$OPS_MODE" --target "$OPS_TARGET" --release-sha "$OPS_RELEASE_SHA" --actor "$OPS_ACTOR"
+            [ -z "$OPS_PACKAGE_ID" ] || set -- "$@" --package-id "$OPS_PACKAGE_ID"
+            [ -z "$OPS_APPROVED_DRY_RUN_ID" ] || set -- "$@" --approved-dry-run-id "$OPS_APPROVED_DRY_RUN_ID"
+            [ -z "$OPS_EXPECTED_DATABASE" ] || set -- "$@" --expected-database "$OPS_EXPECTED_DATABASE"
+            [ -z "$OPS_EXPECTED_PLAN_SHA256" ] || set -- "$@" --expected-plan-sha256 "$OPS_EXPECTED_PLAN_SHA256"
+            [ -z "$OPS_EXPECTED_PAIRS" ] || set -- "$@" --expected-pairs "$OPS_EXPECTED_PAIRS"
+            [ -z "$OPS_EXPECTED_RECORDS" ] || set -- "$@" --expected-records "$OPS_EXPECTED_RECORDS"
+            [ -z "$OPS_EXPECTED_TAGS" ] || set -- "$@" --expected-tags "$OPS_EXPECTED_TAGS"
+            [ -z "$backup_sha256" ] || set -- "$@" --backup-sha256 "$backup_sha256"
+            [ -z "$OPS_CONFIRMATION" ] || set -- "$@" --confirmation "$OPS_CONFIRMATION"
+            "$@" | tee "/data/dev_unikorn/operation-reports/${OPS_REQUEST_ID}-${OPS_WORKFLOW_RUN_ID}-${OPS_WORKFLOW_RUN_ATTEMPT}.log"
+            if [ "$OPS_MODE" = "apply" ]; then
+              sudo /usr/bin/systemctl restart dev-unikorn-api.service
+              sudo /usr/bin/systemctl is-active --quiet dev-unikorn-api.service
+              curl -fsS --max-time 20 http://127.0.0.1:8000/scheduler/semesters >/dev/null
+            fi
+
+  operate-production:
+    if: needs.validate.outputs.target == 'production'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    concurrency:
+      group: backend-mutations-production
+      cancel-in-progress: false
+    steps:
+      - name: Run allowlisted production operation
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        env:
+          OPS_TARGET: ${{ needs.validate.outputs.target }}
+          OPS_OPERATION: ${{ needs.validate.outputs.operation }}
+          OPS_MODE: ${{ needs.validate.outputs.mode }}
+          OPS_PACKAGE_ID: ${{ needs.validate.outputs.package_id }}
+          OPS_REQUEST_ID: ${{ needs.validate.outputs.request_id }}
+          OPS_APPROVED_DRY_RUN_ID: ${{ needs.validate.outputs.approved_dry_run_id }}
+          OPS_EXPECTED_DATABASE: ${{ needs.validate.outputs.expected_database }}
+          OPS_EXPECTED_PLAN_SHA256: ${{ needs.validate.outputs.expected_plan_sha256 }}
+          OPS_EXPECTED_PAIRS: ${{ needs.validate.outputs.expected_pairs }}
+          OPS_EXPECTED_RECORDS: ${{ needs.validate.outputs.expected_records }}
+          OPS_EXPECTED_TAGS: ${{ needs.validate.outputs.expected_tags }}
+          OPS_CONFIRMATION: ${{ needs.validate.outputs.confirmation }}
+          OPS_RELEASE_SHA: ${{ github.sha }}
+          OPS_ACTOR: ${{ github.actor }}
+          OPS_WORKFLOW_RUN_ID: ${{ github.run_id }}
+          OPS_WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          command_timeout: 45m
+          envs: OPS_TARGET,OPS_OPERATION,OPS_MODE,OPS_PACKAGE_ID,OPS_REQUEST_ID,OPS_APPROVED_DRY_RUN_ID,OPS_EXPECTED_DATABASE,OPS_EXPECTED_PLAN_SHA256,OPS_EXPECTED_PAIRS,OPS_EXPECTED_RECORDS,OPS_EXPECTED_TAGS,OPS_CONFIRMATION,OPS_RELEASE_SHA,OPS_ACTOR,OPS_WORKFLOW_RUN_ID,OPS_WORKFLOW_RUN_ATTEMPT
+          script: |
+            set -Eeuo pipefail
+            umask 027
+            cd /data/prod_unikorn/back-end
+            test "$(git branch --show-current)" = "production"
+            test -z "$(git status --porcelain)"
+            test "$(git rev-parse HEAD)" = "$OPS_RELEASE_SHA"
+            source venv/bin/activate
+            export BACKEND_OPERATION_REPORT_DIR=/data/prod_unikorn/operation-reports
+            mkdir -p "$BACKEND_OPERATION_REPORT_DIR" /data/prod_unikorn/backups
+            exec 9>/tmp/unikorn-backend-mutation-production.lock
+            flock -n 9
+            backup_sha256=""
+            if [ "$OPS_MODE" = "apply" ]; then
+              report_file="${BACKEND_OPERATION_REPORT_DIR}/${OPS_REQUEST_ID}.json"
+              if [ -f "$report_file" ]; then
+                backup_sha256="$(python -c 'import json, re, sys; value = json.load(open(sys.argv[1], encoding="utf-8")).get("backup_sha256") or "0" * 64; assert re.fullmatch(r"[0-9a-f]{64}", value), "existing report has an invalid backup digest"; print(value)' "$report_file")"
+              else
+                backup_file="/data/prod_unikorn/backups/backend-operation-${OPS_REQUEST_ID}-${OPS_WORKFLOW_RUN_ID}-${OPS_WORKFLOW_RUN_ATTEMPT}.dump"
+                python -m app.scripts.create_verified_database_backup \
+                  --output "$backup_file" \
+                  --expected-database prod_unikorn
+                backup_sha256="$(sha256sum "$backup_file" | awk '{print $1}')"
+              fi
+            fi
+            set -- python -m app.scripts.run_backend_operation --request-id "$OPS_REQUEST_ID" --workflow-run-id "$OPS_WORKFLOW_RUN_ID" --operation "$OPS_OPERATION" --mode "$OPS_MODE" --target "$OPS_TARGET" --release-sha "$OPS_RELEASE_SHA" --actor "$OPS_ACTOR"
+            [ -z "$OPS_PACKAGE_ID" ] || set -- "$@" --package-id "$OPS_PACKAGE_ID"
+            [ -z "$OPS_APPROVED_DRY_RUN_ID" ] || set -- "$@" --approved-dry-run-id "$OPS_APPROVED_DRY_RUN_ID"
+            [ -z "$OPS_EXPECTED_DATABASE" ] || set -- "$@" --expected-database "$OPS_EXPECTED_DATABASE"
+            [ -z "$OPS_EXPECTED_PLAN_SHA256" ] || set -- "$@" --expected-plan-sha256 "$OPS_EXPECTED_PLAN_SHA256"
+            [ -z "$OPS_EXPECTED_PAIRS" ] || set -- "$@" --expected-pairs "$OPS_EXPECTED_PAIRS"
+            [ -z "$OPS_EXPECTED_RECORDS" ] || set -- "$@" --expected-records "$OPS_EXPECTED_RECORDS"
+            [ -z "$OPS_EXPECTED_TAGS" ] || set -- "$@" --expected-tags "$OPS_EXPECTED_TAGS"
+            [ -z "$backup_sha256" ] || set -- "$@" --backup-sha256 "$backup_sha256"
+            [ -z "$OPS_CONFIRMATION" ] || set -- "$@" --confirmation "$OPS_CONFIRMATION"
+            "$@" | tee "/data/prod_unikorn/operation-reports/${OPS_REQUEST_ID}-${OPS_WORKFLOW_RUN_ID}-${OPS_WORKFLOW_RUN_ATTEMPT}.log"
+            if [ "$OPS_MODE" = "apply" ]; then
+              sudo /usr/bin/systemctl restart prod-unikorn-api.service
+              sudo /usr/bin/systemctl is-active --quiet prod-unikorn-api.service
+              curl -fsS --max-time 20 http://127.0.0.1:8001/scheduler/semesters >/dev/null
+            fi

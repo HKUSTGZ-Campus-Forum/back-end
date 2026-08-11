@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "packages": {
+    "curriculum-2026-v1": {
+      "kind": "curriculum",
+      "path": "app/data/pending/curriculum_requirements_2026.json",
+      "sha256": "a99cbe5c120ba5fcd707651f4609a6ca08e6d5bfa205734979ad6d9739f6b056",
+      "expected": {
+        "program_definitions": 8,
+        "program_cohorts": 8,
+        "requirement_groups": 32,
+        "unique_course_codes": 292
+      }
+    },
+    "scheduler-2610-v1": {
+      "kind": "scheduler",
+      "path": "app/data/pending/scheduler_offerings/26-27fall.json",
+      "sha256": "4ec2cb305a31348944cba064dba9435825f19d5c1b99f9e2e8177e233eddfbff",
+      "semester_id": "2610",
+      "expected": {
+        "courses": 383,
+        "offered_courses": 383,
+        "sections": 801,
+        "lectures": 820
+      }
+    }
+  }
+}
