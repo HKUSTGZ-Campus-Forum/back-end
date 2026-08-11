@@ -994,7 +994,8 @@ def test_deploy_update_apply_is_guarded_by_hash_and_runs_once(app, tmp_path):
         assert second.status == "skipped"
         assert SchedulerSection.query.filter_by(semester_id="2540").count() == 1
         assert SchedulerLecture.query.filter_by(semester_id="2540").count() == 1
-        assert CourseOffering.query.filter_by(semester_id="2540").count() == 1
+        offering = CourseOffering.query.filter_by(semester_id="2540").one()
+        assert offering.import_hash == digest
         assert CourseSection.query.join(CourseOffering).filter(
             CourseOffering.semester_id == "2540"
         ).count() == 1

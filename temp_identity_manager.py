@@ -52,7 +52,7 @@ def list_users():
         identity_names = [ai.identity_type.name for ai in active_identities if ai.identity_type]
         identity_str = ", ".join(identity_names) if identity_names else "None"
         
-        print(f"{user.id:<5} {user.username:<20} {user.role_name or 'N/A':<15} {identity_str}")
+        print(f"{user.id:<5} {user.username:<20} {user.get_role_name() or 'N/A':<15} {identity_str}")
 
 def list_identity_types():
     """List all available identity types"""

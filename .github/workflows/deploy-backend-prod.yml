@@ -4,91 +4,239 @@ on:
   push:
     branches:
       - production
-  workflow_dispatch:  # Allow manual triggers
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-mutations-production
+  cancel-in-progress: false
 
 jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    environment: production  # GitHub environment protection
+  test:
+    name: Test production candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
 
     steps:
-    - name: Checkout the code
-      uses: actions/checkout@v3
-
-    - name: Run backend tests
+    - name: Require the production branch
       run: |
+        if [[ "${GITHUB_REF}" != "refs/heads/production" ]]; then
+          echo "This workflow only deploys refs/heads/production; got ${GITHUB_REF}." >&2
+          exit 1
+        fi
+
+    - name: Checkout the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Set up Python
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: '3.10'
+        cache: pip
+        cache-dependency-path: |
+          requirements.txt
+          requirements-dev.txt
+
+    - name: Install dependencies and run backend tests
+      run: |
+        set -euo pipefail
+        python -m venv .venv
+        source .venv/bin/activate
         python -m pip install --upgrade pip
-        pip install -r requirements-dev.txt
+        python -m pip install -r requirements-dev.txt
+        python -m pip check
+        python - <<'PY'
+        from alibabacloud_green20220302.client import Client  # noqa: F401
+        from alibabacloud_tea_openapi import models  # noqa: F401
+        PY
         python -m pytest tests/ -q
 
-    - name: Deploy via SSH
-      uses: appleboy/ssh-action@master
+  deploy:
+    name: Deploy the verified candidate
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    environment: production
+
+    steps:
+    - name: Deploy exact commit via SSH
+      uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+      env:
+        DEPLOY_SHA: ${{ github.sha }}
       with:
         host: ${{ secrets.PROD_SSH_HOST }}
         username: ${{ secrets.PROD_SSH_USER }}
         key: ${{ secrets.PROD_SSH_KEY }}
+        envs: DEPLOY_SHA
+        command_timeout: 35m
         script: |
-          set -e  # Exit on any error
-          
-          echo "Starting production deployment..."
-          
-          # Backup current version
-          if [ -d "/data/prod_unikorn/back-end" ]; then
-            sudo cp -r /data/prod_unikorn/back-end /data/prod_unikorn/back-end.backup.$(date +%Y%m%d_%H%M%S)
-          fi
-          
-          cd /data/prod_unikorn/back-end/
-          
-          # Pull latest code
-          git fetch origin production
-          git checkout production
-          git pull origin production
-          echo "Pulled latest production code."
+          set -Eeuo pipefail
 
-          # Activate virtual environment
-          source venv/bin/activate
-          
-          # Install/update dependencies
-          echo "Installing python packages..."
-          pip install -r requirements.txt --timeout 600
-          echo "Python packages installed."
+          readonly app_dir="/data/prod_unikorn/back-end"
+          readonly backup_dir="/data/prod_unikorn/backups"
+          readonly service_name="prod-unikorn-api.service"
+          readonly local_api_url="http://127.0.0.1:8001/scheduler/semesters"
 
-          # Run database migrations with backup
-          echo "Backing up database..."
-          # Use sudo to run pg_dump as postgres user
-          sudo -u postgres pg_dump prod_unikorn > /data/prod_unikorn/db_backup_$(date +%Y%m%d_%H%M%S).sql || echo "Backup skipped - database may not exist yet"
-          
-          echo "applying database migrations..."
-          flask db upgrade heads
-          echo "database migrations applied."
-          
-          echo "initializing database with predefined data..."
-          python -m app.scripts.init_db
-          echo "database initialization completed."
+          echo "Starting production deployment for ${DEPLOY_SHA}..."
+          cd "${app_dir}"
+          exec 9>/tmp/unikorn-backend-mutation-production.lock
+          flock -n 9
 
-          echo "backfilling 2024-25 legacy scheduler offerings..."
-          python -m app.scripts.backfill_legacy_scheduler_offerings --semesters 2430 2440 --apply
-          echo "2024-25 legacy scheduler offerings backfilled."
-          
-          # Graceful restart
-          echo "Restarting production service..."
-          sudo /usr/bin/systemctl restart prod-unikorn-api.service
-
-          # Check if service is running
-          if sudo /usr/bin/systemctl is-active --quiet prod-unikorn-api.service; then
-            echo "✓ Service restarted successfully"
-          else
-            echo "✗ Service failed to start"
-            sudo /usr/bin/systemctl status prod-unikorn-api.service
+          dirty_state="$(git status --porcelain=v1 --untracked-files=all)"
+          if [[ -n "${dirty_state}" ]]; then
+            echo "Refusing to deploy over a dirty production checkout:" >&2
+            printf '%s\n' "${dirty_state}" >&2
             exit 1
           fi
-          
-          # Health check
-          # sleep 5
-          # curl -f http://localhost:8001/health || {
-          #   echo "Health check failed! Rolling back..."
-          #   sudo /usr/bin/systemctl restart prod-unikorn-api.service
-          #   exit 1
-          # }
-          
-          echo "Production deployment complete!"
+
+          git fetch --prune origin \
+            "+refs/heads/production:refs/remotes/origin/production"
+          remote_sha="$(git rev-parse refs/remotes/origin/production)"
+          if [[ "${remote_sha}" != "${DEPLOY_SHA}" ]]; then
+            echo "Fetched production SHA ${remote_sha}, expected ${DEPLOY_SHA}." >&2
+            exit 1
+          fi
+
+          git checkout production
+          git merge --ff-only "${DEPLOY_SHA}"
+          deployed_sha="$(git rev-parse HEAD)"
+          if [[ "${deployed_sha}" != "${DEPLOY_SHA}" ]]; then
+            echo "Production checkout is ${deployed_sha}, expected ${DEPLOY_SHA}." >&2
+            exit 1
+          fi
+          if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
+            echo "Production checkout became dirty after updating it." >&2
+            exit 1
+          fi
+          echo "Checked out the exact production commit."
+
+          source venv/bin/activate
+          echo "Installing Python packages..."
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt --timeout 600
+          python -m pip check
+          python - <<'PY'
+          from alibabacloud_green20220302.client import Client  # noqa: F401
+          from alibabacloud_tea_openapi import models  # noqa: F401
+          PY
+          echo "Python packages installed and validated."
+
+          echo "Creating a verified database backup..."
+          umask 077
+          install -d -m 0750 "${backup_dir}"
+          timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          short_sha="$(printf '%.12s' "${DEPLOY_SHA}")"
+          database_backup="${backup_dir}/prod_unikorn-${timestamp}-${short_sha}.dump"
+          python -m app.scripts.create_verified_database_backup \
+            --output "${database_backup}" \
+            --expected-database prod_unikorn
+          backup_size="$(stat -c '%s' "${database_backup}")"
+          backup_sha256="$(sha256sum "${database_backup}" | awk '{print $1}')"
+          echo "Verified database backup: ${database_backup} (${backup_size} bytes, sha256=${backup_sha256})"
+
+          echo "Applying database migrations..."
+          python -m flask db upgrade heads
+          echo "Database migrations applied."
+
+          echo "Initializing predefined data..."
+          python -m app.scripts.init_db
+          echo "Database initialization completed."
+
+          echo "Backfilling 2024-25 legacy scheduler offerings..."
+          python -m app.scripts.backfill_legacy_scheduler_offerings --semesters 2430 2440 --apply
+          echo "2024-25 legacy scheduler offerings backfilled."
+
+          echo "Restarting production service..."
+          sudo /usr/bin/systemctl restart "${service_name}"
+          if ! sudo /usr/bin/systemctl is-active --quiet "${service_name}"; then
+            echo "Production service failed to start." >&2
+            sudo /usr/bin/systemctl status --no-pager --full "${service_name}" || true
+            sudo /usr/bin/journalctl -u "${service_name}" -n 100 --no-pager || true
+            exit 1
+          fi
+
+          api_response="$(mktemp)"
+          trap 'rm -f "${api_response}"' EXIT
+          api_ready=false
+          for attempt in {1..12}; do
+            if curl --fail --silent --show-error \
+              --connect-timeout 2 --max-time 5 \
+              --output "${api_response}" "${local_api_url}"; then
+              api_ready=true
+              break
+            fi
+            echo "Local API is not ready yet (attempt ${attempt}/12)."
+            sleep 3
+          done
+          if [[ "${api_ready}" != "true" ]]; then
+            echo "Local production API did not become ready." >&2
+            sudo /usr/bin/journalctl -u "${service_name}" -n 100 --no-pager || true
+            exit 1
+          fi
+
+          python - "${api_response}" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as response_file:
+              payload = json.load(response_file)
+          if not isinstance(payload, list) or not payload:
+              raise SystemExit("scheduler semester API returned no semesters")
+          required = {"id", "name", "section_count"}
+          if any(not isinstance(row, dict) or not required <= row.keys() for row in payload):
+              raise SystemExit("scheduler semester API returned an unexpected schema")
+          if not any(isinstance(row["section_count"], int) and row["section_count"] > 0 for row in payload):
+              raise SystemExit("scheduler semester API returned no populated semester")
+          print(f"Local scheduler API verified with {len(payload)} semester(s).")
+          PY
+
+          echo "Production deployment completed at ${deployed_sha}."
+
+    - name: Verify the public production API
+      env:
+        CONFIGURED_PROD_API_URL: ${{ vars.PROD_SCHEDULER_HEALTH_URL }}
+      run: |
+        set -euo pipefail
+        api_url="${CONFIGURED_PROD_API_URL:-https://unikorn.axfff.com/api/scheduler/semesters}"
+        api_response="$(mktemp)"
+        trap 'rm -f "${api_response}"' EXIT
+
+        api_ready=false
+        for attempt in {1..12}; do
+          if curl --fail --silent --show-error \
+            --connect-timeout 5 --max-time 15 \
+            --output "${api_response}" "${api_url}"; then
+            api_ready=true
+            break
+          fi
+          echo "Public API is not ready yet (attempt ${attempt}/12)."
+          sleep 5
+        done
+        if [[ "${api_ready}" != "true" ]]; then
+          echo "Public production API did not become ready at ${api_url}." >&2
+          exit 1
+        fi
+
+        python3 - "${api_response}" <<'PY'
+        import json
+        import sys
+
+        with open(sys.argv[1], encoding="utf-8") as response_file:
+            payload = json.load(response_file)
+        if not isinstance(payload, list) or not payload:
+            raise SystemExit("public scheduler semester API returned no semesters")
+        required = {"id", "name", "section_count"}
+        if any(not isinstance(row, dict) or not required <= row.keys() for row in payload):
+            raise SystemExit("public scheduler semester API returned an unexpected schema")
+        if not any(isinstance(row["section_count"], int) and row["section_count"] > 0 for row in payload):
+            raise SystemExit("public scheduler semester API returned no populated semester")
+        print(f"Public scheduler API verified with {len(payload)} semester(s).")
+        PY
+
+        {
+          echo "### Production deployment verified"
+          echo "- Commit: \`${GITHUB_SHA}\`"
+          echo "- Public API: ${api_url}"
+        } >> "${GITHUB_STEP_SUMMARY}"

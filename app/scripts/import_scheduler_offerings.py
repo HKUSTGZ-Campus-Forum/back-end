@@ -778,6 +778,7 @@ def apply_offerings(
     *,
     expected_counts: SnapshotExpectations | None = None,
     allow_destructive_replacement: bool = False,
+    import_hash: str | None = None,
 ) -> ImportPlan:
     _validate_snapshot_counts(snapshot, expected_counts)
     plan = build_import_plan(snapshot)
@@ -898,6 +899,7 @@ def apply_offerings(
                 offering.title_snapshot = item.course_title
                 offering.credits_snapshot = item.credit
                 offering.source = "scheduler_offerings"
+                offering.import_hash = import_hash
                 offering.status = "offered"
                 db.session.flush()
                 sync_offering_sections(offering, item.sections)
@@ -1122,6 +1124,7 @@ def run_deploy_scheduler_offering_update(
         applied_plan = apply_offerings(
             snapshot,
             expected_counts=expected_counts,
+            import_hash=import_hash,
         )
         _record_import_run(
             import_hash,
@@ -1311,6 +1314,7 @@ def main() -> None:
                     snapshot,
                     expected_counts=expected_counts,
                     allow_destructive_replacement=args.allow_destructive_replacement,
+                    import_hash=file_sha256(file_path),
                 )
                 return
 
