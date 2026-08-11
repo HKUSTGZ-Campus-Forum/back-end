@@ -575,7 +575,8 @@ def _log_scheduler_import_result(label, result):
         "%s scheduler offering deploy update: "
         "status=%s mode=%s semester=%s courses=%s sections=%s lectures=%s "
         "zero_section_courses=%s replace_sections=%s replace_lectures=%s "
-        "stale_cart_refs=%s hash=%s message=%s",
+        "stale_cart_refs=%s omitted_offerings=%s omitted_sections=%s "
+        "omitted_meetings=%s hash=%s message=%s",
         label,
         result.status,
         result.mode,
@@ -587,6 +588,9 @@ def _log_scheduler_import_result(label, result):
         plan.existing_sections_to_replace,
         plan.existing_lectures_to_replace,
         len(plan.stale_cart_references),
+        len(plan.omitted_offering_codes),
+        len(plan.omitted_section_keys),
+        len(plan.omitted_meeting_keys),
         result.import_hash,
         result.message,
     )
@@ -602,6 +606,19 @@ def _log_scheduler_import_result(label, result):
             label,
             ", ".join(plan.stale_cart_references),
         )
+    for omission_label, values in (
+        ("offerings", plan.omitted_offering_codes),
+        ("sections", plan.omitted_section_keys),
+        ("meetings", plan.omitted_meeting_keys),
+    ):
+        if values:
+            logger.warning(
+                "%s scheduler snapshot omitted %s (count=%s, first_20=%s)",
+                label,
+                omission_label,
+                len(values),
+                ", ".join(values[:20]),
+            )
 
 
 def _register_deferred_scheduler_offering_imports(app: Flask):

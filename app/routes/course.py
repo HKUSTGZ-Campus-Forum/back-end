@@ -17,7 +17,11 @@ from sqlalchemy import func, desc, asc
 from functools import wraps
 import bleach
 import re
-from app.services.course_domain import current_catalog_version, display_course_code
+from app.services.course_domain import (
+    current_catalog_version,
+    display_course_code,
+    normalize_course_code,
+)
 
 bp = Blueprint('course', __name__, url_prefix='/courses')
 COURSE_REVIEW_TAG = "course-review"
@@ -116,6 +120,29 @@ def _find_course_by_identifier(identifier):
     if not candidates:
         return None
     return max(candidates, key=lambda course: _rank_course_identifier_candidate(course, compact))
+
+
+def _active_course_identity_exists(normalized_code, *, exclude_course_id=None):
+    direct_query = Course.query.filter(
+        Course.normalized_code == normalized_code,
+        Course.is_deleted == False,
+    )
+    if exclude_course_id is not None:
+        direct_query = direct_query.filter(Course.id != exclude_course_id)
+    direct_match = direct_query.first()
+    if direct_match:
+        return True
+
+    code_query = (
+        Course.query.with_entities(Course.code)
+        .filter(Course.is_deleted == False)
+    )
+    if exclude_course_id is not None:
+        code_query = code_query.filter(Course.id != exclude_course_id)
+    return any(
+        normalize_course_code(code) == normalized_code
+        for (code,) in code_query.all()
+    )
 
 
 def _scheduler_semester_id(year, semester_code):
@@ -416,16 +443,20 @@ def create_course():
         
         # Sanitize inputs
         code = bleach.clean(data['code']).strip().upper()
+        normalized_code = normalize_course_code(code)
+        if not normalized_code:
+            return jsonify({"error": "code is required"}), 400
         name = bleach.clean(data['name']).strip()
         description = bleach.clean(data.get('description', ''))
         
-        # Check if course code already exists
-        if Course.query.filter_by(code=code, is_deleted=False).first():
+        # Reject both canonical codes and whitespace-only legacy aliases.
+        if _active_course_identity_exists(normalized_code):
             return jsonify({"error": "Course with this code already exists"}), 400
         
         # Create new course
         course = Course(
             code=code,
+            normalized_code=normalized_code,
             name=name,
             description=description,
             instructor_id=data['instructor_id'],
@@ -523,15 +554,16 @@ def update_course(course_id):
         # Update fields if provided
         if 'code' in data:
             code = bleach.clean(data['code']).strip().upper()
-            # Check if new code already exists
-            existing_course = Course.query.filter(
-                Course.code == code,
-                Course.id != course_id,
-                Course.is_deleted == False
-            ).first()
-            if existing_course:
+            normalized_code = normalize_course_code(code)
+            if not normalized_code:
+                return jsonify({"error": "code is required"}), 400
+            if _active_course_identity_exists(
+                normalized_code,
+                exclude_course_id=course_id,
+            ):
                 return jsonify({"error": "Course with this code already exists"}), 400
             course.code = code
+            course.normalized_code = normalized_code
             
         if 'name' in data:
             course.name = bleach.clean(data['name']).strip()

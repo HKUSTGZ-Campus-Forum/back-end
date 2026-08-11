@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
@@ -19,6 +21,39 @@ class TestConfig(Config):
     CACHE_TYPE = "SimpleCache"
     ENABLE_BACKGROUND_TASKS = False
     JWT_SECRET_KEY = "test-secret"
+
+
+def _curriculum_snapshot(cohort):
+    programs = CurriculumProgram.query.filter_by(cohort=cohort).order_by(
+        CurriculumProgram.code.asc()
+    )
+    snapshot = {}
+    for program in programs:
+        groups = CurriculumRequirementGroup.query.filter_by(
+            program_id=program.id
+        ).order_by(CurriculumRequirementGroup.key.asc())
+        snapshot[program.code] = {
+            "name_en": program.name_en,
+            "name_zh": program.name_zh,
+            "total_min_credits": program.total_min_credits,
+            "common_core_min_credits": program.common_core_min_credits,
+            "major_min_credits": program.major_min_credits,
+            "home_areas": program.home_areas,
+            "is_active": program.is_active,
+            "requirement_groups": {
+                group.key: {
+                    "name_en": group.name_en,
+                    "name_zh": group.name_zh,
+                    "category": group.category,
+                    "min_credits": group.min_credits,
+                    "min_courses": group.min_courses,
+                    "rule": group.rule,
+                    "sort_order": group.sort_order,
+                }
+                for group in groups
+            },
+        }
+    return snapshot
 
 
 @pytest.fixture
@@ -111,6 +146,49 @@ def test_bundled_curriculum_payload_contains_official_ai_requirement_rows(app):
     fixed_courses = group.rule["rule_tree"]["children"][0]["courses"]
     assert "AIAA2205" in fixed_courses
     assert "AIAA4490" in fixed_courses
+
+
+def test_default_startup_sync_preserves_reviewed_2026_requirements(app):
+    from app.services.academic_curriculum_sync import sync_curriculum_requirements_from_file
+
+    pending_path = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "data"
+        / "pending"
+        / "curriculum_requirements_2026.json"
+    )
+
+    with app.app_context():
+        pending_result = sync_curriculum_requirements_from_file(pending_path)
+        reviewed_snapshot = _curriculum_snapshot("2026")
+        sync_curriculum_requirements_from_file()
+        startup_snapshot = _curriculum_snapshot("2026")
+
+    assert pending_result == {
+        "programs_upserted": 8,
+        "groups_upserted": 32,
+        "groups_removed": 0,
+        "programs_skipped": 0,
+    }
+    assert set(reviewed_snapshot) == {
+        "AI",
+        "AMAT",
+        "DSA",
+        "FTEC",
+        "MICS",
+        "ROAS",
+        "SEE",
+        "SMMG",
+    }
+    assert startup_snapshot == reviewed_snapshot
+
+    ai_fundamentals = startup_snapshot["AI"]["requirement_groups"]["fundamental_courses"]
+    ai_electives = startup_snapshot["AI"]["requirement_groups"]["major_electives"]
+    ai_elective_courses = ai_electives["rule"]["rule_tree"]["children"][0]["courses"]
+    assert ai_fundamentals["min_credits"] == 21
+    assert "AIAA4435" in ai_elective_courses
+    assert "AIAA4433" not in ai_elective_courses
 
 
 def test_sync_curriculum_requirements_expands_multiple_cohorts(app):

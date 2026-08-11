@@ -15,7 +15,11 @@ werkzeug
 aliyun-python-sdk-core
 aliyun-python-sdk-sts
 oss2
-alibabacloud_green20220302
+# Keep these SDKs on the production-proven compatible pair. Newer releases can
+# resolve independently and fail at import time (for example, a Green client
+# expecting websocketUtils_models that tea-openapi no longer exports).
+alibabacloud_green20220302==2.22.0
+alibabacloud-tea-openapi==0.4.1
 openai
 dashvector
 

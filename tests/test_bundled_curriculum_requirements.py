@@ -4,8 +4,12 @@ from pathlib import Path
 import pytest
 
 
+DATA_DIR = Path(__file__).resolve().parents[1] / "app" / "data"
 PAYLOAD = json.loads(
-    (Path(__file__).resolve().parents[1] / "app" / "data" / "curriculum_requirements.json").read_text(encoding="utf-8")
+    (DATA_DIR / "curriculum_requirements.json").read_text(encoding="utf-8")
+)
+PENDING_2026_PAYLOAD = json.loads(
+    (DATA_DIR / "pending" / "curriculum_requirements_2026.json").read_text(encoding="utf-8")
 )
 
 
@@ -41,6 +45,17 @@ def _leaf_keys(group):
     return [leaf["key"] for leaf in group["rule"]["rule_tree"]["children"]]
 
 
+def _program_projections(payload):
+    projections = {}
+    for program in payload["programs"]:
+        cohorts = program.get("cohorts") or [program.get("cohort")]
+        for cohort in cohorts:
+            key = (program["code"], cohort)
+            assert key not in projections, f"duplicate program/cohort projection {key}"
+            projections[key] = program
+    return projections
+
+
 def test_bundled_payload_includes_common_core_for_every_program():
     missing = [
         (program["code"], program.get("cohorts") or [program.get("cohort")])
@@ -48,6 +63,26 @@ def test_bundled_payload_includes_common_core_for_every_program():
         if not any(group["key"] == "common_core" for group in program["requirement_groups"])
     ]
     assert missing == []
+
+
+def test_bundled_2026_programs_exactly_match_reviewed_pending_package():
+    bundled = _program_projections(PAYLOAD)
+    reviewed = _program_projections(PENDING_2026_PAYLOAD)
+    bundled_2026 = {
+        key: program for key, program in bundled.items() if key[1] == "2026"
+    }
+
+    assert set(reviewed) == {
+        ("AI", "2026"),
+        ("AMAT", "2026"),
+        ("DSA", "2026"),
+        ("FTEC", "2026"),
+        ("MICS", "2026"),
+        ("ROAS", "2026"),
+        ("SEE", "2026"),
+        ("SMMG", "2026"),
+    }
+    assert bundled_2026 == reviewed
 
 
 def test_ai_2025_common_core_matches_broadening_table():
@@ -133,7 +168,13 @@ def test_bundled_payload_covers_every_audited_pdf_source():
         "FTEC 25.pdf",
         "ROAS 25.pdf",
         "MICS 25.pdf",
-        "SEEN 26.pdf",
+        "Curriculum Requirements - AI - 2025 cohort and onwards - updated on July 1.pdf",
+        "Curriculum Requirements - DSBD - 2025 cohort and onwards - updated on May 19.pdf",
+        "Curriculum Requirements - FTEC - 2025 cohort and onwards.pdf",
+        "Curriculum Requirements - MICS - 2025 cohort and onwards - updated on May 19.pdf",
+        "Curriculum Requirements - NSEE - 2026 cohort and onwards - updated on 0410.pdf",
+        "Curriculum Requirements - ROAS - 2025 cohort and onwards - updated.pdf",
+        "Curriculum Requirements - SMMG - 2025 cohort and onwards - updated on May 19.pdf",
     }
 
 

@@ -175,7 +175,8 @@ def _resolve_course_for_target(
         return course
 
     course = Course(
-        code=spec.preferred_code,
+        code=spec.logical_code,
+        normalized_code=spec.logical_code,
         name=spec.name,
         credits=spec.credits,
         is_active=True,
@@ -285,7 +286,7 @@ def apply_aiaa_25_26_spring_adjustments(*, dry_run: bool = False, verbose: bool 
         if not had_any_course:
             created_courses += 1
 
-        desired_tag_name = f"{course.code}-{TAG_SUFFIX}"
+        desired_tag_name = f"{logical}-{TAG_SUFFIX}"
         target_tag = Tag.query.filter_by(name=desired_tag_name).first()
         if not target_tag:
             target_tag = Tag(

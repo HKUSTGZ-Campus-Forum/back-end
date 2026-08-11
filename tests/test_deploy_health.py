@@ -97,7 +97,9 @@ def test_deploy_workflows_fail_on_migration_errors_and_use_committed_revisions()
 
     for path in workflow_paths:
         deploy_workflow = path.read_text(encoding="utf-8")
-        assert "set -e" in deploy_workflow
+        assert "set -Eeuo pipefail" in deploy_workflow
+        assert "flock -n 9" in deploy_workflow
+        assert "sudo /usr/bin/systemctl is-active" not in deploy_workflow
         assert "flask db upgrade heads" in deploy_workflow
         assert "flask db migrate" not in deploy_workflow
 
@@ -118,27 +120,15 @@ def test_production_deploy_backfills_2024_25_scheduler_offerings():
     )
 
 
-def test_course_domain_migration_workflows_support_dry_run_and_apply():
-    workflow_paths = [
-        ROOT / ".github" / "workflows" / "migrate-course-domain-dev.yml",
-        ROOT / ".github" / "workflows" / "migrate-course-domain-prod.yml",
-    ]
+def test_dispatch_workflows_do_not_bypass_the_allowlisted_operation_runner():
+    forbidden_direct_runners = (
+        "python -m app.scripts.migrate_scheduler_data",
+        "python -m app.scripts.migrate_course_domain",
+    )
 
-    for workflow_path in workflow_paths:
+    for workflow_path in (ROOT / ".github" / "workflows").glob("*.yml"):
         workflow = workflow_path.read_text(encoding="utf-8")
-        assert "workflow_dispatch" in workflow
-        assert "mode" in workflow
-        assert "--dry-run" in workflow
-        assert "--apply" in workflow
-        assert "python -m app.scripts.migrate_course_domain" in workflow
-        assert "course-domain-anomalies" in workflow
-
-
-def test_course_domain_prod_migration_workflow_requires_backup_before_apply():
-    workflow_path = ROOT / ".github" / "workflows" / "migrate-course-domain-prod.yml"
-    workflow = workflow_path.read_text(encoding="utf-8")
-
-    assert "environment: production" in workflow
-    assert "pg_dump prod_unikorn" in workflow
-    assert "refusing to apply migration" in workflow
-    assert "prod-unikorn-api.service" in workflow
+        if "workflow_dispatch" not in workflow:
+            continue
+        for forbidden_runner in forbidden_direct_runners:
+            assert forbidden_runner not in workflow

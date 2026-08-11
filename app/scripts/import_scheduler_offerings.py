@@ -2,13 +2,21 @@
 Import one semester of scheduler offerings from a JSON snapshot.
 
 Usage:
-    python -m app.scripts.import_scheduler_offerings --file ../更新材料/25-26summer.json --dry-run
-    python -m app.scripts.import_scheduler_offerings --file ../更新材料/25-26summer.json --apply
+    python -m app.scripts.import_scheduler_offerings \
+        --file ../更新材料/25-26summer.json --dry-run \
+        --expected-courses 54 --expected-offered-courses 48 \
+        --expected-sections 74 --expected-lectures 152
+    python -m app.scripts.import_scheduler_offerings \
+        --file ../更新材料/25-26summer.json --apply \
+        --expected-courses 54 --expected-offered-courses 48 \
+        --expected-sections 74 --expected-lectures 152
 
 The importer upserts Course rows and the course-domain catalog/offering/
 section/meeting graph, while keeping legacy SchedulerSection/SchedulerLecture
 rows in sync for compatibility. Scheduler carts, map components, map lines,
-and other semesters are left untouched.
+and other semesters are left untouched. Replacement is fail-closed: if the
+snapshot omits an existing target-semester offering, section, or meeting, apply aborts
+before mutation unless an operator explicitly reviews and allows removals.
 """
 
 from __future__ import annotations
@@ -32,7 +40,12 @@ from app.config import Config, normalize_database_config
 from app.extensions import db
 from app import models as _models  # noqa: F401
 from app.models.course import Course
-from app.models.course_domain import CourseCatalogVersion, CourseOffering
+from app.models.course_domain import (
+    CourseCatalogVersion,
+    CourseMeeting,
+    CourseOffering,
+    CourseSection,
+)
 from app.models.scheduler_cart import SchedulerUserCourseCart
 from app.models.scheduler_lecture import SchedulerLecture
 from app.models.scheduler_section import SchedulerSection
@@ -50,19 +63,24 @@ BUNDLED_SCHEDULER_OFFERINGS_DIR = (
 BUNDLED_25_26_FALL_OFFERINGS_FILE = BUNDLED_SCHEDULER_OFFERINGS_DIR / "25-26fall.json"
 BUNDLED_25_26_FALL_SEMESTER_ID = "2510"
 BUNDLED_25_26_FALL_SHA256 = "507853bd299c25dc9e34e6f67ebd926ea86feda095d5571493eb776d36d3bb9e"
+BUNDLED_25_26_FALL_EXPECTED_COUNTS = (313, 255, 507, 613)
 BUNDLED_25_26_SPRING_OFFERINGS_FILE = BUNDLED_SCHEDULER_OFFERINGS_DIR / "25-26spring.json"
 BUNDLED_25_26_SPRING_SEMESTER_ID = "2530"
 BUNDLED_25_26_SPRING_SHA256 = "e904ef4d50a2044850b002d4758620ca55b386037328aa49d5dc05a32fdd43bb"
+BUNDLED_25_26_SPRING_EXPECTED_COUNTS = (327, 257, 501, 591)
 BUNDLED_25_26_SUMMER_OFFERINGS_FILE = (
     BUNDLED_SCHEDULER_OFFERINGS_DIR / "25-26summer.json"
 )
 BUNDLED_25_26_SUMMER_SEMESTER_ID = "2540"
 BUNDLED_25_26_SUMMER_SHA256 = "608eefa7520497ace53a1e6f5275ca81e99b1c7d5523ee977801da0df07e2c23"
+BUNDLED_25_26_SUMMER_EXPECTED_COUNTS = (54, 48, 74, 152)
 
 # Two-deploy switch:
 #   1. Keep "dry-run", push to main, and inspect dev logs.
 #   2. After confirming the dry-run summary, change to "apply" and push once.
 #   3. Keep "apply"; import hashes make repeated deploys skip already-applied files.
+# Bundled deploys never opt into destructive replacement. Intentional removals
+# require the manual CLI with reviewed counts and --allow-destructive-replacement.
 DEPLOY_SCHEDULER_OFFERING_UPDATE_MODE = "apply"
 
 SEASON_META = {
@@ -96,6 +114,9 @@ class NormalizedSection:
     bundle: int
     layer: int
     quota: int
+    enrol: int | None
+    avail: int | None
+    wait: int | None
     is_main: bool
     lectures: list[NormalizedLecture]
 
@@ -125,6 +146,14 @@ class OfferingSnapshot:
 
 
 @dataclass(frozen=True)
+class SnapshotExpectations:
+    courses: int
+    offered_courses: int
+    sections: int
+    lectures: int
+
+
+@dataclass(frozen=True)
 class ImportPlan:
     semester_id: str
     courses: int
@@ -137,6 +166,9 @@ class ImportPlan:
     existing_sections_to_replace: int
     existing_lectures_to_replace: int
     stale_cart_references: list[str]
+    omitted_offering_codes: list[str]
+    omitted_section_keys: list[str]
+    omitted_meeting_keys: list[str]
 
 
 @dataclass(frozen=True)
@@ -155,6 +187,7 @@ class BundledOfferingUpdate:
     file_path: Path
     expected_semester_id: str
     expected_sha256: str
+    expected_counts: SnapshotExpectations
 
 
 def _field(data: dict[str, Any], name: str, context: str) -> Any:
@@ -186,6 +219,35 @@ def _int(value: Any, context: str) -> int:
         return int(str(value).strip())
     except (TypeError, ValueError) as exc:
         raise OfferingValidationError(f"{context}: expected integer-compatible value") from exc
+
+
+def _non_negative_int(value: Any, context: str) -> int:
+    parsed = _int(value, context)
+    if parsed < 0:
+        raise OfferingValidationError(f"{context}: expected non-negative integer")
+    return parsed
+
+
+def _optional_int(value: Any, context: str) -> int | None:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    return _int(value, context)
+
+
+def _optional_min_int(value: Any, context: str, *, minimum: int) -> int | None:
+    parsed = _optional_int(value, context)
+    if parsed is not None and parsed < minimum:
+        raise OfferingValidationError(
+            f"{context}: expected an integer greater than or equal to {minimum}"
+        )
+    return parsed
+
+
+def _hhmm(value: Any, context: str) -> int:
+    parsed = _int(value, context)
+    if parsed < 0 or parsed > 2359 or parsed % 100 >= 60:
+        raise OfferingValidationError(f"{context}: expected valid HHMM time")
+    return parsed
 
 
 def _bool(value: Any, context: str) -> bool:
@@ -224,10 +286,8 @@ def _parse_lecture(data: Any, context: str) -> NormalizedLecture:
     if day < 1 or day > 7:
         raise OfferingValidationError(f"{context}.day: expected 1-7")
 
-    start_time = _int(_field(data, "start_time", context), f"{context}.start_time")
-    end_time = _int(_field(data, "end_time", context), f"{context}.end_time")
-    if start_time < 0 or start_time > 2359 or end_time < 0 or end_time > 2359:
-        raise OfferingValidationError(f"{context}: times must be HHMM-compatible integers")
+    start_time = _hhmm(_field(data, "start_time", context), f"{context}.start_time")
+    end_time = _hhmm(_field(data, "end_time", context), f"{context}.end_time")
     if start_time >= end_time:
         raise OfferingValidationError(f"{context}: start_time must be before end_time")
 
@@ -279,9 +339,14 @@ def _parse_section(
         course_code=course_code,
         section_type=_string(_field(data, "section_type", context), f"{context}.section_type"),
         name=_string(_field(data, "name", context), f"{context}.name"),
-        bundle=_int(_field(data, "bundle", context), f"{context}.bundle"),
-        layer=_int(_field(data, "layer", context), f"{context}.layer"),
-        quota=_int(_field(data, "quota", context), f"{context}.quota"),
+        bundle=_non_negative_int(_field(data, "bundle", context), f"{context}.bundle"),
+        layer=_non_negative_int(_field(data, "layer", context), f"{context}.layer"),
+        quota=_non_negative_int(_field(data, "quota", context), f"{context}.quota"),
+        enrol=_optional_min_int(data.get("enrol"), f"{context}.enrol", minimum=0),
+        # Availability can be negative when a section is over-enrolled.  WCQ
+        # also uses -1 for a wait-list value that is not available.
+        avail=_optional_int(data.get("avail"), f"{context}.avail"),
+        wait=_optional_min_int(data.get("wait"), f"{context}.wait", minimum=-1),
         is_main=_bool(_field(data, "is_main", context), f"{context}.is_main"),
         lectures=[
             _parse_lecture(lecture, f"{context}.lectures[{lecture_index}]")
@@ -314,7 +379,7 @@ def _parse_course(
         course_code=course_code,
         course_title=_string(_field(data, "course_title", context), f"{context}.course_title"),
         course_desc=_string(data.get("course_desc", ""), f"{context}.course_desc", allow_empty=True),
-        credit=_int(_field(data, "credit", context), f"{context}.credit"),
+        credit=_non_negative_int(_field(data, "credit", context), f"{context}.credit"),
         subject=_optional_string(data.get("subject")),
         catalog_number=_optional_string(data.get("catalog_number")),
         course_title_abbr=_optional_string(data.get("course_title_abbr")),
@@ -355,6 +420,8 @@ def load_offerings_file(file_path: Path, semester_override: str | None = None) -
     raw_courses = _field(data, "courses", "top level")
     if not isinstance(raw_courses, list):
         raise OfferingValidationError("top level courses must be a list")
+    if not raw_courses:
+        raise OfferingValidationError("top level courses must not be empty")
 
     seen_course_codes: set[str] = set()
     seen_section_keys: set[tuple[str, str]] = set()
@@ -387,15 +454,260 @@ def semester_display_label(semester_id: str) -> str:
     return f"20{year:02d}-{next_year:02d} {season_en} / {year:02d}-{next_year:02d}{season_zh}"
 
 
+def snapshot_counts(snapshot: OfferingSnapshot) -> SnapshotExpectations:
+    return SnapshotExpectations(
+        courses=len(snapshot.courses),
+        offered_courses=sum(bool(course.sections) for course in snapshot.courses),
+        sections=sum(len(course.sections) for course in snapshot.courses),
+        lectures=sum(
+            len(section.lectures)
+            for course in snapshot.courses
+            for section in course.sections
+        ),
+    )
+
+
+def _validate_snapshot_counts(
+    snapshot: OfferingSnapshot,
+    expected_counts: SnapshotExpectations | None,
+) -> None:
+    if expected_counts is None:
+        raise OfferingValidationError(
+            "independently reviewed snapshot counts are required before apply"
+        )
+    for field_name in ("courses", "offered_courses", "sections", "lectures"):
+        value = getattr(expected_counts, field_name)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise OfferingValidationError(
+                f"expected {field_name} count must be a non-negative integer"
+            )
+
+    actual_counts = snapshot_counts(snapshot)
+    mismatches = [
+        f"{field_name}={getattr(actual_counts, field_name)} "
+        f"(expected {getattr(expected_counts, field_name)})"
+        for field_name in ("courses", "offered_courses", "sections", "lectures")
+        if getattr(actual_counts, field_name) != getattr(expected_counts, field_name)
+    ]
+    if mismatches:
+        raise OfferingValidationError(
+            "snapshot does not match independently reviewed counts: " + "; ".join(mismatches)
+        )
+
+
+def _existing_courses_by_normalized_code(course_codes: list[str]) -> dict[str, Course]:
+    normalized_codes = {
+        normalize_course_code(course_code)
+        for course_code in course_codes
+        if normalize_course_code(course_code)
+    }
+    if not normalized_codes:
+        return {}
+
+    # Keep identity discovery portable across supported databases. Python's
+    # normalizer removes every whitespace character, whereas SQL REPLACE-based
+    # fallbacks typically cover only literal spaces. Scan just the identity
+    # columns, then hydrate the small set of matching rows below.
+    identity_rows = db.session.query(
+        Course.id,
+        Course.code,
+        Course.normalized_code,
+    ).all()
+
+    candidate_ids_by_code: dict[str, list[int]] = {}
+    for course_id, code, normalized_code in identity_rows:
+        stored_code = normalize_course_code(normalized_code)
+        derived_code = normalize_course_code(code)
+        if not ({stored_code, derived_code} & normalized_codes):
+            continue
+        if stored_code and stored_code != derived_code:
+            raise OfferingValidationError(
+                "course normalization is inconsistent for existing row "
+                f"id={course_id}: code={code!r}, normalized_code={normalized_code!r}"
+            )
+        candidate_code = stored_code or derived_code
+        candidate_ids_by_code.setdefault(candidate_code, []).append(course_id)
+
+    ambiguous = {
+        normalized_code: matching_ids
+        for normalized_code, matching_ids in candidate_ids_by_code.items()
+        if len(matching_ids) > 1
+    }
+    if ambiguous:
+        details = "; ".join(
+            f"{normalized_code}=rows[{','.join(str(course_id) for course_id in matching_ids)}]"
+            for normalized_code, matching_ids in sorted(ambiguous.items())
+        )
+        raise OfferingValidationError(
+            "ambiguous existing course rows for normalized scheduler codes: " + details
+        )
+
+    candidate_ids = [
+        matching_ids[0]
+        for matching_ids in candidate_ids_by_code.values()
+    ]
+    candidates_by_id = {
+        course.id: course
+        for course in Course.query.filter(Course.id.in_(candidate_ids)).all()
+    } if candidate_ids else {}
+
+    return {
+        normalized_code: candidates_by_id[matching_ids[0]]
+        for normalized_code, matching_ids in candidate_ids_by_code.items()
+    }
+
+
+def _meeting_identity(
+    course_code: str,
+    section_id: str,
+    day: int,
+    start_time: int,
+    end_time: int,
+    room: str,
+    instructor: str,
+) -> tuple[str, str, int, int, int, str, str]:
+    return (
+        normalize_course_code(course_code),
+        section_id,
+        day,
+        start_time,
+        end_time,
+        str(room or "").strip(),
+        str(instructor or "").strip(),
+    )
+
+
+def _format_meeting_identity(identity: tuple[str, str, int, int, int, str, str]) -> str:
+    course_code, section_id, day, start_time, end_time, room, instructor = identity
+    return (
+        f"{course_code}/{section_id}/day-{day}/{start_time:04d}-{end_time:04d}/"
+        f"{room}/{instructor}"
+    )
+
+
 def build_import_plan(snapshot: OfferingSnapshot) -> ImportPlan:
     course_codes = [course.course_code for course in snapshot.courses]
     offered_course_codes = sorted(
         course.course_code for course in snapshot.courses if course.sections
     )
-    existing_course_codes = {
-        code
-        for (code,) in db.session.query(Course.code).filter(Course.code.in_(course_codes)).all()
+    existing_courses = _existing_courses_by_normalized_code(course_codes)
+    normalized_course_codes = {normalize_course_code(code) for code in course_codes}
+    existing_course_codes = set(existing_courses)
+    incoming_offered_codes = {
+        normalize_course_code(code) for code in offered_course_codes
     }
+    incoming_section_keys = {
+        (normalize_course_code(course.course_code), section.section_id)
+        for course in snapshot.courses
+        for section in course.sections
+    }
+    incoming_meeting_keys = {
+        _meeting_identity(
+            course.course_code,
+            section.section_id,
+            lecture.day,
+            lecture.start_time,
+            lecture.end_time,
+            lecture.room,
+            lecture.instructor,
+        )
+        for course in snapshot.courses
+        for section in course.sections
+        for lecture in section.lectures
+    }
+
+    existing_offerings = CourseOffering.query.filter_by(
+        semester_id=snapshot.semester_id
+    ).all()
+    omitted_offering_codes = sorted({
+        normalize_course_code(offering.course.code)
+        for offering in existing_offerings
+        if offering.status != "archived"
+        and normalize_course_code(offering.course.code) not in incoming_offered_codes
+    })
+    existing_domain_section_keys = {
+        (normalize_course_code(course_code), section_id)
+        for course_code, section_id in (
+            db.session.query(Course.code, CourseSection.source_section_id)
+            .join(CourseOffering, CourseOffering.id == CourseSection.offering_id)
+            .join(Course, Course.id == CourseOffering.course_id)
+            .filter(CourseOffering.semester_id == snapshot.semester_id)
+            .all()
+        )
+    }
+    existing_legacy_section_keys = {
+        (normalize_course_code(course_code), section_id)
+        for course_code, section_id in (
+            db.session.query(Course.code, SchedulerSection.section_id)
+            .join(Course, Course.id == SchedulerSection.course_id)
+            .filter(SchedulerSection.semester_id == snapshot.semester_id)
+            .all()
+        )
+    }
+    omitted_section_keys = sorted(
+        f"{course_code}/{section_id}"
+        for course_code, section_id in (
+            (existing_domain_section_keys | existing_legacy_section_keys)
+            - incoming_section_keys
+        )
+    )
+    existing_domain_meeting_keys = {
+        _meeting_identity(
+            course_code,
+            section_id,
+            day,
+            start_time,
+            end_time,
+            room,
+            instructor,
+        )
+        for course_code, section_id, day, start_time, end_time, room, instructor in (
+            db.session.query(
+                Course.code,
+                CourseSection.source_section_id,
+                CourseMeeting.day,
+                CourseMeeting.start_time,
+                CourseMeeting.end_time,
+                CourseMeeting.room,
+                CourseMeeting.instructor_text,
+            )
+            .join(CourseSection, CourseSection.id == CourseMeeting.section_id)
+            .join(CourseOffering, CourseOffering.id == CourseSection.offering_id)
+            .join(Course, Course.id == CourseOffering.course_id)
+            .filter(CourseOffering.semester_id == snapshot.semester_id)
+            .all()
+        )
+    }
+    legacy_course_by_section_id = {
+        section_id: course_code
+        for course_code, section_id in (
+            db.session.query(Course.code, SchedulerSection.section_id)
+            .join(Course, Course.id == SchedulerSection.course_id)
+            .filter(SchedulerSection.semester_id == snapshot.semester_id)
+            .all()
+        )
+    }
+    existing_legacy_meeting_keys = {
+        _meeting_identity(
+            legacy_course_by_section_id.get(lecture.section_id, "<unknown>"),
+            lecture.section_id,
+            lecture.day,
+            lecture.start_time,
+            lecture.end_time,
+            lecture.room,
+            lecture.instructor,
+        )
+        for lecture in SchedulerLecture.query.filter_by(
+            semester_id=snapshot.semester_id
+        ).all()
+    }
+    omitted_meeting_keys = sorted(
+        _format_meeting_identity(identity)
+        for identity in (
+            (existing_domain_meeting_keys | existing_legacy_meeting_keys)
+            - incoming_meeting_keys
+        )
+    )
     stale_cart_references = sorted(
         {
             course_code
@@ -415,8 +727,8 @@ def build_import_plan(snapshot: OfferingSnapshot) -> ImportPlan:
         lectures=sum(len(section.lectures) for course in snapshot.courses for section in course.sections),
         zero_section_courses=sorted(course.course_code for course in snapshot.courses if not course.sections),
         offered_course_codes=offered_course_codes,
-        course_rows_to_insert=len(set(course_codes) - existing_course_codes),
-        course_rows_to_update=len(set(course_codes) & existing_course_codes),
+        course_rows_to_insert=len(normalized_course_codes - existing_course_codes),
+        course_rows_to_update=len(normalized_course_codes & existing_course_codes),
         existing_sections_to_replace=SchedulerSection.query.filter_by(
             semester_id=snapshot.semester_id
         ).count(),
@@ -424,11 +736,57 @@ def build_import_plan(snapshot: OfferingSnapshot) -> ImportPlan:
             semester_id=snapshot.semester_id
         ).count(),
         stale_cart_references=stale_cart_references,
+        omitted_offering_codes=omitted_offering_codes,
+        omitted_section_keys=omitted_section_keys,
+        omitted_meeting_keys=omitted_meeting_keys,
     )
 
 
-def apply_offerings(snapshot: OfferingSnapshot) -> ImportPlan:
+def _guard_destructive_omissions(
+    snapshot: OfferingSnapshot,
+    plan: ImportPlan,
+    *,
+    allow_destructive_replacement: bool,
+) -> None:
+    if not snapshot.courses:
+        raise OfferingValidationError("refusing to apply an empty scheduler offering snapshot")
+    if allow_destructive_replacement:
+        return
+    if (
+        not plan.omitted_offering_codes
+        and not plan.omitted_section_keys
+        and not plan.omitted_meeting_keys
+    ):
+        return
+
+    details = []
+    if plan.omitted_offering_codes:
+        details.append(f"offerings={','.join(plan.omitted_offering_codes)}")
+    if plan.omitted_section_keys:
+        details.append(f"sections={','.join(plan.omitted_section_keys)}")
+    if plan.omitted_meeting_keys:
+        details.append(f"meetings={','.join(plan.omitted_meeting_keys)}")
+    raise OfferingValidationError(
+        "snapshot omits existing scheduler data; refusing destructive replacement "
+        f"for semester {snapshot.semester_id} ({'; '.join(details)}). "
+        "Re-run with an explicitly reviewed destructive replacement if these removals are intentional."
+    )
+
+
+def apply_offerings(
+    snapshot: OfferingSnapshot,
+    *,
+    expected_counts: SnapshotExpectations | None = None,
+    allow_destructive_replacement: bool = False,
+    import_hash: str | None = None,
+) -> ImportPlan:
+    _validate_snapshot_counts(snapshot, expected_counts)
     plan = build_import_plan(snapshot)
+    _guard_destructive_omissions(
+        snapshot,
+        plan,
+        allow_destructive_replacement=allow_destructive_replacement,
+    )
 
     try:
         SchedulerLecture.query.filter_by(semester_id=snapshot.semester_id).delete(
@@ -438,23 +796,21 @@ def apply_offerings(snapshot: OfferingSnapshot) -> ImportPlan:
             synchronize_session=False
         )
 
-        course_by_code = {
-            course.code: course
-            for course in Course.query.filter(
-                Course.code.in_([course.course_code for course in snapshot.courses])
-            ).all()
-        }
+        course_by_code = _existing_courses_by_normalized_code(
+            [course.course_code for course in snapshot.courses]
+        )
         for item in snapshot.courses:
-            course = course_by_code.get(item.course_code)
-            if course is None:
-                course = Course(code=item.course_code, name=item.course_title, credits=item.credit)
-                course_by_code[item.course_code] = course
             normalized_code = normalize_course_code(item.course_code)
-            normalized_conflict = Course.query.filter(
-                Course.normalized_code == normalized_code,
-                Course.id != course.id,
-            ).first()
-            if normalized_conflict is None:
+            course = course_by_code.get(normalized_code)
+            if course is None:
+                course = Course(
+                    code=item.course_code,
+                    normalized_code=normalized_code,
+                    name=item.course_title,
+                    credits=item.credit,
+                )
+                course_by_code[normalized_code] = course
+            else:
                 course.normalized_code = normalized_code
             course.display_code = display_course_code(item.course_code)
             course.canonical_title = item.course_title
@@ -480,7 +836,7 @@ def apply_offerings(snapshot: OfferingSnapshot) -> ImportPlan:
 
         version_by_code = {}
         for item in snapshot.courses:
-            course = course_by_code[item.course_code]
+            course = course_by_code[normalize_course_code(item.course_code)]
             version = CourseCatalogVersion.query.filter_by(
                 course_id=course.id,
                 source="scheduler_offerings",
@@ -521,7 +877,7 @@ def apply_offerings(snapshot: OfferingSnapshot) -> ImportPlan:
                 sync_offering_sections(offering, [])
 
         for item in snapshot.courses:
-            course = course_by_code[item.course_code]
+            course = course_by_code[normalize_course_code(item.course_code)]
             if item.sections:
                 offering = CourseOffering.query.filter_by(
                     course_id=course.id,
@@ -543,6 +899,7 @@ def apply_offerings(snapshot: OfferingSnapshot) -> ImportPlan:
                 offering.title_snapshot = item.course_title
                 offering.credits_snapshot = item.credit
                 offering.source = "scheduler_offerings"
+                offering.import_hash = import_hash
                 offering.status = "offered"
                 db.session.flush()
                 sync_offering_sections(offering, item.sections)
@@ -660,6 +1017,9 @@ def _plan_summary_json(plan: ImportPlan) -> str:
         "existing_sections_to_replace": plan.existing_sections_to_replace,
         "existing_lectures_to_replace": plan.existing_lectures_to_replace,
         "stale_cart_references": plan.stale_cart_references,
+        "omitted_offering_codes": plan.omitted_offering_codes,
+        "omitted_section_keys": plan.omitted_section_keys,
+        "omitted_meeting_keys": plan.omitted_meeting_keys,
     }, ensure_ascii=True, sort_keys=True)
 
 
@@ -669,6 +1029,7 @@ def run_deploy_scheduler_offering_update(
     file_path: Path,
     expected_semester_id: str,
     expected_sha256: str,
+    expected_counts: SnapshotExpectations | None = None,
 ) -> DeployOfferingResult:
     normalized_mode = mode.strip().lower()
     if normalized_mode in {"", "disabled", "off", "false", "0"}:
@@ -699,8 +1060,54 @@ def run_deploy_scheduler_offering_update(
             import_hash=import_hash,
         )
 
-    snapshot = load_offerings_file(file_path, expected_semester_id)
-    plan = build_import_plan(snapshot)
+    plan = None
+    try:
+        snapshot = load_offerings_file(file_path, expected_semester_id)
+        _validate_snapshot_counts(snapshot, expected_counts)
+    except OfferingValidationError as exc:
+        db.session.rollback()
+        return DeployOfferingResult(
+            status="blocked",
+            mode=normalized_mode,
+            message=str(exc),
+            import_hash=import_hash,
+            plan=plan,
+        )
+
+    if normalized_mode == "apply":
+        _ensure_import_run_table()
+        status = _import_run_status(import_hash)
+        if status == "applied":
+            return DeployOfferingResult(
+                status="skipped",
+                mode=normalized_mode,
+                message="Scheduler offering import already applied for this JSON hash.",
+                import_hash=import_hash,
+            )
+        if status == "running":
+            return DeployOfferingResult(
+                status="skipped",
+                mode=normalized_mode,
+                message="Scheduler offering import is already running in another worker.",
+                import_hash=import_hash,
+            )
+
+    try:
+        plan = build_import_plan(snapshot)
+        _guard_destructive_omissions(
+            snapshot,
+            plan,
+            allow_destructive_replacement=False,
+        )
+    except OfferingValidationError as exc:
+        db.session.rollback()
+        return DeployOfferingResult(
+            status="blocked",
+            mode=normalized_mode,
+            message=str(exc),
+            import_hash=import_hash,
+            plan=plan,
+        )
 
     if normalized_mode == "dry-run":
         db.session.rollback()
@@ -712,28 +1119,13 @@ def run_deploy_scheduler_offering_update(
             plan=plan,
         )
 
-    _ensure_import_run_table()
-    status = _import_run_status(import_hash)
-    if status == "applied":
-        return DeployOfferingResult(
-            status="skipped",
-            mode=normalized_mode,
-            message="Scheduler offering import already applied for this JSON hash.",
-            import_hash=import_hash,
-            plan=plan,
-        )
-    if status == "running":
-        return DeployOfferingResult(
-            status="skipped",
-            mode=normalized_mode,
-            message="Scheduler offering import is already running in another worker.",
-            import_hash=import_hash,
-            plan=plan,
-        )
-
     _record_import_run(import_hash, snapshot.semester_id, normalized_mode, "running", _plan_summary_json(plan))
     try:
-        applied_plan = apply_offerings(snapshot)
+        applied_plan = apply_offerings(
+            snapshot,
+            expected_counts=expected_counts,
+            import_hash=import_hash,
+        )
         _record_import_run(
             import_hash,
             snapshot.semester_id,
@@ -747,6 +1139,16 @@ def run_deploy_scheduler_offering_update(
             message="Scheduler offering import applied successfully.",
             import_hash=import_hash,
             plan=applied_plan,
+        )
+    except OfferingValidationError as exc:
+        db.session.rollback()
+        _record_import_run(import_hash, snapshot.semester_id, normalized_mode, "blocked", str(exc))
+        return DeployOfferingResult(
+            status="blocked",
+            mode=normalized_mode,
+            message=str(exc),
+            import_hash=import_hash,
+            plan=plan,
         )
     except Exception as exc:
         db.session.rollback()
@@ -762,6 +1164,7 @@ def run_bundled_25_26_summer_deploy_update(
         file_path=BUNDLED_25_26_SUMMER_OFFERINGS_FILE,
         expected_semester_id=BUNDLED_25_26_SUMMER_SEMESTER_ID,
         expected_sha256=BUNDLED_25_26_SUMMER_SHA256,
+        expected_counts=SnapshotExpectations(*BUNDLED_25_26_SUMMER_EXPECTED_COUNTS),
     )
 
 
@@ -775,6 +1178,7 @@ def bundled_scheduler_offering_updates(
             file_path=BUNDLED_25_26_FALL_OFFERINGS_FILE,
             expected_semester_id=BUNDLED_25_26_FALL_SEMESTER_ID,
             expected_sha256=BUNDLED_25_26_FALL_SHA256,
+            expected_counts=SnapshotExpectations(*BUNDLED_25_26_FALL_EXPECTED_COUNTS),
         ),
         BundledOfferingUpdate(
             label="25-26 spring",
@@ -782,6 +1186,7 @@ def bundled_scheduler_offering_updates(
             file_path=BUNDLED_25_26_SPRING_OFFERINGS_FILE,
             expected_semester_id=BUNDLED_25_26_SPRING_SEMESTER_ID,
             expected_sha256=BUNDLED_25_26_SPRING_SHA256,
+            expected_counts=SnapshotExpectations(*BUNDLED_25_26_SPRING_EXPECTED_COUNTS),
         ),
         BundledOfferingUpdate(
             label="25-26 summer",
@@ -789,6 +1194,7 @@ def bundled_scheduler_offering_updates(
             file_path=BUNDLED_25_26_SUMMER_OFFERINGS_FILE,
             expected_semester_id=BUNDLED_25_26_SUMMER_SEMESTER_ID,
             expected_sha256=BUNDLED_25_26_SUMMER_SHA256,
+            expected_counts=SnapshotExpectations(*BUNDLED_25_26_SUMMER_EXPECTED_COUNTS),
         ),
     ]
 
@@ -803,6 +1209,7 @@ def run_bundled_scheduler_offering_updates(
             file_path=update.file_path,
             expected_semester_id=update.expected_semester_id,
             expected_sha256=update.expected_sha256,
+            expected_counts=update.expected_counts,
         )
         results.append((update, result))
     return results
@@ -851,6 +1258,9 @@ def print_summary(file_path: Path, plan: ImportPlan, *, database_target: str, mo
     print(f"Rows currently in target semester to replace: sections={plan.existing_sections_to_replace}, lectures={plan.existing_lectures_to_replace}")
     print(f"Stale cart references after import: {len(plan.stale_cart_references)}")
     print(f"Stale cart course codes: {_format_list(plan.stale_cart_references)}")
+    print(f"Existing offerings omitted by snapshot: {_format_list(plan.omitted_offering_codes)}")
+    print(f"Existing sections omitted by snapshot: {_format_list(plan.omitted_section_keys)}")
+    print(f"Existing meetings omitted by snapshot: {_format_list(plan.omitted_meeting_keys)}")
     if mode == "dry-run":
         print("No database changes were made.")
 
@@ -860,25 +1270,60 @@ def main() -> None:
     parser.add_argument("--file", required=True, help="Path to offering JSON file.")
     parser.add_argument("--semester", help="Optional semester id override; must match the JSON file.")
     parser.add_argument("--database-url", help="Optional destination database URL; otherwise DATABASE_URL is used.")
+    parser.add_argument("--expected-courses", required=True, type=int)
+    parser.add_argument("--expected-offered-courses", required=True, type=int)
+    parser.add_argument("--expected-sections", required=True, type=int)
+    parser.add_argument("--expected-lectures", required=True, type=int)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true", help="Validate and summarize without committing changes.")
     mode.add_argument("--apply", action="store_true", help="Apply the replacement transaction.")
+    parser.add_argument(
+        "--allow-destructive-replacement",
+        action="store_true",
+        help="Allow reviewed removal of existing target-semester offerings, sections, or meetings.",
+    )
     args = parser.parse_args()
 
     file_path = Path(args.file).expanduser().resolve()
     snapshot = load_offerings_file(file_path, args.semester)
+    expected_counts = SnapshotExpectations(
+        courses=args.expected_courses,
+        offered_courses=args.expected_offered_courses,
+        sections=args.expected_sections,
+        lectures=args.expected_lectures,
+    )
 
     app = create_import_app(args.database_url)
     try:
         with app.app_context():
+            _validate_snapshot_counts(snapshot, expected_counts)
+            plan = build_import_plan(snapshot)
+            print_summary(
+                file_path,
+                plan,
+                database_target=_database_target(),
+                mode="apply" if args.apply else "dry-run",
+            )
+            _guard_destructive_omissions(
+                snapshot,
+                plan,
+                allow_destructive_replacement=args.allow_destructive_replacement,
+            )
             if args.apply:
-                plan = apply_offerings(snapshot)
-                print_summary(file_path, plan, database_target=_database_target(), mode="apply")
+                apply_offerings(
+                    snapshot,
+                    expected_counts=expected_counts,
+                    allow_destructive_replacement=args.allow_destructive_replacement,
+                    import_hash=file_sha256(file_path),
+                )
                 return
 
-            plan = build_import_plan(snapshot)
-            print_summary(file_path, plan, database_target=_database_target(), mode="dry-run")
             db.session.rollback()
+    except OfferingValidationError as exc:
+        if has_app_context():
+            db.session.rollback()
+        print(f"Scheduler offering import blocked: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
     except SQLAlchemyError as exc:
         if has_app_context():
             db.session.rollback()
