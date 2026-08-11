@@ -29,7 +29,8 @@ def sync_course_catalog_from_payload(payload: dict[str, Any]) -> dict[str, int]:
     courses = payload.get("courses") if isinstance(payload.get("courses"), list) else []
     courses_by_normalized_code: dict[str, list[Course]] = {}
     for course in Course.query.filter_by(is_deleted=False).all():
-        courses_by_normalized_code.setdefault(_normalize_code(course.code), []).append(course)
+        identity = _normalize_code(course.normalized_code or course.code)
+        courses_by_normalized_code.setdefault(identity, []).append(course)
 
     upserted = 0
     skipped = 0
@@ -47,7 +48,14 @@ def sync_course_catalog_from_payload(payload: dict[str, Any]) -> dict[str, int]:
             if credits is None:
                 skipped += 1
                 continue
-            course = Course(code=code, name=name, credits=credits, is_active=True, is_deleted=False)
+            course = Course(
+                code=code,
+                normalized_code=normalized_code,
+                name=name,
+                credits=credits,
+                is_active=True,
+                is_deleted=False,
+            )
             db.session.add(course)
             courses_by_normalized_code.setdefault(normalized_code, []).append(course)
         else:

@@ -93,6 +93,7 @@ def test_import_snapshot_is_repeatable(app):
         }
         assert second == first
         assert Course.query.filter_by(code='AIAA1001').count() == 1
+        assert Course.query.filter_by(code='AIAA1001').one().normalized_code == 'AIAA1001'
         assert SchedulerSection.query.count() == 1
         assert SchedulerLecture.query.count() == 1
         offering = CourseOffering.query.filter_by(semester_id='2530').one()
@@ -117,6 +118,108 @@ def test_import_snapshot_rejects_orphan_lecture_without_mutating_destination(app
 
         assert Course.query.filter_by(code='KEEP1001').one()
         assert Course.query.filter_by(code='AIAA1001').count() == 0
+        assert SchedulerSection.query.count() == 0
+
+
+def test_import_snapshot_resolves_spaced_existing_course_identity(app):
+    conn = source_connection()
+
+    with app.app_context():
+        legacy = Course(code='AIAA 1001', name='Legacy title', credits=1)
+        db.session.add(legacy)
+        db.session.commit()
+        legacy_id = legacy.id
+        before_count = Course.query.count()
+
+        import_snapshot(conn)
+
+        assert Course.query.count() == before_count
+        resolved = db.session.get(Course, legacy_id)
+        assert resolved.code == 'AIAA 1001'
+        assert resolved.normalized_code == 'AIAA1001'
+        assert resolved.name == 'AI Basics'
+        assert SchedulerSection.query.one().course_id == legacy_id
+
+
+def test_import_snapshot_canonicalizes_new_spaced_source_code(app):
+    conn = source_connection()
+    conn.execute(text(
+        "UPDATE course SET course_code = 'AIAA 1001' WHERE course_code = 'AIAA1001'"
+    ))
+    conn.execute(text(
+        "UPDATE section SET course_code = 'AIAA 1001' WHERE course_code = 'AIAA1001'"
+    ))
+    conn.commit()
+
+    with app.app_context():
+        import_snapshot(conn)
+
+        course = Course.query.filter_by(code='AIAA1001').one()
+        assert course.code == 'AIAA1001'
+        assert course.normalized_code == 'AIAA1001'
+        assert SchedulerSection.query.one().course_id == course.id
+
+
+def test_import_snapshot_rejects_ambiguous_existing_normalized_identity(app):
+    conn = source_connection()
+
+    with app.app_context():
+        db.session.add_all([
+            Course(
+                code='AIAA1001',
+                normalized_code='AIAA1001',
+                name='Canonical',
+                credits=3,
+            ),
+            Course(code='AIAA 1001', name='Legacy duplicate', credits=3),
+        ])
+        db.session.commit()
+
+        with pytest.raises(SnapshotValidationError, match='ambiguous existing course rows'):
+            import_snapshot(conn)
+
+        assert Course.query.filter(
+            Course.code.in_(['AIAA1001', 'AIAA 1001'])
+        ).count() == 2
+        assert SchedulerSection.query.count() == 0
+
+
+def test_import_snapshot_rejects_inconsistent_existing_normalized_identity(app):
+    conn = source_connection()
+
+    with app.app_context():
+        db.session.add(Course(
+            code='WRNG1001',
+            normalized_code='AIAA1001',
+            name='Inconsistent',
+            credits=3,
+        ))
+        db.session.commit()
+
+        with pytest.raises(SnapshotValidationError, match='normalization is inconsistent'):
+            import_snapshot(conn)
+
+        assert Course.query.filter_by(code='WRNG1001').count() == 1
+        assert SchedulerSection.query.count() == 0
+
+
+def test_import_snapshot_rejects_source_course_aliases(app):
+    conn = source_connection()
+    conn.execute(text(
+        "INSERT INTO course VALUES "
+        "('AIAA 1001','Alias','AI','Intro',NULL,NULL,NULL,3,'AIAA','1001',0,0,'A')"
+    ))
+    conn.commit()
+
+    with app.app_context():
+        before_count = Course.query.count()
+        with pytest.raises(
+            SnapshotValidationError,
+            match='duplicate normalized course identity',
+        ):
+            import_snapshot(conn)
+
+        assert Course.query.count() == before_count
         assert SchedulerSection.query.count() == 0
 
 
