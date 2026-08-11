@@ -1,13 +1,44 @@
 import argparse
 import json
+import os
 from pathlib import Path
 
 import pytest
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
 
+from app import create_app
+from app.config import Config
+from app.extensions import db
 from app.scripts import run_backend_operation as operations
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@compiles(JSONB, "sqlite")
+def compile_jsonb_sqlite(_type, _compiler, **_kw):
+    return "JSON"
+
+
+class TestConfig(Config):
+    TESTING = True
+    SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+    CACHE_TYPE = "SimpleCache"
+    ENABLE_BACKGROUND_TASKS = False
+    JWT_SECRET_KEY = "test-secret"
+
+
+@pytest.fixture
+def app(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", "test-key"))
+    monkeypatch.setenv("DASHSCOPE_API_KEY", os.getenv("DASHSCOPE_API_KEY", "test-key"))
+    app = create_app(TestConfig)
+    with app.app_context():
+        db.create_all()
+        yield app
+        db.session.remove()
+        db.drop_all()
 
 
 def _args(*extra):
@@ -321,6 +352,15 @@ def test_database_upgrade_uses_fixed_argv_without_shell(monkeypatch):
     assert "shell" not in calls[0][1]
 
 
+def test_verify_release_queries_current_legacy_scheduler_schema(app):
+    with app.app_context():
+        result = operations._verify_release()
+
+    assert result["status"] == "blocked"
+    assert result["checks"]["legacy_sections"] == 0
+    assert result["checks"]["legacy_meetings"] == 0
+
+
 def test_operation_workflow_is_a_hardened_dispatch_api():
     workflow = (ROOT / ".github/workflows/backend-operations.yml").read_text(encoding="utf-8")
 
@@ -342,6 +382,7 @@ def test_operation_workflow_is_a_hardened_dispatch_api():
     assert "test \"$(git rev-parse HEAD)\" = \"$OPS_RELEASE_SHA\"" in workflow
     assert "flock -n 9" in workflow
     assert "group: backend-mutations-production" in workflow
+    assert "sudo /usr/bin/systemctl is-active" not in workflow
     assert '\"\"|APPLY_DEV|APPLY_PRODUCTION' in workflow
     assert "http://127.0.0.1:8001/scheduler/semesters" in workflow
     assert "appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2" in workflow

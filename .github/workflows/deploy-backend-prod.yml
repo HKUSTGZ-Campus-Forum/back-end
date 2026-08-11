@@ -150,7 +150,7 @@ jobs:
 
           echo "Restarting production service..."
           sudo /usr/bin/systemctl restart "${service_name}"
-          if ! sudo /usr/bin/systemctl is-active --quiet "${service_name}"; then
+          if ! /usr/bin/systemctl is-active --quiet "${service_name}"; then
             echo "Production service failed to start." >&2
             sudo /usr/bin/systemctl status --no-pager --full "${service_name}" || true
             sudo /usr/bin/journalctl -u "${service_name}" -n 100 --no-pager || true
