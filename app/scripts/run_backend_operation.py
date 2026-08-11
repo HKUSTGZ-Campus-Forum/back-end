@@ -474,13 +474,8 @@ def _verify_release() -> dict[str, Any]:
         if offering_ids
         else 0
     )
-    legacy_sections = SchedulerSection.query.filter_by(semester="2610").count()
-    legacy_meetings = (
-        db.session.query(func.count(SchedulerLecture.id))
-        .join(SchedulerSection, SchedulerLecture.section_id == SchedulerSection.id)
-        .filter(SchedulerSection.semester == "2610")
-        .scalar()
-    )
+    legacy_sections = SchedulerSection.query.filter_by(semester_id="2610").count()
+    legacy_meetings = SchedulerLecture.query.filter_by(semester_id="2610").count()
     tba_rows = (
         CourseSection.query.filter(
             CourseSection.offering_id.in_(offering_ids),
