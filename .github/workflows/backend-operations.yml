@@ -256,7 +256,7 @@ jobs:
             "$@" | tee "/data/dev_unikorn/operation-reports/${OPS_REQUEST_ID}-${OPS_WORKFLOW_RUN_ID}-${OPS_WORKFLOW_RUN_ATTEMPT}.log"
             if [ "$OPS_MODE" = "apply" ]; then
               sudo /usr/bin/systemctl restart dev-unikorn-api.service
-              sudo /usr/bin/systemctl is-active --quiet dev-unikorn-api.service
+              /usr/bin/systemctl is-active --quiet dev-unikorn-api.service
               curl -fsS --max-time 20 http://127.0.0.1:8000/scheduler/semesters >/dev/null
             fi
 
@@ -333,6 +333,6 @@ jobs:
             "$@" | tee "/data/prod_unikorn/operation-reports/${OPS_REQUEST_ID}-${OPS_WORKFLOW_RUN_ID}-${OPS_WORKFLOW_RUN_ATTEMPT}.log"
             if [ "$OPS_MODE" = "apply" ]; then
               sudo /usr/bin/systemctl restart prod-unikorn-api.service
-              sudo /usr/bin/systemctl is-active --quiet prod-unikorn-api.service
+              /usr/bin/systemctl is-active --quiet prod-unikorn-api.service
               curl -fsS --max-time 20 http://127.0.0.1:8001/scheduler/semesters >/dev/null
             fi

@@ -114,7 +114,7 @@ jobs:
             python -m app.scripts.init_db
 
             sudo /usr/bin/systemctl restart "$service_name"
-            sudo /usr/bin/systemctl is-active --quiet "$service_name"
+            /usr/bin/systemctl is-active --quiet "$service_name"
 
             api_response="$(mktemp)"
             trap 'rm -f "$api_response"' EXIT

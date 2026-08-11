@@ -99,6 +99,7 @@ def test_deploy_workflows_fail_on_migration_errors_and_use_committed_revisions()
         deploy_workflow = path.read_text(encoding="utf-8")
         assert "set -Eeuo pipefail" in deploy_workflow
         assert "flock -n 9" in deploy_workflow
+        assert "sudo /usr/bin/systemctl is-active" not in deploy_workflow
         assert "flask db upgrade heads" in deploy_workflow
         assert "flask db migrate" not in deploy_workflow
 
