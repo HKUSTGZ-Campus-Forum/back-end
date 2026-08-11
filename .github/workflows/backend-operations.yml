@@ -257,7 +257,17 @@ jobs:
             if [ "$OPS_MODE" = "apply" ]; then
               sudo /usr/bin/systemctl restart dev-unikorn-api.service
               /usr/bin/systemctl is-active --quiet dev-unikorn-api.service
-              curl -fsS --max-time 20 http://127.0.0.1:8000/scheduler/semesters >/dev/null
+              api_ready=false
+              for attempt in {1..12}; do
+                if curl -fsS --connect-timeout 2 --max-time 5 \
+                  http://127.0.0.1:8000/scheduler/semesters >/dev/null; then
+                  api_ready=true
+                  break
+                fi
+                echo "Dev API is not ready yet (attempt ${attempt}/12)."
+                sleep 3
+              done
+              test "$api_ready" = "true"
             fi
 
   operate-production:
@@ -334,5 +344,15 @@ jobs:
             if [ "$OPS_MODE" = "apply" ]; then
               sudo /usr/bin/systemctl restart prod-unikorn-api.service
               /usr/bin/systemctl is-active --quiet prod-unikorn-api.service
-              curl -fsS --max-time 20 http://127.0.0.1:8001/scheduler/semesters >/dev/null
+              api_ready=false
+              for attempt in {1..12}; do
+                if curl -fsS --connect-timeout 2 --max-time 5 \
+                  http://127.0.0.1:8001/scheduler/semesters >/dev/null; then
+                  api_ready=true
+                  break
+                fi
+                echo "Production API is not ready yet (attempt ${attempt}/12)."
+                sleep 3
+              done
+              test "$api_ready" = "true"
             fi

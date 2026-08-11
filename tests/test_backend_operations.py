@@ -385,6 +385,8 @@ def test_operation_workflow_is_a_hardened_dispatch_api():
     assert "sudo /usr/bin/systemctl is-active" not in workflow
     assert '\"\"|APPLY_DEV|APPLY_PRODUCTION' in workflow
     assert "http://127.0.0.1:8001/scheduler/semesters" in workflow
+    assert workflow.count("for attempt in {1..12}") == 2
+    assert workflow.count('test "$api_ready" = "true"') == 2
     assert "appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2" in workflow
     assert "appleboy/ssh-action@master" not in workflow
     assert "${{ inputs." not in workflow.split("script: |", 1)[1]
