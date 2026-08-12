@@ -294,7 +294,8 @@ jobs:
           require_sudo_permission /usr/bin/systemctl daemon-reload
           require_sudo_permission /usr/bin/systemctl restart "${service_name}"
           require_sudo_permission /usr/bin/systemctl reset-failed \
-            "${baseline_service}" "${sample_service}" "${final_service}" "${verify_service}"
+            "${baseline_service}" "${sample_service}" "${verify_service}"
+          require_sudo_permission /usr/bin/systemctl reset-failed "${final_service}"
           for unit_name in \
             "${baseline_service}" "${sample_service}" "${final_service}" "${verify_service}" \
             "${sample_timer}" "${final_timer}"; do
@@ -459,7 +460,8 @@ jobs:
               "${unit_stage}/${unit_name}" "/etc/systemd/system/${unit_name}"
           done
           sudo -n /usr/bin/systemctl daemon-reload
-          sudo -n /usr/bin/systemctl reset-failed "${baseline_service}" "${sample_service}" "${final_service}" "${verify_service}"
+          # The terminal unit is intentionally withheld until the sampler passes smoke checks.
+          sudo -n /usr/bin/systemctl reset-failed "${baseline_service}" "${sample_service}" "${verify_service}"
 
           echo "Smoke-testing popularity sampling as ${service_user}:${service_group}..."
           sudo -n /usr/bin/systemctl start "${baseline_service}"
@@ -561,6 +563,8 @@ jobs:
             sudo -n /usr/bin/install -m 0644 \
               "${unit_stage}/${final_timer}" "/etc/systemd/system/${final_timer}"
             sudo -n /usr/bin/systemctl daemon-reload
+            # reset-failed requires the just-installed service to be loaded on a first rollout.
+            sudo -n /usr/bin/systemctl reset-failed "${final_service}"
             activate_timer "${sample_timer}"
             activate_timer "${final_timer}"
           elif (( deploy_epoch < terminal_cutoff_epoch )); then
@@ -571,6 +575,8 @@ jobs:
             sudo -n /usr/bin/install -m 0644 \
               "${unit_stage}/${final_timer}" "/etc/systemd/system/${final_timer}"
             sudo -n /usr/bin/systemctl daemon-reload
+            # reset-failed requires the just-installed service to be loaded on a first rollout.
+            sudo -n /usr/bin/systemctl reset-failed "${final_service}"
             deactivate_timer "${sample_timer}"
             activate_timer "${final_timer}"
           else
