@@ -9,7 +9,7 @@ The supported schema bootstrap is the same command used for upgrades::
 
 Do not run ``db.create_all()``, generate migrations during deployment, restore a
 schema-only dump, or stamp an empty database.  The committed migration graph
-has two expected heads (``5202003d1ec0`` and
+has two expected heads (``20260813_feedback_schema`` and
 ``20260812_pop_history``), and CI proves that a pristine PostgreSQL 16
 database reaches both heads without startup-time schema mutation.
 

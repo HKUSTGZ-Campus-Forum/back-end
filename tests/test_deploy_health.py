@@ -83,7 +83,7 @@ def test_alembic_revision_graph_is_acyclic_and_has_expected_heads():
     }
     assert set(revisions) - parents == {
         "20260812_pop_history",
-        "5202003d1ec0",
+        "20260813_feedback_schema",
     }
 
 
