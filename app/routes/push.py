@@ -1,9 +1,17 @@
 # app/routes/push.py
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, current_app, request, jsonify
 from app.models.push_subscription import PushSubscription
 from app.services.push_service import PushService
 from app.extensions import db
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from app.utils.permissions import require_admin_user
+from app.utils.push_endpoints import (
+    MAX_PUSH_AUTH_KEY_LENGTH,
+    MAX_PUSH_P256DH_KEY_LENGTH,
+    MAX_PUSH_USER_AGENT_LENGTH,
+    is_valid_push_endpoint,
+    is_valid_push_key,
+)
 
 bp = Blueprint('push', __name__, url_prefix='/push')
 
@@ -12,7 +20,6 @@ bp = Blueprint('push', __name__, url_prefix='/push')
 def get_vapid_public_key():
     """Get the VAPID public key for client-side subscription"""
     try:
-        from flask import current_app
         public_key = current_app.config.get('VAPID_PUBLIC_KEY')
         
         if not public_key:
@@ -20,8 +27,9 @@ def get_vapid_public_key():
         
         return jsonify({"vapid_public_key": public_key}), 200
         
-    except Exception as e:
-        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+    except Exception:
+        current_app.logger.exception("Failed to read the VAPID public key")
+        return jsonify({"error": "Unable to read push configuration"}), 500
 
 # Subscribe to push notifications
 @bp.route('/subscribe', methods=['POST'])
@@ -32,22 +40,28 @@ def subscribe_to_push():
         user_id = get_jwt_identity()
         data = request.get_json() or {}
         
-        # Validate required fields
-        if not data.get('endpoint'):
-            return jsonify({"error": "endpoint is required"}), 400
-        
-        if not data.get('keys') or not data['keys'].get('p256dh') or not data['keys'].get('auth'):
-            return jsonify({"error": "keys.p256dh and keys.auth are required"}), 400
+        endpoint = data.get('endpoint')
+        keys = data.get('keys')
+        if not is_valid_push_endpoint(endpoint) or not isinstance(keys, dict):
+            return jsonify({"error": "Invalid push subscription"}), 400
+
+        p256dh_key = keys.get('p256dh')
+        auth_key = keys.get('auth')
+        if (
+            not is_valid_push_key(p256dh_key, MAX_PUSH_P256DH_KEY_LENGTH)
+            or not is_valid_push_key(auth_key, MAX_PUSH_AUTH_KEY_LENGTH)
+        ):
+            return jsonify({"error": "Invalid push subscription"}), 400
         
         # Get user agent for debugging
-        user_agent = request.headers.get('User-Agent', '')
+        user_agent = request.headers.get('User-Agent', '')[:MAX_PUSH_USER_AGENT_LENGTH]
         
         # Create or update subscription
         subscription = PushSubscription.get_or_create_subscription(
             user_id=user_id,
-            endpoint=data['endpoint'],
-            p256dh_key=data['keys']['p256dh'],
-            auth_key=data['keys']['auth'],
+            endpoint=endpoint,
+            p256dh_key=p256dh_key,
+            auth_key=auth_key,
             user_agent=user_agent
         )
         
@@ -58,9 +72,10 @@ def subscribe_to_push():
             "subscription": subscription.to_dict()
         }), 201
         
-    except Exception as e:
+    except Exception:
         db.session.rollback()
-        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+        current_app.logger.exception("Failed to save push subscription")
+        return jsonify({"error": "Unable to save push subscription"}), 500
 
 # Unsubscribe from push notifications
 @bp.route('/unsubscribe', methods=['POST'])
@@ -99,9 +114,10 @@ def unsubscribe_from_push():
                 "message": f"Unsubscribed {len(subscriptions)} push subscriptions"
             }), 200
         
-    except Exception as e:
+    except Exception:
         db.session.rollback()
-        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+        current_app.logger.exception("Failed to unsubscribe from push notifications")
+        return jsonify({"error": "Unable to update push subscription"}), 500
 
 # Get user's push subscriptions
 @bp.route('/subscriptions', methods=['GET'])
@@ -118,8 +134,9 @@ def get_push_subscriptions():
             "active_count": len([sub for sub in subscriptions if sub.is_active])
         }), 200
         
-    except Exception as e:
-        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+    except Exception:
+        current_app.logger.exception("Failed to list push subscriptions")
+        return jsonify({"error": "Unable to list push subscriptions"}), 500
 
 # Test push notification
 @bp.route('/test', methods=['POST'])
@@ -142,8 +159,9 @@ def test_push_notification():
                 "result": result
             }), 400
         
-    except Exception as e:
-        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+    except Exception:
+        current_app.logger.exception("Failed to send test push notification")
+        return jsonify({"error": "Unable to send test notification"}), 500
 
 # Admin endpoint to test push to specific user
 @bp.route('/test/<int:target_user_id>', methods=['POST'])
@@ -151,13 +169,9 @@ def test_push_notification():
 def test_push_to_user(target_user_id):
     """Send a test push notification to a specific user (admin only)"""
     try:
-        current_user_id = get_jwt_identity()
-        
-        # TODO: Add admin check here
-        # from app.models.user import User
-        # current_user = User.query.get(current_user_id)
-        # if not current_user.is_admin():
-        #     return jsonify({"error": "Admin access required"}), 403
+        _admin_user, error = require_admin_user()
+        if error:
+            return error
         
         result = PushService.test_push_notification(target_user_id)
         
@@ -166,5 +180,6 @@ def test_push_to_user(target_user_id):
             "result": result
         }), 200
         
-    except Exception as e:
-        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+    except Exception:
+        current_app.logger.exception("Failed to send admin test push notification")
+        return jsonify({"error": "Unable to send test notification"}), 500

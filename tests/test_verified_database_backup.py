@@ -40,7 +40,12 @@ def test_backup_uses_argv_and_environment_without_logging_credentials(monkeypatc
     assert result["database"] == "test_db"
     assert result["size"] == len(b"PGDMP test archive")
     assert destination.read_bytes() == b"PGDMP test archive"
-    assert calls[0][0][0:2] == ["pg_dump", "--format=custom"]
+    assert calls[0][0][0:4] == [
+        "pg_dump",
+        "--format=custom",
+        "--no-owner",
+        "--no-acl",
+    ]
     assert calls[1][0][0:2] == ["pg_restore", "--list"]
     assert all("db-password" not in " ".join(call[0]) for call in calls)
     assert calls[0][1]["env"]["PGPASSWORD"] == "db-password"
