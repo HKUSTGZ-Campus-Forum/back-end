@@ -275,6 +275,7 @@ def test_dev_data_parent_hardening_is_exact_two_phase_and_non_recursive():
     assert 'APP_NAME = "back-end"' in helper
     assert 'LOCK_NAME = "backend-mutations-dev.lock"' in helper
     assert "EXPECTED_MODE = 0o777" in helper
+    assert "INTERMEDIATE_MODE = 0o1777" in helper
     assert "TARGET_MODE = 0o755" in helper
     assert "os.O_NOFOLLOW" in helper
     assert "fcntl.flock" in helper

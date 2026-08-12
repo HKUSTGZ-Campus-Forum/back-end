@@ -50,12 +50,52 @@ def test_apply_requires_exact_reviewed_digest_and_confirmation(tmp_path, monkeyp
     assert parent.stat().st_mode & 0o777 == 0o777
 
 
-@pytest.mark.parametrize("unsafe_mode", [0o775, 0o757, 0o1777, 0o700])
+@pytest.mark.parametrize("unsafe_mode", [0o775, 0o757, 0o700])
 def test_audit_rejects_unreviewed_modes(tmp_path, monkeypatch, unsafe_mode):
     parent, _app, _lock = _fixture(tmp_path, monkeypatch)
     parent.chmod(unsafe_mode)
     with pytest.raises(hardening.HardeningBlocked, match="observed boundary"):
         hardening.audit()
+
+
+def test_intermediate_sticky_guard_is_auditable_and_resumable(tmp_path, monkeypatch):
+    parent, _app, _lock = _fixture(tmp_path, monkeypatch)
+    first = hardening.audit()
+
+    def crash_after_guard(point, _context):
+        if point == "after_sticky_guard":
+            raise RuntimeError("simulated process loss")
+
+    monkeypatch.setattr(hardening, "FAILURE_INJECTOR", crash_after_guard)
+    with pytest.raises(RuntimeError, match="process loss"):
+        hardening.apply(first["aggregate_sha256"], hardening.APPLY_CONFIRMATION)
+    assert parent.stat().st_mode & 0o7777 == 0o1777
+
+    monkeypatch.setattr(hardening, "FAILURE_INJECTOR", None)
+    resumed = hardening.audit()
+    assert resumed["status"] == "requires_completion"
+    result = hardening.apply(
+        resumed["aggregate_sha256"], hardening.APPLY_CONFIRMATION
+    )
+    assert result["before_mode"] == "1777"
+    assert parent.stat().st_mode & 0o7777 == 0o755
+
+
+def test_guarded_apply_detects_lock_replacement_before_final_mode(tmp_path, monkeypatch):
+    parent, _app, lock = _fixture(tmp_path, monkeypatch)
+    audited = hardening.audit()
+    original = parent / "original-lock"
+
+    def replace_at_guard(point, _context):
+        if point == "after_sticky_guard":
+            lock.rename(original)
+            lock.write_text("replacement", encoding="utf-8")
+
+    monkeypatch.setattr(hardening, "FAILURE_INJECTOR", replace_at_guard)
+    with pytest.raises(hardening.HardeningBlocked, match="dev mutation lock changed"):
+        hardening.apply(audited["aggregate_sha256"], hardening.APPLY_CONFIRMATION)
+    assert parent.stat().st_mode & 0o7777 == 0o1777
+    assert original.stat().st_mode & 0o777 == 0o600
 
 
 def test_audit_rejects_symlinked_parent_app_and_lock(tmp_path, monkeypatch):
