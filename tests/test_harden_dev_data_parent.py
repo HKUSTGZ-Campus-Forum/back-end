@@ -1,6 +1,7 @@
 import fcntl
 import os
 from pathlib import Path
+import stat
 
 import pytest
 
@@ -18,6 +19,32 @@ def _fixture(tmp_path: Path, monkeypatch):
     lock.chmod(0o600)
     monkeypatch.setattr(hardening, "DATA_PARENT", parent)
     return parent, app, lock
+
+
+def test_root_owned_sticky_shared_container_is_accepted(tmp_path, monkeypatch):
+    parent, _app, _lock = _fixture(tmp_path, monkeypatch)
+    parent.parent.chmod(0o1777)
+    real_fstat = hardening.os.fstat
+
+    class RootOwnedSticky:
+        def __init__(self, source):
+            for name in dir(source):
+                if name.startswith("st_"):
+                    setattr(self, name, getattr(source, name))
+            self.st_uid = 0
+            self.st_gid = 0
+            self.st_mode = stat.S_IFDIR | 0o1777
+
+    container_identity = (parent.parent.stat().st_dev, parent.parent.stat().st_ino)
+
+    def root_owned_container(descriptor):
+        details = real_fstat(descriptor)
+        if (details.st_dev, details.st_ino) == container_identity:
+            return RootOwnedSticky(details)
+        return details
+
+    monkeypatch.setattr(hardening.os, "fstat", root_owned_container)
+    assert hardening.audit()["status"] == "requires_hardening"
 
 
 def test_audit_then_apply_changes_only_parent_mode(tmp_path, monkeypatch):
