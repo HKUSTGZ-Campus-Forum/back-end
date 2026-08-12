@@ -71,7 +71,7 @@ def test_alembic_revision_graph_is_acyclic_and_has_expected_heads():
         if parent is not None
     }
     assert set(revisions) - parents == {
-        "20260807_sched_popularity",
+        "20260812_pop_history",
         "5202003d1ec0",
     }
 
@@ -176,6 +176,113 @@ def test_production_deploy_backfills_2024_25_scheduler_offerings():
     assert deploy_workflow.index("python -m app.scripts.init_db") < deploy_workflow.index(
         "python -m app.scripts.backfill_legacy_scheduler_offerings"
     )
+
+
+def test_production_deploy_activates_bounded_popularity_sampling():
+    deploy_workflow = (ROOT / ".github" / "workflows" / "deploy-backend-prod.yml").read_text(
+        encoding="utf-8"
+    )
+    sample_timer = (ROOT / "deploy" / "systemd" / "unikorn-scheduler-popularity-sample.timer").read_text(
+        encoding="utf-8"
+    )
+    final_timer = (ROOT / "deploy" / "systemd" / "unikorn-scheduler-popularity-final.timer").read_text(
+        encoding="utf-8"
+    )
+
+    flock_at = deploy_workflow.index("flock -n 9")
+    trap_at = deploy_workflow.index("trap cleanup_deployment EXIT")
+    preflight_at = deploy_workflow.index("Preflighting non-interactive")
+    checkout_at = deploy_workflow.index("git checkout production")
+    migrate_at = deploy_workflow.index("flask db upgrade heads")
+    smoke_at = deploy_workflow.index('systemctl start "${baseline_service}"')
+    health_at = deploy_workflow.index("Local scheduler API verified")
+    activate_at = deploy_workflow.index("activate_timer()")
+
+    assert trap_at < flock_at < preflight_at < checkout_at
+    assert checkout_at < migrate_at < smoke_at < health_at < activate_at
+    assert "restore_sampling_state" in deploy_workflow
+    assert "verify_terminal_timer_untouched" in deploy_workflow
+    assert "arm_validated_terminal_timer" in deploy_workflow
+    assert "sampler_validated=true" in deploy_workflow
+    assert "Immutable sampler release ready" in deploy_workflow
+    assert "git archive" in deploy_workflow
+    assert '-e "s|__SAMPLER_DIR__|${sampler_candidate}|g"' in deploy_workflow
+    assert "sampler_current" not in deploy_workflow
+    assert 'chmod -R a-w,a+rX "${sampler_release_stage}"' in deploy_workflow
+    assert "Existing SHA-pinned popularity samplers remain available during release mutations" in deploy_workflow
+    assert "trap '' HUP INT TERM" in deploy_workflow
+    assert 'trap \'exit_for_signal 1 HUP\' HUP' in deploy_workflow
+    assert 'trap \'exit_for_signal 2 INT\' INT' in deploy_workflow
+    assert 'trap \'exit_for_signal 15 TERM\' TERM' in deploy_workflow
+    assert "sample_timer_was_enabled" in deploy_workflow
+    assert "verify_timer_state" in deploy_workflow
+    assert "sudo -n -l" in deploy_workflow
+    assert "assert_unit_inactive" in deploy_workflow
+    assert "systemd-analyze verify" in deploy_workflow
+    assert "NextElapseUSecRealtime" in deploy_workflow
+    assert "protected terminal-sampling window" in deploy_workflow
+    assert "deploy_epoch < sample_end_epoch" in deploy_workflow
+    assert "deploy_epoch < terminal_cutoff_epoch" in deploy_workflow
+    assert 'systemctl start "${verify_service}"' in deploy_workflow
+    assert 'deactivate_timer "${sample_timer}"' in deploy_workflow
+    assert 'deactivate_timer "${final_timer}"' in deploy_workflow
+    assert 'systemctl show -p Result --value "${baseline_service}"' in deploy_workflow
+    assert 'systemctl show -p Result --value "${sample_service}"' in deploy_workflow
+    assert "OnCalendar=2026-08-* *:0/5:00 Asia/Shanghai" in sample_timer
+    assert "OnCalendar=2026-09-* *:0/5:00 Asia/Shanghai" in sample_timer
+    assert "OnCalendar=2026-09-30 23:59:00 Asia/Shanghai" in final_timer
+
+
+def test_popularity_sampler_disables_app_startup_side_effects_before_import():
+    sampler = (ROOT / "scripts" / "sample_scheduler_popularity.py").read_text(
+        encoding="utf-8"
+    )
+    app_import = sampler.index("from app import create_app")
+    assert sampler.index('os.environ["ENABLE_BACKGROUND_TASKS"] = "false"') < app_import
+    assert sampler.index('os.environ["AUTO_INIT_ON_STARTUP"] = "false"') < app_import
+    assert sampler.index('os.environ["PYTHONDONTWRITEBYTECODE"] = "1"') < app_import
+
+    for service_name in (
+        "unikorn-scheduler-popularity-baseline.service.in",
+        "unikorn-scheduler-popularity-sample.service.in",
+        "unikorn-scheduler-popularity-final.service.in",
+        "unikorn-scheduler-popularity-verify.service.in",
+    ):
+        service = (ROOT / "deploy" / "systemd" / service_name).read_text(encoding="utf-8")
+        assert "Environment=ENABLE_BACKGROUND_TASKS=false" in service
+        assert "Environment=AUTO_INIT_ON_STARTUP=false" in service
+        assert "Environment=PYTHONDONTWRITEBYTECODE=1" in service
+        assert "WorkingDirectory=__SAMPLER_DIR__" in service
+        assert "EnvironmentFile=-__APP_ENV_FILE__" in service
+        assert "ExecStart=__PYTHON__ __SAMPLER_DIR__/scripts/sample_scheduler_popularity.py" in service
+        assert "--expected-database prod_unikorn" in service
+        assert "TimeoutStartSec=" in service
+
+
+def test_terminal_sampler_is_bounded_retried_and_exactly_verified():
+    final_service = (
+        ROOT / "deploy" / "systemd" / "unikorn-scheduler-popularity-final.service.in"
+    ).read_text(encoding="utf-8")
+
+    assert "--terminal --terminal-tolerance-seconds 120 --lock-wait-seconds 5" in final_service
+    assert "--verify-terminal" in final_service
+    assert "Restart=on-failure" in final_service
+    assert "RestartSec=5s" in final_service
+    assert "TimeoutStartSec=45s" in final_service
+    assert "--at" not in final_service
+
+
+def test_redeploy_baseline_does_not_block_regular_freshness_recovery():
+    baseline_service = (
+        ROOT / "deploy" / "systemd" / "unikorn-scheduler-popularity-baseline.service.in"
+    ).read_text(encoding="utf-8")
+    sample_service = (
+        ROOT / "deploy" / "systemd" / "unikorn-scheduler-popularity-sample.service.in"
+    ).read_text(encoding="utf-8")
+
+    assert "--baseline" in baseline_service
+    assert "--verify-freshness-seconds" not in baseline_service
+    assert "--verify-freshness-seconds 600" in sample_service
 
 
 def test_dispatch_workflows_do_not_bypass_the_allowlisted_operation_runner():

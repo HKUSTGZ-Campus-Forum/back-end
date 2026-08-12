@@ -1,0 +1,20 @@
+[Unit]
+Description=Initialize uniKorn scheduler popularity tracking
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__SERVICE_USER__
+Group=__SERVICE_GROUP__
+WorkingDirectory=__SAMPLER_DIR__
+EnvironmentFile=-__APP_ENV_FILE__
+Environment=ENABLE_BACKGROUND_TASKS=false
+Environment=AUTO_INIT_ON_STARTUP=false
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PGCONNECT_TIMEOUT=10
+ExecStart=__PYTHON__ __SAMPLER_DIR__/scripts/sample_scheduler_popularity.py --semester 2610 --expected-database prod_unikorn --baseline --lock-wait-seconds 30
+TimeoutStartSec=240s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
