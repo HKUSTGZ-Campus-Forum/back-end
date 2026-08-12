@@ -24,7 +24,7 @@ def init_contest():
         # ── 1. 创建比赛记录（如不存在） ──────────────────────────
         contest = ContestInfo.query.first()
         if contest:
-            print(f"比赛记录已存在：id={contest.id}，标题="{contest.title}"")
+            print(f'比赛记录已存在：id={contest.id}，标题="{contest.title}"')
         else:
             # 开始：2026-04-14 10:00 CST = UTC+8，即 UTC 02:00
             # 结束：2026-04-21 00:00 CST = UTC 2026-04-20 16:00

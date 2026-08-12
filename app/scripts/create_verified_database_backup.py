@@ -117,7 +117,13 @@ def create_verified_backup(
     os.chmod(temporary, 0o600)
     try:
         subprocess.run(
-            ["pg_dump", "--format=custom", f"--file={temporary}"],
+            [
+                "pg_dump",
+                "--format=custom",
+                "--no-owner",
+                "--no-acl",
+                f"--file={temporary}",
+            ],
             check=True,
             env=pg_environment,
         )

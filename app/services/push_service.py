@@ -1,12 +1,12 @@
 # app/services/push_service.py
 import json
-import requests
-from typing import List, Dict, Any
+from typing import Dict, Any
 from pywebpush import webpush, WebPushException
 from app.models.push_subscription import PushSubscription
 from app.models.notification import Notification
 from app.extensions import db
 from flask import current_app
+from app.utils.push_endpoints import is_valid_push_endpoint
 
 class PushService:
     """Service for handling Web Push notifications"""
@@ -42,6 +42,20 @@ class PushService:
         successful_sends = 0
         
         for subscription in subscriptions:
+            if not is_valid_push_endpoint(subscription.endpoint):
+                subscription.is_active = False
+                db.session.commit()
+                current_app.logger.warning(
+                    "Deactivated push subscription %s with an invalid endpoint",
+                    subscription.id,
+                )
+                results.append({
+                    "subscription_id": subscription.id,
+                    "success": False,
+                    "error": "Invalid push subscription"
+                })
+                continue
+
             try:
                 # Prepare subscription info for pywebpush
                 subscription_info = {
@@ -71,7 +85,12 @@ class PushService:
                 successful_sends += 1
                 
             except WebPushException as e:
-                current_app.logger.warning(f"WebPush failed for subscription {subscription.id}: {e}")
+                status_code = e.response.status_code if e.response else None
+                current_app.logger.warning(
+                    "WebPush failed for subscription %s (status %s)",
+                    subscription.id,
+                    status_code,
+                )
                 
                 # Handle subscription errors (410 = Gone, subscription invalid)
                 if e.response and e.response.status_code == 410:
@@ -82,16 +101,20 @@ class PushService:
                 results.append({
                     "subscription_id": subscription.id,
                     "success": False,
-                    "error": str(e),
-                    "status_code": e.response.status_code if e.response else None
+                    "error": "Push delivery failed",
+                    "status_code": status_code
                 })
                 
             except Exception as e:
-                current_app.logger.error(f"Unexpected error sending push to subscription {subscription.id}: {e}")
+                current_app.logger.error(
+                    "Unexpected %s sending push to subscription %s",
+                    type(e).__name__,
+                    subscription.id,
+                )
                 results.append({
                     "subscription_id": subscription.id,
                     "success": False,
-                    "error": str(e)
+                    "error": "Push delivery failed"
                 })
         
         return {

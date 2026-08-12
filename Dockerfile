@@ -1,17 +1,45 @@
-FROM python:3.12-slim
+ARG PYTHON_BASE_IMAGE=python:3.12-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2
+FROM ${PYTHON_BASE_IMAGE} AS builder
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /build
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -m venv /opt/venv
+
+COPY build-requirements.lock requirements.lock ./
+RUN /opt/venv/bin/pip install --require-hashes --only-binary=:all: -r build-requirements.lock \
+    && /opt/venv/bin/pip install --require-hashes --no-build-isolation -r requirements.lock \
+    && /opt/venv/bin/pip uninstall --yes setuptools wheel \
+    && /opt/venv/bin/pip check
+
+
+FROM ${PYTHON_BASE_IMAGE} AS runtime
+
+ENV PATH="/opt/venv/bin:${PATH}" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    FLASK_APP=wsgi:application
+
+RUN groupadd --gid 10001 app \
+    && useradd --uid 10001 --gid app --home-dir /app --no-create-home --shell /usr/sbin/nologin app
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir gunicorn
+COPY --from=builder /opt/venv /opt/venv
+COPY app ./app
+COPY migrations ./migrations
+COPY wsgi.py ./wsgi.py
 
-COPY . .
-
-ENV FLASK_APP=run.py
-ENV FLASK_ENV=production
-ENV DATABASE_URL=postgres://postgres:postgres@host.docker.internal:5432/app
+USER 10001:10001
 
 EXPOSE 5000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--timeout", "60", "run:app"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
+    CMD ["python", "-c", "import http.client; connection = http.client.HTTPConnection('127.0.0.1', 5000, timeout=2); connection.request('GET', '/healthz'); raise SystemExit(0 if connection.getresponse().status == 200 else 1)"]
+
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "120", "--graceful-timeout", "30", "--access-logfile", "-", "--error-logfile", "-", "wsgi:application"]

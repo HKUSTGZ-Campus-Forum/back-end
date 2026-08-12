@@ -8,7 +8,7 @@ from app.models.user import User
 
 cache_bp = Blueprint('cache', __name__)
 
-@cache_bp.route('/api/admin/cache/stats', methods=['GET'])
+@cache_bp.route('/admin/cache/stats', methods=['GET'])
 @jwt_required()
 def get_cache_stats():
     """Get cache statistics - admin only"""
@@ -27,7 +27,7 @@ def get_cache_stats():
         current_app.logger.error(f"Failed to get cache stats: {e}")
         return jsonify({'error': 'Failed to get cache stats'}), 500
 
-@cache_bp.route('/api/admin/cache/clear', methods=['POST'])
+@cache_bp.route('/admin/cache/clear', methods=['POST'])
 @jwt_required()
 def clear_cache():
     """Clear file URL cache - admin only"""
@@ -51,7 +51,7 @@ def clear_cache():
         current_app.logger.error(f"Failed to clear cache: {e}")
         return jsonify({'error': 'Failed to clear cache'}), 500
 
-@cache_bp.route('/api/admin/cache/warm', methods=['POST'])
+@cache_bp.route('/admin/cache/warm', methods=['POST'])
 @jwt_required()
 def warm_cache():
     """Warm up file URL cache - admin only"""
@@ -76,7 +76,7 @@ def warm_cache():
         current_app.logger.error(f"Failed to warm cache: {e}")
         return jsonify({'error': 'Failed to warm cache'}), 500
 
-@cache_bp.route('/api/admin/cache/refresh', methods=['POST'])
+@cache_bp.route('/admin/cache/refresh', methods=['POST'])
 @jwt_required()
 def refresh_cache():
     """Refresh expiring URLs - admin only"""
@@ -99,7 +99,7 @@ def refresh_cache():
 
 # ===== MATCHING CACHE ENDPOINTS =====
 
-@cache_bp.route('/api/admin/cache/matching/stats', methods=['GET'])
+@cache_bp.route('/admin/cache/matching/stats', methods=['GET'])
 @jwt_required()
 def get_matching_cache_stats():
     """Get matching cache performance statistics - admin only"""
@@ -120,7 +120,7 @@ def get_matching_cache_stats():
         current_app.logger.error(f"Failed to get matching cache stats: {e}")
         return jsonify({'error': 'Failed to get matching cache stats'}), 500
 
-@cache_bp.route('/api/admin/cache/matching/warm/<int:user_id>', methods=['POST'])
+@cache_bp.route('/admin/cache/matching/warm/<int:user_id>', methods=['POST'])
 @jwt_required()
 def warm_matching_cache(user_id):
     """Proactively warm cache for a user - admin only"""
@@ -141,7 +141,7 @@ def warm_matching_cache(user_id):
         current_app.logger.error(f"Failed to warm matching cache: {e}")
         return jsonify({'error': 'Failed to warm matching cache'}), 500
 
-@cache_bp.route('/api/admin/cache/matching/clear', methods=['POST'])
+@cache_bp.route('/admin/cache/matching/clear', methods=['POST'])
 @jwt_required()
 def clear_matching_cache():
     """Clear all matching caches - admin only"""
@@ -162,7 +162,7 @@ def clear_matching_cache():
         current_app.logger.error(f"Failed to clear matching cache: {e}")
         return jsonify({'error': 'Failed to clear matching cache'}), 500
 
-@cache_bp.route('/api/cache/matching/invalidate/profile/<int:profile_id>', methods=['POST'])
+@cache_bp.route('/cache/matching/invalidate/profile/<int:profile_id>', methods=['POST'])
 @jwt_required()
 def invalidate_profile_cache(profile_id):
     """Invalidate cache for a specific profile - user can invalidate their own"""
