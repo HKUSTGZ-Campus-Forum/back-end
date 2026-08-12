@@ -257,6 +257,33 @@ def test_dev_migration_checkout_reconciliation_is_two_phase_and_fixed_scope():
     assert "rmtree" not in helper
 
 
+def test_dev_data_parent_hardening_is_exact_two_phase_and_non_recursive():
+    workflow = (ROOT / ".github" / "workflows" / "harden-dev-data-parent.yml").read_text(
+        encoding="utf-8"
+    )
+    helper = (ROOT / "tools" / "harden_dev_data_parent.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "workflow_dispatch:" in workflow
+    assert "group: backend-mutations-dev" in workflow
+    assert "refs/heads/main" in workflow
+    assert "expected_aggregate_sha256" in workflow
+    assert "HARDEN_DEV_DATA_PARENT_0777_TO_0755" in workflow
+    assert "secrets.DEV_HOST" in workflow
+    assert 'Path("/data/dev_unikorn")' in helper
+    assert 'APP_NAME = "back-end"' in helper
+    assert 'LOCK_NAME = "backend-mutations-dev.lock"' in helper
+    assert "EXPECTED_MODE = 0o777" in helper
+    assert "TARGET_MODE = 0o755" in helper
+    assert "os.O_NOFOLLOW" in helper
+    assert "fcntl.flock" in helper
+    assert "os.fchmod(parent_fd, TARGET_MODE)" in helper
+    assert "os.fsync(parent_fd)" in helper
+    assert "rmtree" not in helper
+    assert "unlink" not in helper
+
+
 def test_dev_database_initialization_syncs_curriculum_requirements():
     init_script = (ROOT / "app" / "scripts" / "init_db.py").read_text(encoding="utf-8")
 
