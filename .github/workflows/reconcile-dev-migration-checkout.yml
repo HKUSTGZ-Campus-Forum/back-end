@@ -1,0 +1,101 @@
+name: Reconcile Dev Migration Checkout
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Audit first; apply only after reviewing the aggregate digest"
+        required: true
+        default: audit
+        type: choice
+        options:
+          - audit
+          - apply
+      expected_aggregate_sha256:
+        description: "Exact aggregate SHA-256 emitted by the reviewed audit (apply only)"
+        required: false
+        type: string
+      confirmation:
+        description: "Apply requires QUARANTINE_DEV_LEGACY_MIGRATIONS"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-mutations-dev
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    name: ${{ inputs.mode }} fixed dev migration checkout
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Require a fixed dev request
+        env:
+          MODE: ${{ inputs.mode }}
+          EXPECTED_AGGREGATE_SHA256: ${{ inputs.expected_aggregate_sha256 }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          case "$MODE" in
+            audit)
+              test -z "$EXPECTED_AGGREGATE_SHA256"
+              test -z "$CONFIRMATION"
+              ;;
+            apply)
+              [[ "$EXPECTED_AGGREGATE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+              test "$CONFIRMATION" = "QUARANTINE_DEV_LEGACY_MIGRATIONS"
+              ;;
+            *) exit 2 ;;
+          esac
+
+      - name: Checkout reviewed helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Encode reviewed helper
+        id: helper
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sha256="$(sha256sum tools/reconcile_dev_migration_checkout.py | cut -d ' ' -f 1)"
+          gzip -n -9 -c tools/reconcile_dev_migration_checkout.py > /tmp/reconcile-helper.py.gz
+          payload="$(base64 -w 0 /tmp/reconcile-helper.py.gz)"
+          rm -f /tmp/reconcile-helper.py.gz
+          printf 'sha256=%s\n' "$sha256" >> "$GITHUB_OUTPUT"
+          printf 'payload=%s\n' "$payload" >> "$GITHUB_OUTPUT"
+
+      - name: Audit or recoverably quarantine exact allowlist
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        env:
+          RECONCILE_MODE: ${{ inputs.mode }}
+          RECONCILE_EXPECTED_AGGREGATE_SHA256: ${{ inputs.expected_aggregate_sha256 }}
+          RECONCILE_CONFIRMATION: ${{ inputs.confirmation }}
+          RECONCILE_RUN_ID: ${{ github.run_id }}
+          RECONCILE_HELPER_SHA256: ${{ steps.helper.outputs.sha256 }}
+          RECONCILE_HELPER_GZIP_B64: ${{ steps.helper.outputs.payload }}
+        with:
+          host: ${{ secrets.DEV_HOST }}
+          username: ${{ secrets.DEV_USER }}
+          key: ${{ secrets.DEV_SSH_KEY }}
+          command_timeout: 5m
+          envs: RECONCILE_MODE,RECONCILE_EXPECTED_AGGREGATE_SHA256,RECONCILE_CONFIRMATION,RECONCILE_RUN_ID,RECONCILE_HELPER_SHA256,RECONCILE_HELPER_GZIP_B64
+          script: |
+            set -Eeuo pipefail
+            helper="$(mktemp)"
+            trap 'rm -f "$helper"' EXIT
+            printf '%s' "$RECONCILE_HELPER_GZIP_B64" | base64 --decode | gzip -d >"$helper"
+            test "$(sha256sum "$helper" | cut -d ' ' -f 1)" = "$RECONCILE_HELPER_SHA256"
+            chmod 0500 "$helper"
+            if [ "$RECONCILE_MODE" = "audit" ]; then
+              python3 -I "$helper" --mode audit
+            else
+              python3 -I "$helper" \
+                --mode apply \
+                --expected-aggregate-sha256 "$RECONCILE_EXPECTED_AGGREGATE_SHA256" \
+                --confirmation "$RECONCILE_CONFIRMATION" \
+                --workflow-run-id "$RECONCILE_RUN_ID"
+            fi

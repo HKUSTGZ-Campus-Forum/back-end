@@ -74,7 +74,8 @@ jobs:
             readonly local_api_url="http://127.0.0.1:8000/scheduler/semesters"
 
             cd "$app_dir"
-            exec 9>/tmp/unikorn-backend-mutation-dev.lock
+            umask 077
+            exec 9>/data/dev_unikorn/backend-mutations-dev.lock
             flock -n 9
             dirty_state="$(git status --porcelain=v1 --untracked-files=all)"
             if [[ -n "$dirty_state" ]]; then
@@ -101,7 +102,6 @@ jobs:
             from alibabacloud_tea_openapi import models  # noqa: F401
             PY
 
-            umask 077
             install -d -m 0750 "$backup_dir"
             timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
             short_sha="$(printf '%.12s' "$DEPLOY_SHA")"

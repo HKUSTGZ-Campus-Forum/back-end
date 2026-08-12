@@ -200,6 +200,63 @@ def test_deploy_workflows_fail_on_migration_errors_and_use_committed_revisions()
         assert "flask db migrate" not in deploy_workflow
 
 
+def test_dev_migration_checkout_reconciliation_is_two_phase_and_fixed_scope():
+    deploy_workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(
+        encoding="utf-8"
+    )
+    workflow = (
+        ROOT / ".github" / "workflows" / "reconcile-dev-migration-checkout.yml"
+    ).read_text(encoding="utf-8")
+    helper = (
+        ROOT / "tools" / "reconcile_dev_migration_checkout.py"
+    ).read_text(encoding="utf-8")
+
+    assert "workflow_dispatch:" in workflow
+    assert "group: backend-mutations-dev" in workflow
+    assert "cancel-in-progress: false" in workflow
+    assert "exec 9>/data/dev_unikorn/backend-mutations-dev.lock" in deploy_workflow
+    assert "/tmp/unikorn-backend-mutation-dev.lock" not in deploy_workflow
+    assert deploy_workflow.index("umask 077") < deploy_workflow.index(
+        "exec 9>/data/dev_unikorn/backend-mutations-dev.lock"
+    )
+    assert "refs/heads/main" in workflow
+    assert "secrets.DEV_HOST" in workflow
+    assert "secrets.DEV_USER" in workflow
+    assert "secrets.DEV_SSH_KEY" in workflow
+    assert "QUARANTINE_DEV_LEGACY_MIGRATIONS" in workflow
+    assert "expected_aggregate_sha256" in workflow
+    assert "flock -n 9" not in workflow
+    assert "/tmp/unikorn-backend-mutation-dev.lock" not in workflow
+    assert "git clean" not in workflow
+    assert "rm -rf" not in workflow
+    assert "/data/dev_unikorn/back-end" in helper
+    assert "/data/dev_unikorn/quarantine/legacy-migrations" in helper
+    assert "ast.literal_eval" in helper
+    assert "os.rename" in helper
+    assert "PREPARED.json" in helper
+    assert "COMMITTED.json" in helper
+    assert "backend-mutations-dev.lock" in helper
+    assert "O_NOFOLLOW" in helper
+    assert "fcntl.flock" in helper
+    assert "src_dir_fd=" in helper
+    assert "dst_dir_fd=" in helper
+    assert "os.fsync" in helper
+    assert "live_current_revisions" in helper
+    assert "live_current_allowlisted_revisions" in helper
+    assert "live_current_unknown_revisions" in helper
+    assert "repository_sha" in helper
+    assert "helper_sha256" in helper
+    assert "committed_revisions" in helper
+    assert "committed_heads" in helper
+    assert "committed_allowlisted_revision_references" in helper
+    assert '"depends_on"' in helper
+    assert "os.link" in helper
+    assert "SELECT version_num FROM alembic_version" in helper
+    assert "dev_unikorn" in helper
+    assert "git clean" not in helper
+    assert "rmtree" not in helper
+
+
 def test_dev_database_initialization_syncs_curriculum_requirements():
     init_script = (ROOT / "app" / "scripts" / "init_db.py").read_text(encoding="utf-8")
 
