@@ -49,6 +49,14 @@ The equivalent REST body is:
 Use `ref=main,target=dev` for dev and `ref=production,target=production`
 for production. Any other ref/target combination is rejected.
 
+The Python runner also recognizes `target=campus`, but the backend repository's
+GitHub-hosted workflow intentionally does not transport campus requests. The
+campus network is reached through the separately reviewed, root-owned controller
+in the private `campus-deploy` repository. That controller runs this module from
+the exact current backend image and supplies only the fixed arguments described
+below. Until that controller is installed, a campus request has no executable
+GitHub workflow route and therefore cannot report a false success.
+
 ## Allowlist
 
 The initial operation allowlist is:
@@ -58,6 +66,18 @@ The initial operation allowlist is:
 - `curriculum-sync` with committed package `curriculum-2026-v1`;
 - `course-duplicates` in dry-run or exact-control apply mode;
 - `database-upgrade-heads` in apply mode, fixed to Alembic `heads`.
+
+The campus target has a smaller allowlist: `verify-release`,
+`scheduler-import`, and `curriculum-sync` only. Duplicate reconciliation and
+database upgrades are rejected by the runner for campus even if it is invoked
+outside GitHub Actions. A campus apply requires `confirmation=APPLY_CAMPUS`, a
+verified backup digest, and a matching campus dry-run report; `APPLY_DEV` and
+`APPLY_PRODUCTION` are not interchangeable with it.
+
+The exact campus tuples are fixed in code: release verification is dry-run
+only; scheduler package `scheduler-2610-v1` and curriculum package
+`curriculum-2026-v1` each support dry-run and apply. Adding a later semester or
+cohort to the package registry does not automatically enable it for campus.
 
 Package paths, hashes, semester/cohort identifiers, and expected counts come
 from `app/data/backend_operation_packages.json`. Callers cannot supply a path,
@@ -97,6 +117,32 @@ backup or touching the database.
 `database-upgrade-heads` has no meaningful dry-run and therefore does not take
 an approved dry-run id, but it retains the confirmation, exact-SHA, clean-tree,
 locking, verified-backup, and health gates.
+
+## Campus controller contract
+
+The private campus controller is responsible for transport and Docker lifecycle;
+this repository remains responsible for validating and running the academic
+operation. Its one-shot backend container must:
+
+- use the current release's immutable backend image and pass that manifest's
+  40-character backend commit as `--release-sha`;
+- connect with the release's controlled backend/database environment and DB-only
+  network, retain the image's non-root user and read-only root filesystem, and
+  provide a private writable temporary directory;
+- mount a root-controlled persistent report directory read/write and set
+  `BACKEND_OPERATION_REPORT_DIR` to it, so an apply can verify the earlier
+  campus dry-run after the one-shot container exits;
+- construct the runner argument vector from a fixed operation table. It may
+  forward validated request IDs and the exact fields already accepted by this
+  runner, but must never accept a command, SQL, URL, path, database URL, module,
+  migration revision, container service, or additional argument list;
+- serialize against deployment/backup work, create and verify a database backup
+  before apply, pass its SHA-256 as `--backup-sha256`, then restart and health
+  check the current backend after a successful apply.
+
+The Python runner adds a PostgreSQL advisory lock and independently repeats the
+allowlist, confirmation, package digest, release/dry-run binding, and current
+plan checks. The controller must not replace any of those checks.
 
 ## Security boundary
 

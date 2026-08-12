@@ -133,6 +133,166 @@ def test_scheduler_dry_run_request_uses_committed_package():
     assert package["semester_id"] == "2610"
 
 
+@pytest.mark.parametrize(
+    ("operation", "package_id"),
+    [
+        ("verify-release", None),
+        ("scheduler-import", "scheduler-2610-v1"),
+        ("curriculum-sync", "curriculum-2026-v1"),
+    ],
+)
+def test_campus_target_accepts_only_academic_operations(operation, package_id):
+    argv = [
+        "--request-id",
+        "campus-dry-run",
+        "--workflow-run-id",
+        "12345",
+        "--operation",
+        operation,
+        "--mode",
+        "dry-run",
+        "--target",
+        "campus",
+        "--release-sha",
+        "a" * 40,
+        "--actor",
+        "test-actor",
+    ]
+    if package_id:
+        argv.extend(("--package-id", package_id))
+
+    args = operations.build_parser().parse_args(argv)
+    package = operations._validate_args(args)
+
+    assert args.target == "campus"
+    assert (package or {}).get("id") == package_id
+
+
+@pytest.mark.parametrize("operation", ["course-duplicates", "database-upgrade-heads"])
+def test_campus_target_rejects_non_academic_operations(operation):
+    args = operations.build_parser().parse_args(
+        [
+            "--request-id",
+            "campus-blocked",
+            "--workflow-run-id",
+            "12345",
+            "--operation",
+            operation,
+            "--mode",
+            "apply",
+            "--target",
+            "campus",
+            "--release-sha",
+            "a" * 40,
+            "--actor",
+            "test-actor",
+            "--confirmation",
+            "APPLY_CAMPUS",
+            "--backup-sha256",
+            "b" * 64,
+        ]
+    )
+
+    with pytest.raises(operations.OperationBlocked, match="not allowlisted for campus"):
+        operations._validate_args(args)
+
+
+@pytest.mark.parametrize(
+    ("operation", "mode", "package_id"),
+    [
+        ("verify-release", "apply", None),
+        ("verify-release", "dry-run", "scheduler-2610-v1"),
+        ("scheduler-import", "dry-run", "curriculum-2026-v1"),
+        ("curriculum-sync", "dry-run", "scheduler-2610-v1"),
+    ],
+)
+def test_campus_operation_mode_and_package_allowlist_is_exact(
+    operation, mode, package_id
+):
+    argv = [
+        "--request-id",
+        "campus-blocked",
+        "--workflow-run-id",
+        "12345",
+        "--operation",
+        operation,
+        "--mode",
+        mode,
+        "--target",
+        "campus",
+        "--release-sha",
+        "a" * 40,
+        "--actor",
+        "test-actor",
+    ]
+    if package_id:
+        argv.extend(("--package-id", package_id))
+    if mode == "apply":
+        argv.extend(("--confirmation", "APPLY_CAMPUS"))
+        argv.extend(("--backup-sha256", "b" * 64))
+
+    args = operations.build_parser().parse_args(argv)
+
+    with pytest.raises(operations.OperationBlocked, match="not allowlisted for campus"):
+        operations._validate_args(args)
+
+
+def test_campus_apply_requires_explicit_campus_confirmation(monkeypatch, tmp_path):
+    monkeypatch.setenv(operations.REPORT_DIR_ENV, str(tmp_path))
+    args = _args("--target", "campus", "--mode", "apply")
+
+    args.confirmation = "APPLY_PRODUCTION"
+    with pytest.raises(operations.OperationBlocked, match="APPLY_CAMPUS"):
+        operations._validate_args(args)
+
+    args.confirmation = "APPLY_CAMPUS"
+    with pytest.raises(operations.OperationBlocked, match="backup"):
+        operations._validate_args(args)
+
+    assert operations.TARGET_CONFIRMATIONS["campus"] == "APPLY_CAMPUS"
+
+
+def test_campus_apply_is_bound_to_campus_dry_run_and_verified_backup(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv(operations.REPORT_DIR_ENV, str(tmp_path))
+    dry_run = {
+        "schema_version": 1,
+        "request_id": "campus-approved",
+        "workflow_run_id": "111",
+        "operation": "scheduler-import",
+        "mode": "dry-run",
+        "target": "campus",
+        "release_sha": "a" * 40,
+        "package_id": "scheduler-2610-v1",
+        "package_sha256": "4ec2cb305a31348944cba064dba9435825f19d5c1b99f9e2e8177e233eddfbff",
+        "status": "dry-run",
+        "result": {"status": "dry-run"},
+    }
+    dry_run["result_sha256"] = operations._sha256_json(dry_run["result"])
+    operations._write_report(dry_run)
+    args = _args(
+        "--target",
+        "campus",
+        "--mode",
+        "apply",
+        "--confirmation",
+        "APPLY_CAMPUS",
+        "--backup-sha256",
+        "b" * 64,
+        "--approved-dry-run-id",
+        "campus-approved",
+    )
+
+    package = operations._validate_args(args)
+
+    assert package["id"] == "scheduler-2610-v1"
+
+    args.target = "production"
+    with pytest.raises(operations.OperationBlocked, match="APPLY_PRODUCTION"):
+        operations._validate_args(args)
+
+
 def test_github_app_actor_is_accepted():
     args = _args()
     args.actor = "course-loader[bot]"
