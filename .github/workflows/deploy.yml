@@ -74,7 +74,7 @@ jobs:
             readonly local_api_url="http://127.0.0.1:8000/scheduler/semesters"
 
             cd "$app_dir"
-            exec 9>/tmp/unikorn-backend-mutation-dev.lock
+            exec 9>/data/dev_unikorn/backend-mutations-dev.lock
             flock -n 9
             dirty_state="$(git status --porcelain=v1 --untracked-files=all)"
             if [[ -n "$dirty_state" ]]; then

@@ -201,6 +201,9 @@ def test_deploy_workflows_fail_on_migration_errors_and_use_committed_revisions()
 
 
 def test_dev_migration_checkout_reconciliation_is_two_phase_and_fixed_scope():
+    deploy_workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(
+        encoding="utf-8"
+    )
     workflow = (
         ROOT / ".github" / "workflows" / "reconcile-dev-migration-checkout.yml"
     ).read_text(encoding="utf-8")
@@ -211,6 +214,8 @@ def test_dev_migration_checkout_reconciliation_is_two_phase_and_fixed_scope():
     assert "workflow_dispatch:" in workflow
     assert "group: backend-mutations-dev" in workflow
     assert "cancel-in-progress: false" in workflow
+    assert "exec 9>/data/dev_unikorn/backend-mutations-dev.lock" in deploy_workflow
+    assert "/tmp/unikorn-backend-mutation-dev.lock" not in deploy_workflow
     assert "refs/heads/main" in workflow
     assert "secrets.DEV_HOST" in workflow
     assert "secrets.DEV_USER" in workflow
