@@ -1,4 +1,5 @@
 import hashlib
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -56,12 +57,11 @@ def _checkout(tmp_path: Path, monkeypatch):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(payload)
 
-    quarantine_root = tmp_path / "quarantine"
+    quarantine_root = tmp_path / "quarantine" / "legacy-migrations"
     monkeypatch.setattr(reconciliation, "APP_DIR", repository)
     monkeypatch.setattr(reconciliation, "QUARANTINE_ROOT", quarantine_root)
     monkeypatch.setattr(reconciliation, "ALLOWLIST", allowlist)
     monkeypatch.setattr(reconciliation, "ALLOWLIST_SET", frozenset(allowlist))
-    monkeypatch.setattr(reconciliation, "_validate_fixed_parent", lambda _path: None)
     monkeypatch.setattr(
         reconciliation,
         "_live_database_revisions",
@@ -260,31 +260,33 @@ def test_apply_moves_recoverably_writes_manifest_and_leaves_clean_tree(
     assert result["file_count"] == len(payloads)
     assert _git(repository, "status", "--porcelain=v1", "--untracked-files=all") == ""
     assert all(not (repository / path).exists() for path in reconciliation.ALLOWLIST)
-    assert all((destination / path).read_bytes() == payload for path, payload in payloads.items())
-    manifest_payload = (destination / "manifest.json").read_bytes()
-    manifest = json.loads(manifest_payload)
-    assert manifest["aggregate_sha256"] == audited["aggregate_sha256"]
-    assert manifest["files"] == audited["files"]
-    assert result["manifest_sha256"] == hashlib.sha256(manifest_payload).hexdigest()
-    assert destination.stat().st_mode & 0o777 == 0o500
+    assert all(
+        (destination / "files" / Path(path).name).read_bytes() == payload
+        for path, payload in payloads.items()
+    )
+    prepared_payload = (destination / "PREPARED.json").read_bytes()
+    prepared = json.loads(prepared_payload)
+    committed_payload = (destination / "COMMITTED.json").read_bytes()
+    committed = json.loads(committed_payload)
+    assert prepared["aggregate_sha256"] == audited["aggregate_sha256"]
+    assert prepared["files"] == audited["files"]
+    assert prepared["state"] == "PREPARED"
+    assert committed["state"] == "COMMITTED"
+    assert committed["prepared_sha256"] == hashlib.sha256(prepared_payload).hexdigest()
+    assert result["prepared_sha256"] == hashlib.sha256(prepared_payload).hexdigest()
+    assert result["committed_sha256"] == hashlib.sha256(committed_payload).hexdigest()
+    assert destination.stat().st_mode & 0o777 == 0o700
 
 
 def test_apply_rolls_back_moves_when_a_later_verification_fails(tmp_path, monkeypatch):
     repository, quarantine, payloads = _checkout(tmp_path, monkeypatch)
     audited = reconciliation.audit(repository)
-    real_inspect = reconciliation._inspect_file
-    calls = 0
+    def fail_after_first_move(point, context):
+        if point == "after_move" and context["moved_count"] == 1:
+            raise reconciliation.ReconciliationBlocked("simulated first-move crash")
 
-    def fail_second_quarantine_inspection(path, relative_path):
-        nonlocal calls
-        if str(path).startswith(str(quarantine)):
-            calls += 1
-            if calls == 2:
-                raise reconciliation.ReconciliationBlocked("simulated verification failure")
-        return real_inspect(path, relative_path)
-
-    monkeypatch.setattr(reconciliation, "_inspect_file", fail_second_quarantine_inspection)
-    with pytest.raises(reconciliation.ReconciliationBlocked, match="simulated"):
+    monkeypatch.setattr(reconciliation, "FAILURE_INJECTOR", fail_after_first_move)
+    with pytest.raises(reconciliation.ReconciliationBlocked, match="first-move"):
         reconciliation.apply(
             repository,
             audited["aggregate_sha256"],
@@ -294,6 +296,106 @@ def test_apply_rolls_back_moves_when_a_later_verification_fails(tmp_path, monkey
 
     assert all((repository / path).read_bytes() == payload for path, payload in payloads.items())
     assert not (quarantine / "run-98765").exists()
+
+
+def test_prepared_journal_exists_before_first_move_and_failure_restores(
+    tmp_path, monkeypatch
+):
+    repository, quarantine, payloads = _checkout(tmp_path, monkeypatch)
+    audited = reconciliation.audit(repository)
+
+    def fail_after_prepared(point, context):
+        if point == "after_prepared":
+            prepared = Path(context["destination"]) / "PREPARED.json"
+            assert json.loads(prepared.read_text(encoding="utf-8"))["state"] == "PREPARED"
+            raise reconciliation.ReconciliationBlocked("simulated after-prepared crash")
+
+    monkeypatch.setattr(reconciliation, "FAILURE_INJECTOR", fail_after_prepared)
+    with pytest.raises(reconciliation.ReconciliationBlocked, match="after-prepared"):
+        reconciliation.apply(
+            repository,
+            audited["aggregate_sha256"],
+            reconciliation.APPLY_CONFIRMATION,
+            "111",
+        )
+    assert all((repository / path).read_bytes() == payload for path, payload in payloads.items())
+    assert not (quarantine / "run-111").exists()
+
+
+def test_failure_before_commit_restores_every_original_and_removes_transaction(
+    tmp_path, monkeypatch
+):
+    repository, quarantine, payloads = _checkout(tmp_path, monkeypatch)
+    audited = reconciliation.audit(repository)
+
+    def fail_before_committed(point, _context):
+        if point == "before_committed":
+            raise reconciliation.ReconciliationBlocked("simulated before-commit crash")
+
+    monkeypatch.setattr(reconciliation, "FAILURE_INJECTOR", fail_before_committed)
+    with pytest.raises(reconciliation.ReconciliationBlocked, match="before-commit"):
+        reconciliation.apply(
+            repository,
+            audited["aggregate_sha256"],
+            reconciliation.APPLY_CONFIRMATION,
+            "222",
+        )
+    assert all((repository / path).read_bytes() == payload for path, payload in payloads.items())
+    assert not (quarantine / "run-222").exists()
+
+
+def test_failure_after_commit_retains_durable_committed_transaction(
+    tmp_path, monkeypatch
+):
+    repository, quarantine, payloads = _checkout(tmp_path, monkeypatch)
+    audited = reconciliation.audit(repository)
+
+    def fail_after_committed(point, _context):
+        if point == "after_committed":
+            raise reconciliation.ReconciliationBlocked("simulated after-commit crash")
+
+    monkeypatch.setattr(reconciliation, "FAILURE_INJECTOR", fail_after_committed)
+    with pytest.raises(reconciliation.ManualRecoveryRequired, match="committed transaction"):
+        reconciliation.apply(
+            repository,
+            audited["aggregate_sha256"],
+            reconciliation.APPLY_CONFIRMATION,
+            "333",
+        )
+    transaction = quarantine / "run-333"
+    assert json.loads((transaction / "COMMITTED.json").read_text())["state"] == "COMMITTED"
+    assert all(
+        (transaction / "files" / Path(path).name).read_bytes() == payload
+        for path, payload in payloads.items()
+    )
+
+
+def test_source_reappearance_conflict_never_deletes_quarantined_original(
+    tmp_path, monkeypatch
+):
+    repository, quarantine, payloads = _checkout(tmp_path, monkeypatch)
+    audited = reconciliation.audit(repository)
+    first_path = repository / reconciliation.ALLOWLIST[0]
+
+    def create_conflict_then_fail(point, context):
+        if point == "after_move" and context["moved_count"] == 1:
+            first_path.write_bytes(b"conflicting replacement\n")
+            raise reconciliation.ReconciliationBlocked("simulated source conflict")
+
+    monkeypatch.setattr(reconciliation, "FAILURE_INJECTOR", create_conflict_then_fail)
+    with pytest.raises(reconciliation.ManualRecoveryRequired, match="transaction retained"):
+        reconciliation.apply(
+            repository,
+            audited["aggregate_sha256"],
+            reconciliation.APPLY_CONFIRMATION,
+            "444",
+        )
+    transaction = quarantine / "run-444"
+    original = transaction / "files" / first_path.name
+    assert first_path.read_bytes() == b"conflicting replacement\n"
+    assert original.read_bytes() == payloads[reconciliation.ALLOWLIST[0]]
+    assert (transaction / "PREPARED.json").is_file()
+    assert not (transaction / "COMMITTED.json").exists()
 
 
 def test_allowlist_is_exactly_the_twelve_observed_dev_paths():
@@ -311,3 +413,26 @@ def test_allowlist_is_exactly_the_twelve_observed_dev_paths():
         "migrations/versions/d79de51fc5f3_.py",
         "migrations/versions/da5f7cad7d38_.py",
     )
+
+
+def test_helper_lock_rejects_symlink_and_contended_regular_file(tmp_path, monkeypatch):
+    data_directory = tmp_path / "data"
+    data_directory.mkdir(mode=0o700)
+    app_directory = data_directory / "back-end"
+    app_directory.mkdir()
+    lock_path = data_directory / "backend-mutations-dev.lock"
+    monkeypatch.setattr(reconciliation, "APP_DIR", app_directory)
+    monkeypatch.setattr(reconciliation, "LOCK_PATH", lock_path)
+
+    lock_path.symlink_to(data_directory / "target")
+    with pytest.raises(reconciliation.ReconciliationBlocked, match="safely open"):
+        reconciliation._acquire_lock()
+    lock_path.unlink()
+
+    first_descriptor = reconciliation._acquire_lock()
+    try:
+        with pytest.raises(reconciliation.ReconciliationBlocked, match="holds the lock"):
+            reconciliation._acquire_lock()
+    finally:
+        fcntl.flock(first_descriptor, fcntl.LOCK_UN)
+        os.close(first_descriptor)

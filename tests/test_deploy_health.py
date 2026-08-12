@@ -179,14 +179,22 @@ def test_dev_migration_checkout_reconciliation_is_two_phase_and_fixed_scope():
     assert "secrets.DEV_SSH_KEY" in workflow
     assert "QUARANTINE_DEV_LEGACY_MIGRATIONS" in workflow
     assert "expected_aggregate_sha256" in workflow
-    assert "flock -n 9" in workflow
+    assert "flock -n 9" not in workflow
+    assert "/tmp/unikorn-backend-mutation-dev.lock" not in workflow
     assert "git clean" not in workflow
     assert "rm -rf" not in workflow
     assert "/data/dev_unikorn/back-end" in helper
     assert "/data/dev_unikorn/quarantine/legacy-migrations" in helper
     assert "ast.literal_eval" in helper
-    assert "os.replace" in helper
-    assert "manifest.json" in helper
+    assert "os.rename" in helper
+    assert "PREPARED.json" in helper
+    assert "COMMITTED.json" in helper
+    assert "backend-mutations-dev.lock" in helper
+    assert "O_NOFOLLOW" in helper
+    assert "fcntl.flock" in helper
+    assert "src_dir_fd=" in helper
+    assert "dst_dir_fd=" in helper
+    assert "os.fsync" in helper
     assert "live_current_revisions" in helper
     assert "live_current_allowlisted_revisions" in helper
     assert "live_current_unknown_revisions" in helper
@@ -197,7 +205,7 @@ def test_dev_migration_checkout_reconciliation_is_two_phase_and_fixed_scope():
     assert "SELECT version_num FROM alembic_version" in helper
     assert "dev_unikorn" in helper
     assert "git clean" not in helper
-    assert "unlink(" not in helper
+    assert "rmtree" not in helper
 
 
 def test_dev_database_initialization_syncs_curriculum_requirements():

@@ -85,8 +85,6 @@ jobs:
           envs: RECONCILE_MODE,RECONCILE_EXPECTED_AGGREGATE_SHA256,RECONCILE_CONFIRMATION,RECONCILE_RUN_ID,RECONCILE_HELPER_SHA256,RECONCILE_HELPER_GZIP_B64
           script: |
             set -Eeuo pipefail
-            exec 9>/tmp/unikorn-backend-mutation-dev.lock
-            flock -n 9
             helper="$(mktemp)"
             trap 'rm -f "$helper"' EXIT
             printf '%s' "$RECONCILE_HELPER_GZIP_B64" | base64 --decode | gzip -d >"$helper"

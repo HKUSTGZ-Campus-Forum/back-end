@@ -9,21 +9,21 @@ from __future__ import annotations
 
 import argparse
 import ast
+import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
-import shutil
 import stat
 import subprocess
 import sys
-import tempfile
 from typing import Any
 
 
 APP_DIR = Path("/data/dev_unikorn/back-end")
 QUARANTINE_ROOT = Path("/data/dev_unikorn/quarantine/legacy-migrations")
+LOCK_PATH = Path("/data/dev_unikorn/backend-mutations-dev.lock")
 EXPECTED_BRANCH = "main"
 EXPECTED_DATABASE = "dev_unikorn"
 APPLY_CONFIRMATION = "QUARANTINE_DEV_LEGACY_MIGRATIONS"
@@ -46,10 +46,77 @@ ALLOWLIST = (
     "migrations/versions/da5f7cad7d38_.py",
 )
 ALLOWLIST_SET = frozenset(ALLOWLIST)
+FAILURE_INJECTOR = None
 
 
 class ReconciliationBlocked(RuntimeError):
     """The checkout does not exactly match the reviewed recovery boundary."""
+
+
+class ManualRecoveryRequired(ReconciliationBlocked):
+    """A durable transaction was retained and needs operator inspection."""
+
+
+def _failure_point(name: str, context: dict[str, Any] | None = None) -> None:
+    if FAILURE_INJECTOR is not None:
+        FAILURE_INJECTOR(name, context or {})
+
+
+def _fsync_directory(descriptor: int) -> None:
+    os.fsync(descriptor)
+
+
+def _open_directory(path: Path) -> int:
+    return os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+
+
+def _validate_fixed_parent_descriptor(descriptor: int, label: str) -> tuple[int, int]:
+    details = os.fstat(descriptor)
+    if (
+        not stat.S_ISDIR(details.st_mode)
+        or details.st_uid != os.geteuid()
+        or details.st_mode & 0o022
+    ):
+        raise ReconciliationBlocked(f"unsafe parent directory: {label}")
+    return details.st_dev, details.st_ino
+
+
+def _acquire_lock() -> int:
+    if LOCK_PATH.parent != APP_DIR.parent:
+        raise ReconciliationBlocked("lock path is outside the fixed private data directory")
+    parent_fd = _open_directory(APP_DIR.parent)
+    try:
+        _validate_fixed_parent_descriptor(parent_fd, str(APP_DIR.parent))
+    except Exception:
+        os.close(parent_fd)
+        raise
+    try:
+        descriptor = os.open(
+            LOCK_PATH.name,
+            os.O_CREAT | os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=parent_fd,
+        )
+    except OSError as error:
+        os.close(parent_fd)
+        raise ReconciliationBlocked("cannot safely open the fixed dev mutation lock") from error
+    _fsync_directory(parent_fd)
+    os.close(parent_fd)
+    details = os.fstat(descriptor)
+    if (
+        not stat.S_ISREG(details.st_mode)
+        or details.st_uid != os.geteuid()
+        or details.st_nlink != 1
+        or stat.S_IMODE(details.st_mode) != 0o600
+    ):
+        os.close(descriptor)
+        raise ReconciliationBlocked("fixed dev mutation lock has unsafe metadata")
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as error:
+        os.close(descriptor)
+        raise ReconciliationBlocked("another dev backend mutation holds the lock") from error
+    return descriptor
 
 
 def _git(repo: Path, *arguments: str) -> str:
@@ -129,9 +196,19 @@ def _validate_down_revision(value: Any, filename: str) -> str | list[str] | None
     raise ReconciliationBlocked(f"{filename}: invalid down_revision metadata")
 
 
-def _inspect_file(path: Path, relative_path: str) -> dict[str, Any]:
+def _read_bound_file(
+    parent_fd: int,
+    name: str,
+    relative_path: str,
+    *,
+    expected: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], tuple[int, int]]:
     try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        descriptor = os.open(
+            name,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=parent_fd,
+        )
     except FileNotFoundError as error:
         raise ReconciliationBlocked(f"missing allowlisted file: {relative_path}") from error
     except OSError as error:
@@ -161,7 +238,7 @@ def _inspect_file(path: Path, relative_path: str) -> dict[str, Any]:
         raise ReconciliationBlocked(f"cannot safely parse {relative_path}") from error
     finally:
         os.close(descriptor)
-    return {
+    result = {
         "path": relative_path,
         "size": before.st_size,
         "sha256": hashlib.sha256(payload).hexdigest(),
@@ -172,6 +249,34 @@ def _inspect_file(path: Path, relative_path: str) -> dict[str, Any]:
             _literal_assignment(tree, "down_revision", relative_path), relative_path
         ),
     }
+    if expected is not None and result != expected:
+        raise ReconciliationBlocked(f"file changed before move: {relative_path}")
+    return result, (before.st_dev, before.st_ino)
+
+
+def _open_source_parent(repo: Path) -> tuple[int, tuple[int, int]]:
+    migrations_fd = _open_directory(repo / "migrations")
+    try:
+        versions_fd = os.open(
+            "versions",
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=migrations_fd,
+        )
+    finally:
+        os.close(migrations_fd)
+    details = os.fstat(versions_fd)
+    return versions_fd, (details.st_dev, details.st_ino)
+
+
+def _inspect_file(path: Path, relative_path: str) -> dict[str, Any]:
+    parent_fd = _open_directory(path.parent)
+    try:
+        result, _identity = _read_bound_file(
+            parent_fd, path.name, relative_path
+        )
+        return result
+    finally:
+        os.close(parent_fd)
 
 
 def aggregate_digest(context: dict[str, Any]) -> str:
@@ -332,15 +437,159 @@ def _validate_quarantine_target(path: Path, run_id: str) -> Path:
     return path
 
 
-def _validate_fixed_parent(path: Path) -> None:
-    details = path.lstat()
+def _ensure_owned_directory(parent_fd: int, name: str, mode: int) -> int:
+    try:
+        os.mkdir(name, mode=mode, dir_fd=parent_fd)
+        _fsync_directory(parent_fd)
+    except FileExistsError:
+        pass
+    descriptor = os.open(
+        name,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=parent_fd,
+    )
+    details = os.fstat(descriptor)
     if (
-        path.is_symlink()
-        or not stat.S_ISDIR(details.st_mode)
-        or details.st_uid != os.geteuid()
+        details.st_uid != os.geteuid()
         or details.st_mode & 0o022
+        or not stat.S_ISDIR(details.st_mode)
     ):
-        raise ReconciliationBlocked(f"unsafe parent directory: {path}")
+        os.close(descriptor)
+        raise ReconciliationBlocked(f"unsafe quarantine directory: {name}")
+    return descriptor
+
+
+def _write_durable_file(directory_fd: int, name: str, payload: bytes, mode: int) -> str:
+    temporary_name = f".{name}.tmp-{os.getpid()}"
+    descriptor = os.open(
+        temporary_name,
+        os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_CLOEXEC | os.O_NOFOLLOW,
+        mode,
+        dir_fd=directory_fd,
+    )
+    renamed = False
+    try:
+        view = memoryview(payload)
+        while view:
+            written = os.write(descriptor, view)
+            view = view[written:]
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    try:
+        os.rename(
+            temporary_name,
+            name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+        renamed = True
+    finally:
+        if not renamed:
+            try:
+                os.unlink(temporary_name, dir_fd=directory_fd)
+                _fsync_directory(directory_fd)
+            except FileNotFoundError:
+                pass
+    _fsync_directory(directory_fd)
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _entry_destination(entry: dict[str, Any]) -> tuple[str, str]:
+    relative = PurePosixPath(entry["path"])
+    if relative.parts[:2] != ("migrations", "versions") or len(relative.parts) != 3:
+        raise ReconciliationBlocked("allowlisted path escaped the fixed migration directory")
+    return "files", relative.name
+
+
+def _file_record(entry: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in entry.items()
+        if key not in {"source_device", "source_inode"}
+    }
+
+
+def _attempt_full_restore(
+    source_parent_fd: int,
+    files_fd: int,
+    entries: list[dict[str, Any]],
+    moved_names: list[str],
+) -> bool:
+    moved = set(moved_names)
+    identities: dict[str, tuple[int, int]] = {}
+    for entry in entries:
+        _directory, name = _entry_destination(entry)
+        expected_file = _file_record(entry)
+        try:
+            _read_bound_file(
+                source_parent_fd, name, entry["path"], expected=expected_file
+            )
+            source_state = "expected"
+        except ReconciliationBlocked:
+            try:
+                os.stat(name, dir_fd=source_parent_fd, follow_symlinks=False)
+                source_state = "conflict"
+            except FileNotFoundError:
+                source_state = "missing"
+        try:
+            _quarantined, identity = _read_bound_file(
+                files_fd, name, entry["path"], expected=expected_file
+            )
+            if identity != (entry["source_device"], entry["source_inode"]):
+                quarantine_state = "conflict"
+            else:
+                quarantine_state = "expected"
+            identities[name] = identity
+        except ReconciliationBlocked:
+            try:
+                os.stat(name, dir_fd=files_fd, follow_symlinks=False)
+                quarantine_state = "conflict"
+            except FileNotFoundError:
+                quarantine_state = "missing"
+        if name in moved:
+            if source_state != "missing" or quarantine_state != "expected":
+                return False
+        elif source_state != "expected" or quarantine_state != "missing":
+            return False
+
+    for entry in reversed(entries):
+        _directory, name = _entry_destination(entry)
+        if name not in moved:
+            continue
+        os.rename(
+            name,
+            name,
+            src_dir_fd=files_fd,
+            dst_dir_fd=source_parent_fd,
+        )
+        _fsync_directory(files_fd)
+        _fsync_directory(source_parent_fd)
+        restored, identity = _read_bound_file(
+            source_parent_fd, name, entry["path"], expected=_file_record(entry)
+        )
+        if restored != _file_record(entry) or identity != identities[name]:
+            return False
+    return True
+
+
+def _remove_empty_transaction(
+    quarantine_root_fd: int,
+    transaction_name: str,
+    transaction_fd: int,
+    files_fd: int,
+    *,
+    prepared_exists: bool,
+) -> None:
+    if prepared_exists:
+        os.unlink("PREPARED.json", dir_fd=transaction_fd)
+        _fsync_directory(transaction_fd)
+    os.rmdir("files", dir_fd=transaction_fd)
+    _fsync_directory(transaction_fd)
+    os.close(files_fd)
+    os.close(transaction_fd)
+    os.rmdir(transaction_name, dir_fd=quarantine_root_fd)
+    _fsync_directory(quarantine_root_fd)
 
 
 def apply(
@@ -375,101 +624,232 @@ def apply(
     if repo == QUARANTINE_ROOT or repo in QUARANTINE_ROOT.parents or QUARANTINE_ROOT in repo.parents:
         raise ReconciliationBlocked("quarantine root must be outside the repository")
     fixed_data_parent = APP_DIR.parent
-    _validate_fixed_parent(fixed_data_parent)
+    fixed_data_parent_fd = _open_directory(fixed_data_parent)
+    try:
+        _validate_fixed_parent_descriptor(fixed_data_parent_fd, str(fixed_data_parent))
+    except Exception:
+        os.close(fixed_data_parent_fd)
+        raise
     quarantine_parent = QUARANTINE_ROOT.parent
-    quarantine_parent.mkdir(mode=0o750, exist_ok=True)
-    _validate_fixed_parent(quarantine_parent)
-    QUARANTINE_ROOT.mkdir(mode=0o750, exist_ok=True)
-    if (
-        QUARANTINE_ROOT.is_symlink()
-        or not QUARANTINE_ROOT.is_dir()
-        or QUARANTINE_ROOT.resolve() != QUARANTINE_ROOT
-    ):
-        raise ReconciliationBlocked("quarantine root is not a fixed regular directory")
-    os.chmod(QUARANTINE_ROOT, 0o750)
-    _validate_fixed_parent(QUARANTINE_ROOT)
-    destination.mkdir(mode=0o700)
-    moved: list[tuple[Path, Path]] = []
-    manifest = {
+    if quarantine_parent.parent != fixed_data_parent or QUARANTINE_ROOT.parent != quarantine_parent:
+        os.close(fixed_data_parent_fd)
+        raise ReconciliationBlocked("quarantine hierarchy is not fixed")
+    try:
+        quarantine_parent_fd = _ensure_owned_directory(
+            fixed_data_parent_fd, quarantine_parent.name, 0o750
+        )
+    except Exception:
+        os.close(fixed_data_parent_fd)
+        raise
+    try:
+        quarantine_root_fd = _ensure_owned_directory(
+            quarantine_parent_fd, QUARANTINE_ROOT.name, 0o750
+        )
+    except Exception:
+        os.close(quarantine_parent_fd)
+        os.close(fixed_data_parent_fd)
+        raise
+    os.close(quarantine_parent_fd)
+    os.close(fixed_data_parent_fd)
+    transaction_name = destination.name
+    os.mkdir(transaction_name, mode=0o700, dir_fd=quarantine_root_fd)
+    _fsync_directory(quarantine_root_fd)
+    transaction_fd = os.open(
+        transaction_name,
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=quarantine_root_fd,
+    )
+    transaction_details = os.fstat(transaction_fd)
+    if transaction_details.st_uid != os.geteuid() or stat.S_IMODE(transaction_details.st_mode) != 0o700:
+        os.close(transaction_fd)
+        os.rmdir(transaction_name, dir_fd=quarantine_root_fd)
+        _fsync_directory(quarantine_root_fd)
+        os.close(quarantine_root_fd)
+        raise ReconciliationBlocked("new transaction directory has unsafe metadata")
+    os.mkdir("files", mode=0o700, dir_fd=transaction_fd)
+    _fsync_directory(transaction_fd)
+    files_fd = os.open(
+        "files",
+        os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        dir_fd=transaction_fd,
+    )
+    try:
+        source_parent_fd, source_parent_identity = _open_source_parent(repo)
+    except Exception:
+        os.close(files_fd)
+        os.rmdir("files", dir_fd=transaction_fd)
+        _fsync_directory(transaction_fd)
+        os.close(transaction_fd)
+        os.rmdir(transaction_name, dir_fd=quarantine_root_fd)
+        _fsync_directory(quarantine_root_fd)
+        os.close(quarantine_root_fd)
+        raise
+    if os.fstat(source_parent_fd).st_dev != os.fstat(files_fd).st_dev:
+        os.close(source_parent_fd)
+        os.close(files_fd)
+        os.rmdir("files", dir_fd=transaction_fd)
+        _fsync_directory(transaction_fd)
+        os.close(transaction_fd)
+        os.rmdir(transaction_name, dir_fd=quarantine_root_fd)
+        _fsync_directory(quarantine_root_fd)
+        os.close(quarantine_root_fd)
+        raise ReconciliationBlocked("quarantine must share the checkout filesystem")
+    bound_entries = []
+    try:
+        for entry in before["files"]:
+            _directory, name = _entry_destination(entry)
+            _bound, identity = _read_bound_file(
+                source_parent_fd, name, entry["path"], expected=entry
+            )
+            bound_entries.append(
+                {
+                    **entry,
+                    "source_device": identity[0],
+                    "source_inode": identity[1],
+                }
+            )
+    except Exception:
+        os.close(source_parent_fd)
+        os.close(files_fd)
+        os.rmdir("files", dir_fd=transaction_fd)
+        _fsync_directory(transaction_fd)
+        os.close(transaction_fd)
+        os.rmdir(transaction_name, dir_fd=quarantine_root_fd)
+        _fsync_directory(quarantine_root_fd)
+        os.close(quarantine_root_fd)
+        raise
+    prepared = {
         **before,
         "quarantine": str(destination),
         "workflow_run_id": run_id,
+        "state": "PREPARED",
+        "source_parent_device": source_parent_identity[0],
+        "source_parent_inode": source_parent_identity[1],
+        "mappings": [
+            {
+                "source": entry["path"],
+                "destination": f"files/{PurePosixPath(entry['path']).name}",
+                "sha256": entry["sha256"],
+                "size": entry["size"],
+                "source_device": entry["source_device"],
+                "source_inode": entry["source_inode"],
+            }
+            for entry in bound_entries
+        ],
     }
+    prepared_payload = (
+        json.dumps(prepared, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    moved_names: list[str] = []
+    committed_written = False
+    prepared_written = False
     try:
-        for entry in before["files"]:
-            relative = PurePosixPath(entry["path"])
-            source = repo.joinpath(*relative.parts)
-            target = destination.joinpath(*relative.parts)
-            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            source_details = source.lstat()
-            if not stat.S_ISREG(source_details.st_mode) or source.is_symlink():
-                raise ReconciliationBlocked(f"file changed before move: {entry['path']}")
-            if (
-                source_details.st_size != entry["size"]
-                or source_details.st_nlink != 1
-                or hashlib.sha256(source.read_bytes()).hexdigest() != entry["sha256"]
-            ):
-                raise ReconciliationBlocked(f"file changed before move: {entry['path']}")
-            if source_details.st_dev != destination.stat().st_dev:
-                raise ReconciliationBlocked("quarantine must share the checkout filesystem")
-            os.replace(source, target)
-            moved.append((source, target))
-            if _inspect_file(target, entry["path"]) != entry:
+        prepared_sha256 = _write_durable_file(
+            transaction_fd, "PREPARED.json", prepared_payload, 0o400
+        )
+        prepared_written = True
+        _fsync_directory(quarantine_root_fd)
+        _failure_point("after_prepared", {"destination": str(destination)})
+        for entry in bound_entries:
+            _directory, name = _entry_destination(entry)
+            expected_file_entry = _file_record(entry)
+            _source_entry, source_identity = _read_bound_file(
+                source_parent_fd, name, entry["path"], expected=expected_file_entry
+            )
+            if source_identity != (entry["source_device"], entry["source_inode"]):
+                raise ReconciliationBlocked(f"file inode changed before move: {entry['path']}")
+            if source_identity[0] != source_parent_identity[0]:
+                raise ReconciliationBlocked("allowlisted file changed filesystem")
+            os.rename(
+                name,
+                name,
+                src_dir_fd=source_parent_fd,
+                dst_dir_fd=files_fd,
+            )
+            moved_names.append(name)
+            _fsync_directory(source_parent_fd)
+            _fsync_directory(files_fd)
+            _failure_point(
+                "after_move",
+                {"name": name, "moved_count": len(moved_names)},
+            )
+            target_entry, target_identity = _read_bound_file(
+                files_fd, name, entry["path"], expected=expected_file_entry
+            )
+            if target_entry != expected_file_entry or target_identity != source_identity:
                 raise ReconciliationBlocked(f"quarantine verification failed: {entry['path']}")
 
-        manifest_payload = (
-            json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
-        ).encode("utf-8")
-        manifest_path = destination / "manifest.json"
-        with tempfile.NamedTemporaryFile(
-            mode="wb", dir=destination, prefix=".manifest-", delete=False
-        ) as temporary:
-            temporary.write(manifest_payload)
-            temporary.flush()
-            os.fsync(temporary.fileno())
-            temporary_path = Path(temporary.name)
-        os.replace(temporary_path, manifest_path)
-        os.chmod(manifest_path, 0o400)
-        if manifest_path.read_bytes() != manifest_payload:
-            raise ReconciliationBlocked("quarantine manifest verification failed")
         if _git(repo, "status", "--porcelain=v1", "--untracked-files=all"):
             raise ReconciliationBlocked("git checkout is not clean after quarantine")
-        for _source, target in moved:
-            os.chmod(target, 0o400)
-        for directory in sorted(
-            (path for path in destination.rglob("*") if path.is_dir()),
-            key=lambda item: len(item.parts),
-            reverse=True,
-        ):
-            os.chmod(directory, 0o500)
-        os.chmod(destination, 0o500)
-    except Exception:
-        if destination.exists() and not destination.is_symlink():
-            for child in destination.rglob("*"):
-                try:
-                    if child.is_dir() and not child.is_symlink():
-                        os.chmod(child, 0o700)
-                    elif child.is_file() and not child.is_symlink():
-                        os.chmod(child, 0o600)
-                except OSError:
-                    pass
-            try:
-                os.chmod(destination, 0o700)
-            except OSError:
-                pass
-        for source, target in reversed(moved):
-            if target.exists() and not source.exists():
-                source.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(target, source)
-        shutil.rmtree(destination, ignore_errors=True)
-        raise
+        _failure_point("before_committed", {"destination": str(destination)})
+        committed = {
+            "state": "COMMITTED",
+            "prepared_sha256": prepared_sha256,
+            "aggregate_sha256": expected_digest,
+            "file_count": len(moved_names),
+            "git_clean": True,
+        }
+        committed_payload = (
+            json.dumps(committed, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+        ).encode("utf-8")
+        committed_sha256 = _write_durable_file(
+            transaction_fd, "COMMITTED.json", committed_payload, 0o400
+        )
+        committed_written = True
+        _failure_point("after_committed", {"destination": str(destination)})
+        # Leave the transaction directory owner-accessible. PREPARED/COMMITTED
+        # and the file hashes provide integrity; retaining 0700 directories
+        # keeps manual recovery possible without chmod path traversal.
+    except Exception as error:
+        if committed_written:
+            os.close(source_parent_fd)
+            os.close(files_fd)
+            os.close(transaction_fd)
+            os.close(quarantine_root_fd)
+            raise ManualRecoveryRequired(
+                f"committed transaction retained at {destination}; manual verification required"
+            ) from error
+        restored = False
+        try:
+            restored = _attempt_full_restore(
+                source_parent_fd,
+                files_fd,
+                bound_entries,
+                moved_names,
+            )
+        except Exception:
+            restored = False
+        if restored:
+            _remove_empty_transaction(
+                quarantine_root_fd,
+                transaction_name,
+                transaction_fd,
+                files_fd,
+                prepared_exists=prepared_written,
+            )
+            os.close(source_parent_fd)
+            os.close(quarantine_root_fd)
+            raise
+        os.close(source_parent_fd)
+        os.close(files_fd)
+        os.close(transaction_fd)
+        os.close(quarantine_root_fd)
+        raise ManualRecoveryRequired(
+            f"transaction retained at {destination}; originals were not deleted; manual recovery required"
+        ) from error
+
+    os.close(source_parent_fd)
+    os.close(files_fd)
+    os.close(transaction_fd)
+    os.close(quarantine_root_fd)
 
     return {
         "status": "quarantined",
         "aggregate_sha256": expected_digest,
-        "file_count": len(moved),
+        "file_count": len(moved_names),
         "quarantine": str(destination),
-        "manifest_sha256": hashlib.sha256(manifest_payload).hexdigest(),
+        "prepared_sha256": prepared_sha256,
+        "committed_sha256": committed_sha256,
         "git_clean": True,
     }
 
@@ -485,7 +865,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     arguments = build_parser().parse_args()
+    lock_descriptor: int | None = None
     try:
+        lock_descriptor = _acquire_lock()
         if arguments.mode == "audit":
             if any(
                 (
@@ -506,6 +888,9 @@ def main() -> int:
     except ReconciliationBlocked as error:
         print(f"reconciliation blocked: {error}", file=sys.stderr)
         return 2
+    finally:
+        if lock_descriptor is not None:
+            os.close(lock_descriptor)
     print(json.dumps(result, ensure_ascii=True, indent=2, sort_keys=True))
     return 0
 
