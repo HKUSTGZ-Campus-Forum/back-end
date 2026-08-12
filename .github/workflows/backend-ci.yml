@@ -15,6 +15,20 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16.14-bookworm@sha256:64154d0babcb1741988719e703419af0382b19953706149f9872fbd0f438efa8
+        env:
+          POSTGRES_DB: pristine_migrations
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pristine_migrations"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -41,6 +55,16 @@ jobs:
           from alibabacloud_tea_openapi import models  # noqa: F401
           PY
           python -m pytest tests/ -q
+
+      - name: Verify migrations on pristine PostgreSQL
+        env:
+          AUTO_INIT_ON_STARTUP: "false"
+          ENABLE_BACKGROUND_TASKS: "false"
+          PRISTINE_POSTGRES_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/pristine_migrations
+        run: |
+          set -Eeuo pipefail
+          source .venv/bin/activate
+          python -m pytest tests/test_pristine_postgres_migrations.py -q -rs
 
       - name: Set up uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.3.1

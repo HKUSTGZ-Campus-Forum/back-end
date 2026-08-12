@@ -1,1 +1,23 @@
 Single-database configuration for Flask.
+
+Pristine PostgreSQL initialization
+----------------------------------
+
+The supported schema bootstrap is the same command used for upgrades::
+
+    AUTO_INIT_ON_STARTUP=false python -m flask db upgrade heads
+
+Do not run ``db.create_all()``, generate migrations during deployment, restore a
+schema-only dump, or stamp an empty database.  The committed migration graph
+has two expected heads (``5202003d1ec0`` and
+``20260812_pop_history``), and CI proves that a pristine PostgreSQL 16
+database reaches both heads without startup-time schema mutation.
+
+After the upgrade, run explicit data seed/import operations separately.  In
+particular, ``AUTO_INIT_ON_STARTUP=false`` intentionally prevents application
+startup from creating tables, columns, indexes, or seed records behind
+Alembic's back.
+
+Only forward upgrades are supported for deployment.  Rollback restores a
+verified PostgreSQL backup and the previous immutable application release;
+``flask db downgrade`` is not a supported production rollback mechanism.

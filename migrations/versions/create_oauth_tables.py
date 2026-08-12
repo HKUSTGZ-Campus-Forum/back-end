@@ -12,7 +12,10 @@ from sqlalchemy.dialects import postgresql
 # revision identifiers, used by Alembic.
 revision = 'create_oauth_tables'
 down_revision = None  # Update this to your latest migration
-depends_on = None
+# The OAuth branch needs ``users`` from the canonical initial revision.  Keep
+# this as a separate branch (it is merged at 3fc3cff37648), but give Alembic an
+# explicit cross-branch ordering dependency for pristine databases.
+depends_on = '7658cd1e9afd'
 
 def upgrade():
     # Create oauth_clients table
