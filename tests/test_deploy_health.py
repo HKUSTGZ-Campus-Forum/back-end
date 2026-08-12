@@ -245,9 +245,12 @@ def test_dev_migration_checkout_reconciliation_is_two_phase_and_fixed_scope():
     assert "live_current_allowlisted_revisions" in helper
     assert "live_current_unknown_revisions" in helper
     assert "repository_sha" in helper
+    assert "helper_sha256" in helper
     assert "committed_revisions" in helper
     assert "committed_heads" in helper
     assert "committed_allowlisted_revision_references" in helper
+    assert '"depends_on"' in helper
+    assert "os.link" in helper
     assert "SELECT version_num FROM alembic_version" in helper
     assert "dev_unikorn" in helper
     assert "git clean" not in helper

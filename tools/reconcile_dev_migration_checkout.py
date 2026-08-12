@@ -202,6 +202,8 @@ def _read_bound_file(
     relative_path: str,
     *,
     expected: dict[str, Any] | None = None,
+    allowed_link_counts: frozenset[int] = frozenset({1}),
+    sync_contents: bool = False,
 ) -> tuple[dict[str, Any], tuple[int, int]]:
     try:
         descriptor = os.open(
@@ -219,14 +221,16 @@ def _read_bound_file(
             raise ReconciliationBlocked(
                 f"allowlisted path is not a regular file: {relative_path}"
             )
-        if before.st_nlink != 1:
+        if before.st_nlink not in allowed_link_counts:
             raise ReconciliationBlocked(
-                f"allowlisted file has multiple hard links: {relative_path}"
+                f"allowlisted file has an unexpected hard-link count: {relative_path}"
             )
         if before.st_size > MAX_FILE_BYTES:
             raise ReconciliationBlocked(f"allowlisted file is oversized: {relative_path}")
         with os.fdopen(descriptor, "rb", closefd=False) as source_file:
             payload = source_file.read(MAX_FILE_BYTES + 1)
+        if sync_contents:
+            os.fsync(descriptor)
         after = os.fstat(descriptor)
         identity_before = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
         identity_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
@@ -289,7 +293,24 @@ def aggregate_digest(context: dict[str, Any]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
-def _metadata_for_source(source: str, filename: str) -> tuple[str, list[str]]:
+def _optional_literal_assignment(tree: ast.Module, name: str, filename: str) -> Any:
+    assignments = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        and any(
+            isinstance(target, ast.Name) and target.id == name
+            for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
+        )
+    ]
+    if not assignments:
+        return None
+    return _literal_assignment(tree, name, filename)
+
+
+def _metadata_for_source(
+    source: str, filename: str
+) -> tuple[str, list[str], list[str]]:
     try:
         tree = ast.parse(source, filename=filename)
     except SyntaxError as error:
@@ -304,7 +325,16 @@ def _metadata_for_source(source: str, filename: str) -> tuple[str, list[str]]:
         parents = [down_revision]
     else:
         parents = down_revision
-    return revision, parents
+    depends_on = _validate_down_revision(
+        _optional_literal_assignment(tree, "depends_on", filename), filename
+    )
+    if depends_on is None:
+        dependencies: list[str] = []
+    elif isinstance(depends_on, str):
+        dependencies = [depends_on]
+    else:
+        dependencies = depends_on
+    return revision, parents, dependencies
 
 
 def committed_graph(repo: Path, allowlisted_revisions: set[str]) -> dict[str, Any]:
@@ -313,15 +343,22 @@ def committed_graph(repo: Path, allowlisted_revisions: set[str]) -> dict[str, An
         path for path in names.splitlines() if path.endswith(".py")
     )
     revisions: dict[str, list[str]] = {}
+    dependencies: dict[str, list[str]] = {}
     for path in migration_paths:
-        revision, parents = _metadata_for_source(
+        revision, parents, revision_dependencies = _metadata_for_source(
             _git(repo, "show", f"HEAD:{path}"), path
         )
         if revision in revisions:
             raise ReconciliationBlocked("committed graph has duplicate revision identifiers")
         revisions[revision] = parents
+        dependencies[revision] = revision_dependencies
     all_parents = {parent for parents in revisions.values() for parent in parents}
-    references = sorted(allowlisted_revisions & all_parents)
+    all_dependencies = {
+        dependency
+        for revision_dependencies in dependencies.values()
+        for dependency in revision_dependencies
+    }
+    references = sorted(allowlisted_revisions & (all_parents | all_dependencies))
     return {
         "revisions": sorted(revisions),
         "heads": sorted(set(revisions) - all_parents),
@@ -421,6 +458,7 @@ def audit(repo: Path, *, live_revisions: list[str] | None = None) -> dict[str, A
         "committed_allowlisted_revision_referenced": graph[
             "allowlisted_revision_referenced"
         ],
+        "helper_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "files": files,
     }
     return {**context, "aggregate_sha256": aggregate_digest(context)}
@@ -557,14 +595,29 @@ def _attempt_full_restore(
         _directory, name = _entry_destination(entry)
         if name not in moved:
             continue
-        os.rename(
+        _failure_point(
+            "before_restore_link",
+            {"name": name, "source": entry["path"]},
+        )
+        os.link(
             name,
             name,
             src_dir_fd=files_fd,
             dst_dir_fd=source_parent_fd,
+            follow_symlinks=False,
         )
-        _fsync_directory(files_fd)
         _fsync_directory(source_parent_fd)
+        restored, identity = _read_bound_file(
+            source_parent_fd,
+            name,
+            entry["path"],
+            expected=_file_record(entry),
+            allowed_link_counts=frozenset({2}),
+        )
+        if restored != _file_record(entry) or identity != identities[name]:
+            return False
+        os.unlink(name, dir_fd=files_fd)
+        _fsync_directory(files_fd)
         restored, identity = _read_bound_file(
             source_parent_fd, name, entry["path"], expected=_file_record(entry)
         )
@@ -754,7 +807,11 @@ def apply(
             _directory, name = _entry_destination(entry)
             expected_file_entry = _file_record(entry)
             _source_entry, source_identity = _read_bound_file(
-                source_parent_fd, name, entry["path"], expected=expected_file_entry
+                source_parent_fd,
+                name,
+                entry["path"],
+                expected=expected_file_entry,
+                sync_contents=True,
             )
             if source_identity != (entry["source_device"], entry["source_inode"]):
                 raise ReconciliationBlocked(f"file inode changed before move: {entry['path']}")

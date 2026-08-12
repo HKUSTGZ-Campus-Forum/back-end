@@ -21,10 +21,15 @@ def _git(repository: Path, *arguments: str) -> str:
     return result.stdout.strip()
 
 
-def _migration(revision: str, down_revision: str | tuple[str, ...] | None) -> bytes:
+def _migration(
+    revision: str,
+    down_revision: str | tuple[str, ...] | None,
+    depends_on: str | tuple[str, ...] | None = None,
+) -> bytes:
     return (
         f"revision = {revision!r}\n"
         f"down_revision = {down_revision!r}\n"
+        f"depends_on = {depends_on!r}\n"
         "def upgrade():\n"
         "    raise RuntimeError('must never execute')\n"
     ).encode()
@@ -87,6 +92,9 @@ def test_audit_is_deterministic_and_parses_metadata_without_execution(tmp_path, 
     assert first["live_current_allowlisted_revisions"] == []
     assert first["committed_revisions"] == ["committed_head"]
     assert first["committed_heads"] == ["committed_head"]
+    assert first["helper_sha256"] == hashlib.sha256(
+        Path(reconciliation.__file__).read_bytes()
+    ).hexdigest()
     assert first["committed_allowlisted_revision_referenced"] is False
     assert first["live_current_unknown_revisions"] == []
     assert first["files"][0]["sha256"] == hashlib.sha256(
@@ -222,6 +230,27 @@ def test_apply_blocks_if_committed_graph_references_allowlisted_revision(
     assert not quarantine.exists()
 
 
+def test_apply_blocks_if_committed_graph_depends_on_allowlisted_revision(
+    tmp_path, monkeypatch
+):
+    repository, quarantine, _payloads = _checkout(tmp_path, monkeypatch)
+    committed = repository / "migrations" / "versions" / "committed.py"
+    committed.write_bytes(_migration("committed_head", None, "legacy_b"))
+    _git(repository, "add", "migrations/versions/committed.py")
+    _git(repository, "commit", "--quiet", "-m", "depend on legacy")
+    audited = reconciliation.audit(repository)
+    assert audited["committed_allowlisted_revision_referenced"] is True
+
+    with pytest.raises(reconciliation.ReconciliationBlocked, match="still references"):
+        reconciliation.apply(
+            repository,
+            audited["aggregate_sha256"],
+            reconciliation.APPLY_CONFIRMATION,
+            "123",
+        )
+    assert not quarantine.exists()
+
+
 def test_apply_blocks_unknown_live_current_revision(tmp_path, monkeypatch):
     repository, quarantine, _payloads = _checkout(tmp_path, monkeypatch)
     monkeypatch.setattr(
@@ -344,6 +373,40 @@ def test_failure_before_commit_restores_every_original_and_removes_transaction(
     assert not (quarantine / "run-222").exists()
 
 
+def test_every_source_file_is_synced_before_committed_journal(
+    tmp_path, monkeypatch
+):
+    repository, _quarantine, _payloads = _checkout(tmp_path, monkeypatch)
+    audited = reconciliation.audit(repository)
+    source_identities = {
+        (path.stat().st_dev, path.stat().st_ino)
+        for path in (repository / relative_path for relative_path in reconciliation.ALLOWLIST)
+    }
+    synced_source_identities = set()
+    real_fsync = reconciliation.os.fsync
+
+    def track_fsync(descriptor):
+        details = os.fstat(descriptor)
+        identity = (details.st_dev, details.st_ino)
+        if identity in source_identities:
+            synced_source_identities.add(identity)
+        real_fsync(descriptor)
+
+    def verify_before_committed(point, _context):
+        if point == "before_committed":
+            assert synced_source_identities == source_identities
+
+    monkeypatch.setattr(reconciliation.os, "fsync", track_fsync)
+    monkeypatch.setattr(reconciliation, "FAILURE_INJECTOR", verify_before_committed)
+    result = reconciliation.apply(
+        repository,
+        audited["aggregate_sha256"],
+        reconciliation.APPLY_CONFIRMATION,
+        "223",
+    )
+    assert result["status"] == "quarantined"
+
+
 def test_failure_after_commit_retains_durable_committed_transaction(
     tmp_path, monkeypatch
 ):
@@ -396,6 +459,32 @@ def test_source_reappearance_conflict_never_deletes_quarantined_original(
     assert original.read_bytes() == payloads[reconciliation.ALLOWLIST[0]]
     assert (transaction / "PREPARED.json").is_file()
     assert not (transaction / "COMMITTED.json").exists()
+
+
+def test_source_reappearance_at_restore_syscall_never_replaces_conflict(
+    tmp_path, monkeypatch
+):
+    repository, quarantine, payloads = _checkout(tmp_path, monkeypatch)
+    audited = reconciliation.audit(repository)
+    first_path = repository / reconciliation.ALLOWLIST[0]
+
+    def fail_then_create_late_conflict(point, context):
+        if point == "after_move" and context["moved_count"] == 1:
+            raise reconciliation.ReconciliationBlocked("start rollback")
+        if point == "before_restore_link" and context["name"] == first_path.name:
+            first_path.write_bytes(b"late conflicting replacement\n")
+
+    monkeypatch.setattr(reconciliation, "FAILURE_INJECTOR", fail_then_create_late_conflict)
+    with pytest.raises(reconciliation.ManualRecoveryRequired, match="transaction retained"):
+        reconciliation.apply(
+            repository,
+            audited["aggregate_sha256"],
+            reconciliation.APPLY_CONFIRMATION,
+            "445",
+        )
+    original = quarantine / "run-445" / "files" / first_path.name
+    assert first_path.read_bytes() == b"late conflicting replacement\n"
+    assert original.read_bytes() == payloads[reconciliation.ALLOWLIST[0]]
 
 
 def test_allowlist_is_exactly_the_twelve_observed_dev_paths():
