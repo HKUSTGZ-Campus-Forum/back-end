@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import hashlib
+import json
+
 import pytest
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
@@ -8,6 +11,11 @@ from app import create_app
 from app.config import Config
 from app.extensions import db
 from app.models.academic_map import CurriculumProgram, CurriculumRequirementGroup
+
+
+REVIEWED_2026_CURRICULUM_SHA256 = (
+    "a99cbe5c120ba5fcd707651f4609a6ca08e6d5bfa205734979ad6d9739f6b056"
+)
 
 
 @compiles(JSONB, "sqlite")
@@ -23,7 +31,7 @@ class TestConfig(Config):
     JWT_SECRET_KEY = "test-secret"
 
 
-def _curriculum_snapshot(cohort):
+def _persisted_curriculum_projection(cohort):
     programs = CurriculumProgram.query.filter_by(cohort=cohort).order_by(
         CurriculumProgram.code.asc()
     )
@@ -51,6 +59,39 @@ def _curriculum_snapshot(cohort):
                     "sort_order": group.sort_order,
                 }
                 for group in groups
+            },
+        }
+    return snapshot
+
+
+def _payload_curriculum_projection(payload, cohort):
+    snapshot = {}
+    for item in payload["programs"]:
+        cohorts = item.get("cohorts") or [item.get("cohort")]
+        if cohort not in cohorts:
+            continue
+
+        code = item["code"]
+        assert code not in snapshot, f"duplicate curriculum projection {code}/{cohort}"
+        snapshot[code] = {
+            "name_en": item["name_en"],
+            "name_zh": item.get("name_zh"),
+            "total_min_credits": item.get("total_min_credits", 120),
+            "common_core_min_credits": item.get("common_core_min_credits", 30),
+            "major_min_credits": item.get("major_min_credits"),
+            "home_areas": item.get("home_areas", []),
+            "is_active": item.get("is_active", True),
+            "requirement_groups": {
+                group["key"]: {
+                    "name_en": group["name_en"],
+                    "name_zh": group.get("name_zh"),
+                    "category": group.get("category", "major"),
+                    "min_credits": group.get("min_credits"),
+                    "min_courses": group.get("min_courses"),
+                    "rule": group.get("rule", {}),
+                    "sort_order": group.get("sort_order", 0),
+                }
+                for group in item.get("requirement_groups", [])
             },
         }
     return snapshot
@@ -148,30 +189,34 @@ def test_bundled_curriculum_payload_contains_official_ai_requirement_rows(app):
     assert "AIAA4490" in fixed_courses
 
 
-def test_default_startup_sync_preserves_reviewed_2026_requirements(app):
+def test_canonical_sync_persists_reviewed_2026_requirements(app):
     from app.services.academic_curriculum_sync import sync_curriculum_requirements_from_file
 
-    pending_path = (
+    reviewed_path = (
         Path(__file__).resolve().parents[1]
         / "app"
         / "data"
         / "pending"
         / "curriculum_requirements_2026.json"
     )
+    reviewed_bytes = reviewed_path.read_bytes()
+    assert hashlib.sha256(reviewed_bytes).hexdigest() == REVIEWED_2026_CURRICULUM_SHA256
+    reviewed_projection = _payload_curriculum_projection(
+        json.loads(reviewed_bytes),
+        "2026",
+    )
 
     with app.app_context():
-        pending_result = sync_curriculum_requirements_from_file(pending_path)
-        reviewed_snapshot = _curriculum_snapshot("2026")
-        sync_curriculum_requirements_from_file()
-        startup_snapshot = _curriculum_snapshot("2026")
+        result = sync_curriculum_requirements_from_file()
+        canonical_projection = _persisted_curriculum_projection("2026")
 
-    assert pending_result == {
-        "programs_upserted": 8,
-        "groups_upserted": 32,
+    assert result == {
+        "programs_upserted": 22,
+        "groups_upserted": 88,
         "groups_removed": 0,
         "programs_skipped": 0,
     }
-    assert set(reviewed_snapshot) == {
+    assert set(reviewed_projection) == {
         "AI",
         "AMAT",
         "DSA",
@@ -181,14 +226,7 @@ def test_default_startup_sync_preserves_reviewed_2026_requirements(app):
         "SEE",
         "SMMG",
     }
-    assert startup_snapshot == reviewed_snapshot
-
-    ai_fundamentals = startup_snapshot["AI"]["requirement_groups"]["fundamental_courses"]
-    ai_electives = startup_snapshot["AI"]["requirement_groups"]["major_electives"]
-    ai_elective_courses = ai_electives["rule"]["rule_tree"]["children"][0]["courses"]
-    assert ai_fundamentals["min_credits"] == 21
-    assert "AIAA4435" in ai_elective_courses
-    assert "AIAA4433" not in ai_elective_courses
+    assert canonical_projection == reviewed_projection
 
 
 def test_sync_curriculum_requirements_expands_multiple_cohorts(app):
