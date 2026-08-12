@@ -1,35 +1,93 @@
+import ast
+import hashlib
 from pathlib import Path
 import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
+VERSION_DIR = ROOT / "migrations" / "versions"
+
+
+def _load_revision_metadata():
+    revisions = {}
+    for path in sorted(VERSION_DIR.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        metadata = {}
+        for node in tree.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id in {
+                    "revision",
+                    "down_revision",
+                }:
+                    metadata[target.id] = ast.literal_eval(node.value)
+        revision = metadata.get("revision")
+        if revision:
+            assert revision not in revisions, f"duplicate Alembic revision: {revision}"
+            revisions[revision] = (path, metadata.get("down_revision"))
+    return revisions
 
 
 def test_alembic_revision_chain_references_existing_revisions():
-    revision_files = sorted((ROOT / "migrations" / "versions").glob("*.py"))
-    revisions = {}
-    down_revisions = {}
-
-    for path in revision_files:
-        text = path.read_text(encoding="utf-8")
-        revision_match = re.search(r'^revision\s*=\s*["\']([^"\']+)["\']', text, re.MULTILINE)
-        if not revision_match:
-            continue
-        revision = revision_match.group(1)
-        revisions[revision] = path
-
-        down_match = re.search(r'^down_revision\s*=\s*(.+)$', text, re.MULTILINE)
-        down_revisions[revision] = down_match.group(1).strip() if down_match else "None"
-
+    revisions = _load_revision_metadata()
     missing = []
-    for revision, raw_down_revision in down_revisions.items():
-        if raw_down_revision in {"None", "null"}:
-            continue
-        for down_revision in re.findall(r'["\']([^"\']+)["\']', raw_down_revision):
-            if down_revision not in revisions:
-                missing.append((revision, down_revision, revisions[revision].name))
+    for revision, (path, down_revision) in revisions.items():
+        parents = down_revision if isinstance(down_revision, tuple) else (down_revision,)
+        for parent in parents:
+            if parent is not None and parent not in revisions:
+                missing.append((revision, parent, path.name))
 
     assert missing == []
+
+
+def test_alembic_revision_graph_is_acyclic_and_has_expected_heads():
+    revisions = _load_revision_metadata()
+    visiting = set()
+    visited = set()
+
+    def visit(revision):
+        assert revision not in visiting, f"cycle in Alembic history at {revision}"
+        if revision in visited:
+            return
+        visiting.add(revision)
+        down_revision = revisions[revision][1]
+        parents = down_revision if isinstance(down_revision, tuple) else (down_revision,)
+        for parent in parents:
+            if parent is not None:
+                visit(parent)
+        visiting.remove(revision)
+        visited.add(revision)
+
+    for revision in revisions:
+        visit(revision)
+
+    parents = {
+        parent
+        for _path, down_revision in revisions.values()
+        for parent in (
+            down_revision if isinstance(down_revision, tuple) else (down_revision,)
+        )
+        if parent is not None
+    }
+    assert set(revisions) - parents == {
+        "20260807_sched_popularity",
+        "5202003d1ec0",
+    }
+
+
+def test_migration_manifest_covers_and_authenticates_every_revision():
+    manifest_path = VERSION_DIR / "SHA256SUMS"
+    entries = {}
+    for line in manifest_path.read_text(encoding="utf-8").splitlines():
+        digest, filename = line.split("  ", maxsplit=1)
+        assert filename not in entries
+        entries[filename] = digest
+
+    revision_paths = sorted(VERSION_DIR.glob("*.py"))
+    assert set(entries) == {path.name for path in revision_paths}
+    for path in revision_paths:
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == entries[path.name]
 
 
 def test_alembic_revision_ids_fit_existing_version_table_width():

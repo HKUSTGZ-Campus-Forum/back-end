@@ -175,6 +175,4 @@ Docs/
 
 localExps/
 
-# Database migrations - avoid conflicts between environments
-migrations/versions/*.py
-!migrations/versions/.gitkeep
+# Database migrations are reviewed deployment artifacts and must be committed.
