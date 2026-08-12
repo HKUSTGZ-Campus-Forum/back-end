@@ -1,0 +1,5 @@
+# Render DEV_DEPLOY_USER, validate with visudo, then install as
+# /etc/sudoers.d/unikorn-harden-dev-data-container with mode 0440.
+# Replace DEV_DEPLOY_USER with the account configured as GitHub DEV_USER.
+# The reviewed workflow invokes this exact argv and no general shell as root.
+DEV_DEPLOY_USER ALL=(root) NOPASSWD: /usr/bin/chmod 1777 -- /data

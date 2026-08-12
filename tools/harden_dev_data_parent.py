@@ -52,10 +52,18 @@ def _open_parent() -> tuple[int, dict[str, Any]]:
     except OSError as error:
         raise HardeningBlocked("cannot safely open the fixed data container") from error
     container = os.fstat(container_fd)
+    container_mode = stat.S_IMODE(container.st_mode)
+    safe_non_writable_container = (
+        container.st_uid in {0, os.geteuid()} and not container_mode & 0o022
+    )
+    safe_shared_container = (
+        container.st_uid == 0
+        and container.st_gid == 0
+        and container_mode == 0o1777
+    )
     if (
         not stat.S_ISDIR(container.st_mode)
-        or container.st_uid not in {0, os.geteuid()}
-        or container.st_mode & 0o022
+        or not (safe_non_writable_container or safe_shared_container)
     ):
         os.close(container_fd)
         raise HardeningBlocked(
