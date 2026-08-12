@@ -57,6 +57,20 @@ OPERATIONS = (
     "course-duplicates",
     "database-upgrade-heads",
 )
+TARGET_CONFIRMATIONS = {
+    "dev": "APPLY_DEV",
+    "production": "APPLY_PRODUCTION",
+    "campus": "APPLY_CAMPUS",
+}
+CAMPUS_OPERATION_ALLOWLIST = frozenset(
+    {
+        ("verify-release", "dry-run", ""),
+        ("scheduler-import", "dry-run", "scheduler-2610-v1"),
+        ("scheduler-import", "apply", "scheduler-2610-v1"),
+        ("curriculum-sync", "dry-run", "curriculum-2026-v1"),
+        ("curriculum-sync", "apply", "curriculum-2026-v1"),
+    }
+)
 MUTATING_OPERATIONS = frozenset(
     {
         "scheduler-import",
@@ -250,6 +264,12 @@ def _validate_args(args: argparse.Namespace) -> dict[str, Any] | None:
         raise OperationBlocked("workflow run id must be numeric")
     if not ACTOR_RE.fullmatch(args.actor):
         raise OperationBlocked("actor is invalid")
+    if args.target == "campus":
+        campus_request = (args.operation, args.mode, args.package_id or "")
+        if campus_request not in CAMPUS_OPERATION_ALLOWLIST:
+            raise OperationBlocked(
+                "operation, mode, and package are not allowlisted for campus"
+            )
 
     package = None
     if args.operation == "scheduler-import":
@@ -265,7 +285,7 @@ def _validate_args(args: argparse.Namespace) -> dict[str, Any] | None:
         raise OperationBlocked("database-upgrade-heads only supports apply mode")
 
     if args.mode == "apply":
-        expected_confirmation = f"APPLY_{args.target.upper()}"
+        expected_confirmation = TARGET_CONFIRMATIONS[args.target]
         if args.confirmation != expected_confirmation:
             raise OperationBlocked(
                 f"apply requires confirmation {expected_confirmation!r}"
@@ -580,7 +600,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workflow-run-id", required=True)
     parser.add_argument("--operation", required=True, choices=OPERATIONS)
     parser.add_argument("--mode", required=True, choices=("dry-run", "apply"))
-    parser.add_argument("--target", required=True, choices=("dev", "production"))
+    parser.add_argument(
+        "--target", required=True, choices=tuple(TARGET_CONFIRMATIONS)
+    )
     parser.add_argument("--release-sha", required=True)
     parser.add_argument("--actor", required=True)
     parser.add_argument("--package-id")
