@@ -77,3 +77,113 @@ class SchedulerPopularityEvent(db.Model):
             "created_at",
         ),
     )
+
+
+class SchedulerPopularitySnapshotRun(db.Model):
+    """A successfully completed popularity sample.
+
+    Facts are intentionally sparse: if a completed run has no fact for an
+    entity, that entity had zero contributors.  If the run itself is absent,
+    the sample is missing and consumers must render a gap instead of a zero.
+    """
+
+    __tablename__ = "scheduler_popularity_snapshot_runs"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    semester_id = db.Column(db.String(16), nullable=False)
+    bucket_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    completed_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "semester_id",
+            "bucket_at",
+            name="uq_scheduler_popularity_snapshot_run_bucket",
+        ),
+        db.Index(
+            "idx_scheduler_popularity_snapshot_runs_semester_bucket",
+            "semester_id",
+            "bucket_at",
+        ),
+    )
+
+
+class SchedulerPopularityCourseSnapshot(db.Model):
+    """Sparse anonymous course-level counts for one completed sample."""
+
+    __tablename__ = "scheduler_popularity_course_snapshots"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    run_id = db.Column(
+        db.Integer,
+        db.ForeignKey("scheduler_popularity_snapshot_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    course_code = db.Column(db.String(32), nullable=False)
+    display_course_code = db.Column(db.String(32), nullable=False)
+    looking_count = db.Column(db.Integer, nullable=False)
+    scheduling_count = db.Column(db.Integer, nullable=False)
+
+    run = db.relationship(
+        "SchedulerPopularitySnapshotRun",
+        backref=db.backref("course_snapshots", cascade="all, delete-orphan"),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "run_id",
+            "course_code",
+            name="uq_scheduler_popularity_course_snapshot",
+        ),
+        db.CheckConstraint(
+            "looking_count >= 0 AND scheduling_count >= 0",
+            name="valid_scheduler_popularity_course_snapshot_counts",
+        ),
+        db.Index(
+            "idx_scheduler_popularity_course_snapshots_code_run",
+            "course_code",
+            "run_id",
+        ),
+    )
+
+
+class SchedulerPopularitySectionSnapshot(db.Model):
+    """Sparse anonymous section-level counts for one completed sample."""
+
+    __tablename__ = "scheduler_popularity_section_snapshots"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    run_id = db.Column(
+        db.Integer,
+        db.ForeignKey("scheduler_popularity_snapshot_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    course_code = db.Column(db.String(32), nullable=False)
+    display_course_code = db.Column(db.String(32), nullable=False)
+    section_source_id = db.Column(db.String(32), nullable=False)
+    looking_count = db.Column(db.Integer, nullable=False)
+    scheduling_count = db.Column(db.Integer, nullable=False)
+
+    run = db.relationship(
+        "SchedulerPopularitySnapshotRun",
+        backref=db.backref("section_snapshots", cascade="all, delete-orphan"),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint(
+            "run_id",
+            "course_code",
+            "section_source_id",
+            name="uq_scheduler_popularity_section_snapshot",
+        ),
+        db.CheckConstraint(
+            "looking_count >= 0 AND scheduling_count >= 0",
+            name="valid_scheduler_popularity_section_snapshot_counts",
+        ),
+        db.Index(
+            "idx_scheduler_popularity_section_snapshots_scope_run",
+            "course_code",
+            "section_source_id",
+            "run_id",
+        ),
+    )

@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from flask import Blueprint, request, jsonify
 from app.models.course import Course
 from app.models.course_domain import (
@@ -14,6 +16,9 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy import func, or_
 from app.services.course_domain import current_catalog_version, find_offering, normalize_course_code
 from app.services.scheduler_popularity import (
+    POPULARITY_HISTORY_END_AT,
+    POPULARITY_HISTORY_SEMESTER,
+    build_popularity_history,
     build_popularity_snapshot,
     is_canonical_popularity_user,
     is_eligible_popularity_user,
@@ -340,6 +345,19 @@ def get_course_detail(code):
 
 # --- Popularity ---
 
+
+def _parse_popularity_history_timestamp(name):
+    raw_value = request.args.get(name, "").strip()
+    if not raw_value:
+        raise ValueError(f"{name} is required")
+    try:
+        value = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an ISO 8601 timestamp") from exc
+    if value.tzinfo is None:
+        raise ValueError(f"{name} must include a timezone offset")
+    return value.astimezone(timezone.utc)
+
 @bp.route('/popularity/<semester>', methods=['GET'])
 @jwt_required()
 def get_popularity(semester):
@@ -363,6 +381,52 @@ def get_popularity(semester):
         semester_id=str(semester).strip(),
         course_codes=course_codes,
     )
+    response = jsonify(payload)
+    response.headers['Cache-Control'] = 'private, no-store'
+    response.headers['Vary'] = 'Authorization'
+    return response
+
+
+@bp.route('/popularity/<semester>/history', methods=['GET'])
+@jwt_required()
+def get_popularity_history(semester):
+    """Return anonymous sampled planner counts for one cart-scoped entity."""
+    viewer = _request_user()
+    if viewer is None or viewer.is_deleted:
+        return jsonify({'error': 'Authenticated user not found'}), 401
+    if not is_eligible_popularity_user(viewer) or not is_canonical_popularity_user(viewer):
+        return jsonify({'error': 'verified_institutional_account_required'}), 403
+
+    semester_id = str(semester).strip()
+    if semester_id != POPULARITY_HISTORY_SEMESTER:
+        return jsonify({'error': 'popularity_history_not_available'}), 404
+
+    course_code = request.args.get('course_code', '').strip()
+    section_id = request.args.get('section_id', '').strip() or None
+    if not course_code:
+        return jsonify({'error': 'course_code is required'}), 400
+    if section_id is not None and len(section_id) > 32:
+        return jsonify({'error': 'Invalid section_id'}), 400
+
+    try:
+        from_at = _parse_popularity_history_timestamp('from')
+        to_at = min(_parse_popularity_history_timestamp('to'), POPULARITY_HISTORY_END_AT)
+        if from_at > to_at:
+            raise ValueError('from must be before or equal to to')
+        payload = build_popularity_history(
+            viewer_id=viewer.id,
+            semester_id=semester_id,
+            course_code=course_code,
+            section_id=section_id,
+            from_at=from_at,
+            to_at=to_at,
+            resolution=request.args.get('resolution', 'auto').strip() or 'auto',
+        )
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+
+    if payload is None:
+        return jsonify({'error': 'popularity_history_scope_not_found'}), 404
     response = jsonify(payload)
     response.headers['Cache-Control'] = 'private, no-store'
     response.headers['Vary'] = 'Authorization'
