@@ -22,16 +22,22 @@ import sys
 import tempfile
 from typing import Any, Iterator
 
-from sqlalchemy import func, text
+from sqlalchemy import func, inspect, text
 
 from app.extensions import db
 from app.models.academic_map import CurriculumProgram, CurriculumRequirementGroup
 from app.models.course import Course
-from app.models.course_domain import CourseMeeting, CourseOffering, CourseSection
+from app.models.course_domain import (
+    CourseCatalogVersion,
+    CourseMeeting,
+    CourseOffering,
+    CourseSection,
+)
 from app.models.scheduler_lecture import SchedulerLecture
 from app.models.scheduler_section import SchedulerSection
 from app.scripts.import_pending_academic_data import (
     CurriculumExpectations,
+    load_curriculum_file,
     run_pending_curriculum_update,
     run_pending_scheduler_update,
 )
@@ -39,9 +45,11 @@ from app.scripts.import_scheduler_offerings import (
     SnapshotExpectations,
     create_import_app,
     file_sha256,
+    load_offerings_file,
 )
 from app.scripts.reconcile_course_duplicates import run_reconciliation
-from app.services.course_domain import normalize_course_code
+from app.services.academic_curriculum_sync import curriculum_persisted_projection
+from app.services.course_domain import display_course_code, normalize_course_code
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -390,11 +398,563 @@ def _validate_current_data_plan(
         raise OperationBlocked("operation does not support data-plan validation")
 
     serialized_result = _json_value(current_result)
+    approved_result = approved.get("result")
+    if isinstance(approved_result, dict):
+        approved_result = {
+            key: value
+            for key, value in approved_result.items()
+            if key not in {"pre_state_sha256", "desired_state_sha256"}
+        }
     if (
         _result_status(current_result) != "dry-run"
-        or _sha256_json(serialized_result) != approved.get("result_sha256")
+        or not isinstance(approved_result, dict)
+        or _sha256_json(serialized_result) != _sha256_json(approved_result)
     ):
         raise OperationBlocked("current data plan does not match approved dry-run")
+
+
+def _validate_approved_pre_state(
+    args: argparse.Namespace,
+    package: dict[str, Any],
+) -> None:
+    approved = _read_report(args.approved_dry_run_id)
+    result = approved.get("result")
+    approved_pre_state = (
+        result.get("pre_state_sha256") if isinstance(result, dict) else None
+    )
+    if not isinstance(approved_pre_state, str) or not SHA256_RE.fullmatch(
+        approved_pre_state
+    ):
+        raise OperationBlocked("approved dry-run is missing an exact pre-state digest")
+    current_pre_state = _data_pre_state(args.operation, package)
+    if current_pre_state["pre_state_sha256"] != approved_pre_state:
+        raise OperationBlocked("current data state does not match approved dry-run")
+
+
+def _sorted_projection(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(rows, key=_canonical_json)
+
+
+def _scheduler_desired_projection(snapshot: Any, package_sha256: str) -> dict[str, Any]:
+    courses = _scheduler_desired_course_projection(snapshot)
+    offerings = []
+    catalog_versions = []
+    domain_sections = []
+    legacy_sections = []
+    domain_meetings = []
+    legacy_meetings = []
+
+    for course in snapshot.courses:
+        code = normalize_course_code(course.course_code)
+        catalog_versions.append(
+            {
+                "course_code": code,
+                "source": "scheduler_offerings",
+                "source_version": snapshot.semester_id,
+                "catalog_year": snapshot.semester_id[:2],
+                "title": course.course_title,
+                "title_abbr": course.course_title_abbr,
+                "description": course.course_desc,
+                "credits": course.credit,
+                "pre_requirement_raw": course.pre_requirement,
+                "co_requirement_raw": course.co_requirement,
+                "exclusion_raw": course.exclusion,
+                "pg_course": course.pg_course,
+                "klms_course": course.klms_course,
+                "vector": course.vector,
+                "effective_from_semester_id": snapshot.semester_id,
+            }
+        )
+        if course.sections:
+            offerings.append(
+                {
+                    "course_code": code,
+                    "offering_code": course.course_code,
+                    "title_snapshot": course.course_title,
+                    "credits_snapshot": course.credit,
+                    "source": "scheduler_offerings",
+                    "import_hash": package_sha256,
+                    "status": "offered",
+                    "course_is_active": True,
+                    "course_is_deleted": False,
+                    "catalog_version_course_code": code,
+                    "catalog_version_source": "scheduler_offerings",
+                    "catalog_version_source_version": snapshot.semester_id,
+                }
+            )
+
+        for section in course.sections:
+            common_section = {
+                "course_code": code,
+                "section_id": section.section_id,
+                "name": section.name,
+                "section_type": section.section_type,
+                "bundle": section.bundle,
+                "layer": section.layer,
+                "quota": section.quota,
+                "is_main": section.is_main,
+            }
+            domain_sections.append(
+                {
+                    **common_section,
+                    "enrol": section.enrol,
+                    "avail": section.avail,
+                    "wait": section.wait,
+                }
+            )
+            legacy_sections.append(common_section)
+            for lecture in section.lectures:
+                common_meeting = {
+                    "course_code": code,
+                    "section_id": section.section_id,
+                    "day": lecture.day,
+                    "start_time": lecture.start_time,
+                    "end_time": lecture.end_time,
+                    "room": lecture.room,
+                }
+                domain_meetings.append(
+                    {**common_meeting, "instructor": lecture.instructor}
+                )
+                legacy_meetings.append(
+                    {**common_meeting, "instructor": lecture.instructor}
+                )
+
+    return {
+        "semester_id": snapshot.semester_id,
+        "courses": courses,
+        "offerings": _sorted_projection(offerings),
+        "catalog_versions": _sorted_projection(catalog_versions),
+        "domain_sections": _sorted_projection(domain_sections),
+        "domain_meetings": _sorted_projection(domain_meetings),
+        "legacy_sections": _sorted_projection(legacy_sections),
+        "legacy_meetings": _sorted_projection(legacy_meetings),
+        "invalid_archived_offerings": [],
+    }
+
+
+def _scheduler_desired_course_projection(snapshot: Any) -> list[dict[str, Any]]:
+    rows = []
+    for course in snapshot.courses:
+        row = {
+            "course_code": normalize_course_code(course.course_code),
+            "normalized_code": normalize_course_code(course.course_code),
+            "display_code": display_course_code(course.course_code),
+            "canonical_title": course.course_title,
+            "name": course.course_title,
+            "description": course.course_desc,
+            "credits": course.credit,
+            "subject": course.subject.upper() if course.subject else None,
+            "catalog_number": course.catalog_number,
+            "course_title_abbr": course.course_title_abbr,
+            "pg_course": course.pg_course,
+            "klms_course": course.klms_course,
+            "vector": course.vector,
+            "is_active": True,
+            "is_deleted": False,
+        }
+        for attribute in ("pre_requirement", "co_requirement", "exclusion"):
+            value = getattr(course, attribute)
+            if value is not None:
+                row[attribute] = value
+        rows.append(row)
+    return _sorted_projection(rows)
+
+
+def _scheduler_current_course_projection(
+    desired: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    desired_by_code = {row["course_code"]: row for row in desired}
+    rows = []
+    for course in Course.query.all():
+        code = normalize_course_code(course.normalized_code or course.code)
+        expected = desired_by_code.get(code)
+        if expected is None:
+            continue
+        rows.append(
+            {
+                key: code if key == "course_code" else getattr(course, key)
+                for key in expected
+            }
+        )
+    return _sorted_projection(rows)
+
+
+def _scheduler_current_projection(
+    semester_id: str,
+    desired_courses: list[dict[str, Any]],
+) -> dict[str, Any]:
+    active_offerings = (
+        CourseOffering.query.join(Course, CourseOffering.course_id == Course.id)
+        .filter(
+            CourseOffering.semester_id == semester_id,
+            CourseOffering.status != "archived",
+        )
+        .all()
+    )
+    offerings = [
+        {
+            "course_code": normalize_course_code(offering.course.normalized_code or offering.course.code),
+            "offering_code": offering.offering_code,
+            "title_snapshot": offering.title_snapshot,
+            "credits_snapshot": offering.credits_snapshot,
+            "source": offering.source,
+            "import_hash": offering.import_hash,
+            "status": offering.status,
+            "course_is_active": offering.course.is_active,
+            "course_is_deleted": offering.course.is_deleted,
+            "catalog_version_course_code": (
+                normalize_course_code(
+                    offering.catalog_version.course.normalized_code
+                    or offering.catalog_version.course.code
+                )
+                if offering.catalog_version is not None
+                else None
+            ),
+            "catalog_version_source": (
+                offering.catalog_version.source
+                if offering.catalog_version is not None
+                else None
+            ),
+            "catalog_version_source_version": (
+                offering.catalog_version.source_version
+                if offering.catalog_version is not None
+                else None
+            ),
+        }
+        for offering in active_offerings
+    ]
+
+    catalog_versions = [
+        {
+            "course_code": normalize_course_code(version.course.normalized_code or version.course.code),
+            "source": version.source,
+            "source_version": version.source_version,
+            "catalog_year": version.catalog_year,
+            "title": version.title,
+            "title_abbr": version.title_abbr,
+            "description": version.description,
+            "credits": version.credits,
+            "pre_requirement_raw": version.pre_requirement_raw,
+            "co_requirement_raw": version.co_requirement_raw,
+            "exclusion_raw": version.exclusion_raw,
+            "pg_course": version.pg_course,
+            "klms_course": version.klms_course,
+            "vector": version.vector,
+            "effective_from_semester_id": version.effective_from_semester_id,
+        }
+        for version in (
+            db.session.query(CourseCatalogVersion)
+            .join(Course)
+            .filter(
+                CourseCatalogVersion.source == "scheduler_offerings",
+                CourseCatalogVersion.source_version == semester_id,
+            )
+            .all()
+        )
+    ]
+
+    domain_sections = [
+        {
+            "course_code": normalize_course_code(section.offering.course.normalized_code or section.offering.course.code),
+            "section_id": section.source_section_id,
+            "name": section.name,
+            "section_type": section.section_type,
+            "bundle": section.bundle,
+            "layer": section.layer,
+            "quota": section.quota,
+            "is_main": section.is_main,
+            "enrol": section.enrol,
+            "avail": section.avail,
+            "wait": section.wait,
+        }
+        for section in (
+            CourseSection.query.join(CourseOffering)
+            .filter(
+                CourseOffering.semester_id == semester_id,
+                CourseOffering.status != "archived",
+            )
+            .all()
+        )
+    ]
+    domain_meetings = [
+        {
+            "course_code": normalize_course_code(meeting.section.offering.course.normalized_code or meeting.section.offering.course.code),
+            "section_id": meeting.section.source_section_id,
+            "day": meeting.day,
+            "start_time": meeting.start_time,
+            "end_time": meeting.end_time,
+            "room": meeting.room,
+            "instructor": meeting.instructor_text,
+        }
+        for meeting in (
+            CourseMeeting.query.join(CourseSection).join(CourseOffering)
+            .filter(
+                CourseOffering.semester_id == semester_id,
+                CourseOffering.status != "archived",
+            )
+            .all()
+        )
+    ]
+    legacy_sections = [
+        {
+            "course_code": normalize_course_code(section.course.normalized_code or section.course.code),
+            "section_id": section.section_id,
+            "name": section.name,
+            "section_type": section.section_type,
+            "bundle": section.bundle,
+            "layer": section.layer,
+            "quota": section.quota,
+            "is_main": section.is_main,
+        }
+        for section in SchedulerSection.query.filter_by(semester_id=semester_id).all()
+    ]
+    legacy_by_section = {
+        section.section_id: normalize_course_code(section.course.normalized_code or section.course.code)
+        for section in SchedulerSection.query.filter_by(semester_id=semester_id).all()
+    }
+    legacy_meetings = [
+        {
+            "course_code": legacy_by_section.get(lecture.section_id, ""),
+            "section_id": lecture.section_id,
+            "day": lecture.day,
+            "start_time": lecture.start_time,
+            "end_time": lecture.end_time,
+            "room": lecture.room,
+            "instructor": lecture.instructor,
+        }
+        for lecture in SchedulerLecture.query.filter_by(semester_id=semester_id).all()
+    ]
+    invalid_archived_offerings = [
+        normalize_course_code(offering.course.normalized_code or offering.course.code)
+        for offering in CourseOffering.query.filter_by(
+            semester_id=semester_id, status="archived"
+        ).all()
+        if CourseSection.query.filter_by(offering_id=offering.id).count()
+    ]
+    return {
+        "semester_id": semester_id,
+        "courses": _scheduler_current_course_projection(desired_courses),
+        "offerings": _sorted_projection(offerings),
+        "catalog_versions": _sorted_projection(catalog_versions),
+        "domain_sections": _sorted_projection(domain_sections),
+        "domain_meetings": _sorted_projection(domain_meetings),
+        "legacy_sections": _sorted_projection(legacy_sections),
+        "legacy_meetings": _sorted_projection(legacy_meetings),
+        "invalid_archived_offerings": sorted(invalid_archived_offerings),
+    }
+
+
+def _curriculum_current_projection(desired: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    current = []
+    for expected in desired:
+        program = CurriculumProgram.query.filter_by(
+            code=expected["code"], cohort=expected["cohort"]
+        ).one_or_none()
+        if program is None:
+            continue
+        groups = [
+            {
+                "key": group.key,
+                "name_en": group.name_en,
+                "name_zh": group.name_zh,
+                "category": group.category,
+                "min_credits": group.min_credits,
+                "min_courses": group.min_courses,
+                "rule": group.rule or {},
+                "sort_order": group.sort_order,
+            }
+            for group in CurriculumRequirementGroup.query.filter_by(
+                program_id=program.id
+            ).all()
+        ]
+        current.append(
+            {
+                "code": program.code,
+                "cohort": program.cohort,
+                "name_en": program.name_en,
+                "name_zh": program.name_zh,
+                "total_min_credits": program.total_min_credits,
+                "common_core_min_credits": program.common_core_min_credits,
+                "major_min_credits": program.major_min_credits,
+                "home_areas": program.home_areas or [],
+                "is_active": program.is_active,
+                "requirement_groups": sorted(groups, key=lambda group: group["key"]),
+            }
+        )
+    return sorted(current, key=lambda program: (program["code"], program["cohort"]))
+
+
+def _scheduler_import_run(package_sha256: str) -> dict[str, Any] | None:
+    if not inspect(db.engine).has_table("scheduler_offering_import_runs"):
+        return None
+    row = db.session.execute(
+        text(
+            """
+            SELECT semester_id, status
+            FROM scheduler_offering_import_runs
+            WHERE import_hash = :import_hash
+            """
+        ),
+        {"import_hash": package_sha256},
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+def _data_postcondition(
+    operation: str,
+    package: dict[str, Any],
+) -> dict[str, Any]:
+    try:
+        actual_sha256 = file_sha256(package["resolved_path"])
+    except OSError as exc:
+        raise OperationBlocked("committed package file is unreadable") from exc
+    if actual_sha256 != package["sha256"]:
+        raise OperationBlocked(
+            f"committed package SHA-256 mismatch: {actual_sha256} != {package['sha256']}"
+        )
+
+    expected = package.get("expected") or {}
+    if operation == "scheduler-import":
+        expectations = SnapshotExpectations(
+            courses=int(expected["courses"]),
+            offered_courses=int(expected["offered_courses"]),
+            sections=int(expected["sections"]),
+            lectures=int(expected["lectures"]),
+        )
+        snapshot = load_offerings_file(
+            package["resolved_path"], package.get("semester_id")
+        )
+        actual_counts = {
+            "courses": len(snapshot.courses),
+            "offered_courses": sum(bool(course.sections) for course in snapshot.courses),
+            "sections": sum(len(course.sections) for course in snapshot.courses),
+            "lectures": sum(
+                len(section.lectures)
+                for course in snapshot.courses
+                for section in course.sections
+            ),
+        }
+        reviewed_counts = asdict(expectations)
+        if actual_counts != reviewed_counts:
+            raise OperationBlocked(
+                "scheduler package no longer matches reviewed exact counts"
+            )
+        desired = _scheduler_desired_projection(snapshot, package["sha256"])
+        current = _scheduler_current_projection(
+            snapshot.semester_id,
+            desired["courses"],
+        )
+        ledger = _scheduler_import_run(package["sha256"])
+        mismatches = [
+            key
+            for key in desired
+            if _canonical_json(desired[key]) != _canonical_json(current[key])
+        ]
+        return {
+            "matches": not mismatches,
+            "desired_state_sha256": _sha256_json(desired),
+            "current_state_sha256": _sha256_json(current),
+            "mismatched_components": mismatches,
+            "ledger_status": (ledger or {}).get("status"),
+            "ledger_semester_id": (ledger or {}).get("semester_id"),
+        }
+
+    if operation == "curriculum-sync":
+        expectations = CurriculumExpectations(
+            program_definitions=int(expected["program_definitions"]),
+            program_cohorts=int(expected["program_cohorts"]),
+            requirement_groups=int(expected["requirement_groups"]),
+            unique_course_codes=int(expected["unique_course_codes"]),
+        )
+        snapshot = load_curriculum_file(package["resolved_path"], expectations)
+        desired = curriculum_persisted_projection(snapshot.payload)
+        current = _curriculum_current_projection(desired)
+        return {
+            "matches": _canonical_json(desired) == _canonical_json(current),
+            "desired_state_sha256": _sha256_json(desired),
+            "current_state_sha256": _sha256_json(current),
+            "expected_programs": len(desired),
+            "current_programs": len(current),
+        }
+
+    raise OperationBlocked("operation does not have data postconditions")
+
+
+def _data_pre_state(operation: str, package: dict[str, Any]) -> dict[str, str]:
+    postcondition = _data_postcondition(operation, package)
+    if operation == "scheduler-import":
+        state = {"package_owned": postcondition["current_state_sha256"]}
+    else:
+        state = {"package_owned": postcondition["current_state_sha256"]}
+    return {"pre_state_sha256": _sha256_json(state)}
+
+
+def _with_data_state(result: Any, operation: str, package: dict[str, Any]) -> dict[str, Any]:
+    serialized = _json_value(result)
+    if not isinstance(serialized, dict):
+        raise OperationBlocked("data operation returned a malformed result")
+    postcondition = _data_postcondition(operation, package)
+    return {
+        **serialized,
+        **_data_pre_state(operation, package),
+        "desired_state_sha256": postcondition["desired_state_sha256"],
+    }
+
+
+def _already_applied_result(
+    operation: str,
+    package: dict[str, Any],
+    postcondition: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "status": "already-applied",
+        "mode": "apply",
+        "message": (
+            f"{operation} package is already present; exact package-owned "
+            "postconditions were verified."
+        ),
+        "package_id": package.get("id"),
+        "package_sha256": package["sha256"],
+        "postcondition": postcondition,
+    }
+
+
+def _run_data_apply(
+    args: argparse.Namespace,
+    package: dict[str, Any],
+    operation: Any,
+) -> Any:
+    before = _data_postcondition(args.operation, package)
+    if before["matches"]:
+        return _already_applied_result(args.operation, package, before)
+
+    if args.operation == "scheduler-import" and before.get("ledger_status") in {
+        "applied",
+        "running",
+    }:
+        raise OperationBlocked(
+            "scheduler import ledger exists but exact package postconditions do not match"
+        )
+
+    _validate_current_data_plan(args, package)
+    _validate_approved_pre_state(args, package)
+    result = operation(args, package)
+    if _result_status(result) == "skipped":
+        raise OperationBlocked(
+            "data importer returned skipped without verified exact postconditions"
+        )
+    if _result_status(result) != "applied":
+        return result
+
+    after = _data_postcondition(args.operation, package)
+    if not after["matches"]:
+        raise OperationBlocked(
+            "data importer completed without satisfying exact package postconditions"
+        )
+    return {
+        **_json_value(result),
+        "postcondition": after,
+    }
 
 
 @contextmanager
@@ -576,12 +1136,18 @@ def _run(args: argparse.Namespace, package: dict[str, Any] | None) -> Any:
             return _verify_release()
         if args.operation == "scheduler-import":
             if args.mode == "apply":
-                _validate_current_data_plan(args, package)
-            return _scheduler_operation(args, package)
+                return _run_data_apply(args, package, _scheduler_operation)
+            result = _scheduler_operation(args, package)
+            if _result_status(result) == "dry-run":
+                return _with_data_state(result, args.operation, package)
+            return result
         if args.operation == "curriculum-sync":
             if args.mode == "apply":
-                _validate_current_data_plan(args, package)
-            return _curriculum_operation(args, package)
+                return _run_data_apply(args, package, _curriculum_operation)
+            result = _curriculum_operation(args, package)
+            if _result_status(result) == "dry-run":
+                return _with_data_state(result, args.operation, package)
+            return result
         if args.operation == "course-duplicates":
             return _reconciliation_operation(args)
     raise OperationBlocked("operation is not allowlisted")

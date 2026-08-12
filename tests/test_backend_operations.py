@@ -10,7 +10,11 @@ from sqlalchemy.ext.compiler import compiles
 from app import create_app
 from app.config import Config
 from app.extensions import db
+from app.models.academic_map import CurriculumRequirementGroup
+from app.models.course import Course
+from app.models.course_domain import CourseCatalogVersion, CourseOffering, CourseSection
 from app.scripts import run_backend_operation as operations
+from app.scripts.import_pending_academic_data import PENDING_SCHEDULER_SUBJECTS
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,6 +66,165 @@ def _args(*extra):
             "scheduler-2610-v1",
             *extra,
         ]
+    )
+
+
+def _write_scheduler_package(tmp_path):
+    payload = {
+        "semester_id": "2610",
+        "semester_start_date": "2026-09-01",
+        "provenance": {
+            "source_name": "HKUST-GZ Class Schedule & Quota",
+            "term_url": "https://w5.hkust-gz.edu.cn/wcq/cgi-bin/2610/",
+            "retrieved_at": "2026-08-09T12:00:00Z",
+            "subjects": [
+                {
+                    "code": code,
+                    "url": (
+                        "https://w5.hkust-gz.edu.cn/wcq/cgi-bin/index.php"
+                        f"?term=2610&subject={code}"
+                    ),
+                }
+                for code in sorted(PENDING_SCHEDULER_SUBJECTS)
+            ],
+        },
+        "courses": [
+            {
+                "course_code": "TEST1001",
+                "course_title": "Test Course",
+                "course_desc": "Reviewed description",
+                "credit": 3,
+                "subject": "TEST",
+                "catalog_number": "1001",
+                "course_title_abbr": "Test",
+                "pg_course": False,
+                "klms_course": False,
+                "sections": [
+                    {
+                        "semester_id": "2610",
+                        "section_id": "TEST1001-L01",
+                        "course_code": "TEST1001",
+                        "section_type": "L",
+                        "name": "L01",
+                        "bundle": 1,
+                        "layer": 0,
+                        "quota": 50,
+                        "enrol": 47,
+                        "avail": 3,
+                        "wait": 2,
+                        "is_main": True,
+                        "lectures": [
+                            {
+                                "day": 1,
+                                "start_time": "0900",
+                                "end_time": "1050",
+                                "room": "Room 101",
+                                "instructor": "Dr. Test",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    path = tmp_path / "scheduler-2610.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return {
+        "id": "scheduler-test",
+        "kind": "scheduler",
+        "semester_id": "2610",
+        "resolved_path": path,
+        "sha256": operations.file_sha256(path),
+        "expected": {
+            "courses": 1,
+            "offered_courses": 1,
+            "sections": 1,
+            "lectures": 1,
+        },
+    }
+
+
+def _write_curriculum_package(tmp_path):
+    payload = {
+        "programs": [
+            {
+                "code": "AI",
+                "cohort": "2026",
+                "name_en": "Artificial Intelligence",
+                "source_url": "https://ait.hkust-gz.edu.cn/programs/undergraduate-program/",
+                "source_pdf_sha256": "a" * 64,
+                "source_retrieved_at": "2026-08-09",
+                "total_min_credits": 120,
+                "common_core_min_credits": 30,
+                "major_min_credits": 85,
+                "home_areas": ["Information Hub"],
+                "requirement_groups": [
+                    {
+                        "key": "major_required",
+                        "name_en": "Major Required Courses",
+                        "category": "major_required",
+                        "min_credits": 6,
+                        "sort_order": 1,
+                        "rule": {
+                            "rule_tree": {
+                                "type": "required",
+                                "courses": ["AIAA 2205", "AIAA4490"],
+                            }
+                        },
+                    },
+                    {
+                        "key": "major_electives",
+                        "name_en": "Major Elective Courses",
+                        "category": "major_elective",
+                        "min_courses": 1,
+                        "sort_order": 2,
+                        "rule": {
+                            "rule_tree": {
+                                "type": "choose",
+                                "courses": ["AIAA4001"],
+                            }
+                        },
+                    },
+                ],
+            }
+        ]
+    }
+    path = tmp_path / "curriculum-2026.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return {
+        "id": "curriculum-test",
+        "kind": "curriculum",
+        "resolved_path": path,
+        "sha256": operations.file_sha256(path),
+        "expected": {
+            "program_definitions": 1,
+            "program_cohorts": 1,
+            "requirement_groups": 2,
+            "unique_course_codes": 3,
+        },
+    }
+
+
+def _apply_args(operation, package_id, approved_id):
+    args = _args(
+        "--mode",
+        "apply",
+        "--approved-dry-run-id",
+        approved_id,
+    )
+    args.operation = operation
+    args.package_id = package_id
+    return args
+
+
+def _write_approved_report(request_id, result):
+    serialized = operations._json_value(result)
+    operations._write_report(
+        {
+            "request_id": request_id,
+            "result": serialized,
+            "result_sha256": operations._sha256_json(serialized),
+        }
     )
 
 
@@ -487,6 +650,204 @@ def test_data_apply_replans_under_lock_and_matches_approved_result(monkeypatch, 
     )
     with pytest.raises(operations.OperationBlocked, match="current data plan"):
         operations._validate_current_data_plan(args, package)
+
+
+def test_scheduler_apply_retry_requires_exact_postconditions(
+    app, monkeypatch, tmp_path
+):
+    monkeypatch.setenv(operations.REPORT_DIR_ENV, str(tmp_path / "reports"))
+    monkeypatch.setattr(operations, "create_import_app", lambda: app)
+    package = _write_scheduler_package(tmp_path)
+
+    dry_args = _args()
+    dry = operations._run(dry_args, package)
+    _write_approved_report("scheduler-initial", dry)
+    first = operations._run(
+        _apply_args("scheduler-import", package["id"], "scheduler-initial"),
+        package,
+    )
+
+    post_apply_dry = operations._run(dry_args, package)
+    _write_approved_report("scheduler-after", post_apply_dry)
+    retry = operations._run(
+        _apply_args("scheduler-import", package["id"], "scheduler-after"),
+        package,
+    )
+
+    assert operations._result_status(first) == "applied"
+    assert retry["status"] == "already-applied"
+    assert retry["postcondition"]["matches"] is True
+    with app.app_context():
+        assert CourseSection.query.one().quota == 50
+        CourseSection.query.one().quota = 51
+        db.session.commit()
+
+    with pytest.raises(operations.OperationBlocked, match="postconditions do not match"):
+        operations._run(
+            _apply_args("scheduler-import", package["id"], "scheduler-after"),
+            package,
+        )
+
+
+def test_scheduler_retry_rejects_course_field_drift(app, monkeypatch, tmp_path):
+    monkeypatch.setenv(operations.REPORT_DIR_ENV, str(tmp_path / "reports"))
+    monkeypatch.setattr(operations, "create_import_app", lambda: app)
+    package = _write_scheduler_package(tmp_path)
+    dry_args = _args()
+    dry = operations._run(dry_args, package)
+    _write_approved_report("scheduler-course-drift", dry)
+    apply_args = _apply_args(
+        "scheduler-import", package["id"], "scheduler-course-drift"
+    )
+    operations._run(apply_args, package)
+
+    with app.app_context():
+        Course.query.filter_by(normalized_code="TEST1001").one().name = "Corrupt title"
+        db.session.commit()
+
+    with pytest.raises(operations.OperationBlocked, match="postconditions do not match"):
+        operations._run(apply_args, package)
+
+
+def test_scheduler_retry_rejects_repointed_catalog_version(
+    app, monkeypatch, tmp_path
+):
+    monkeypatch.setenv(operations.REPORT_DIR_ENV, str(tmp_path / "reports"))
+    monkeypatch.setattr(operations, "create_import_app", lambda: app)
+    package = _write_scheduler_package(tmp_path)
+    dry_args = _args()
+    dry = operations._run(dry_args, package)
+    _write_approved_report("scheduler-catalog-drift", dry)
+    apply_args = _apply_args(
+        "scheduler-import", package["id"], "scheduler-catalog-drift"
+    )
+    operations._run(apply_args, package)
+
+    with app.app_context():
+        offering = CourseOffering.query.one()
+        wrong_version = CourseCatalogVersion(
+            course_id=offering.course_id,
+            source="scheduler_offerings",
+            source_version="9999",
+            title="Wrong catalog version",
+            credits=3,
+        )
+        db.session.add(wrong_version)
+        db.session.flush()
+        offering.catalog_version_id = wrong_version.id
+        db.session.commit()
+
+    with pytest.raises(operations.OperationBlocked, match="postconditions do not match"):
+        operations._run(apply_args, package)
+
+
+@pytest.mark.parametrize("ledger_status", ["applied", "running"])
+def test_scheduler_ledger_without_data_never_reports_success(
+    app, monkeypatch, tmp_path, ledger_status
+):
+    monkeypatch.setenv(operations.REPORT_DIR_ENV, str(tmp_path / "reports"))
+    monkeypatch.setattr(operations, "create_import_app", lambda: app)
+    package = _write_scheduler_package(tmp_path)
+    dry_args = _args()
+    dry = operations._run(dry_args, package)
+    _write_approved_report("scheduler-ledger-only", dry)
+
+    with app.app_context():
+        db.session.execute(
+            operations.text(
+                """
+                CREATE TABLE scheduler_offering_import_runs (
+                    import_hash VARCHAR(64) PRIMARY KEY,
+                    semester_id VARCHAR(16) NOT NULL,
+                    mode VARCHAR(16) NOT NULL,
+                    status VARCHAR(16) NOT NULL,
+                    summary TEXT
+                )
+                """
+            )
+        )
+        db.session.execute(
+            operations.text(
+                """
+                INSERT INTO scheduler_offering_import_runs
+                    (import_hash, semester_id, mode, status, summary)
+                VALUES (:import_hash, '2610', 'apply', :status, '')
+                """
+            ),
+            {"import_hash": package["sha256"], "status": ledger_status},
+        )
+        db.session.commit()
+
+    with pytest.raises(operations.OperationBlocked, match="ledger exists"):
+        operations._run(
+            _apply_args(
+                "scheduler-import", package["id"], "scheduler-ledger-only"
+            ),
+            package,
+        )
+
+
+def test_scheduler_already_applied_path_rechecks_package_hash(
+    app, monkeypatch, tmp_path
+):
+    monkeypatch.setenv(operations.REPORT_DIR_ENV, str(tmp_path / "reports"))
+    monkeypatch.setattr(operations, "create_import_app", lambda: app)
+    package = _write_scheduler_package(tmp_path)
+    dry_args = _args()
+    dry = operations._run(dry_args, package)
+    _write_approved_report("scheduler-hash", dry)
+    operations._run(
+        _apply_args("scheduler-import", package["id"], "scheduler-hash"), package
+    )
+
+    raw = json.loads(package["resolved_path"].read_text(encoding="utf-8"))
+    raw["provenance"]["retrieved_at"] = "2026-08-10T12:00:00Z"
+    package["resolved_path"].write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(operations.OperationBlocked, match="SHA-256 mismatch"):
+        operations._run(
+            _apply_args("scheduler-import", package["id"], "scheduler-hash"),
+            package,
+        )
+
+
+def test_curriculum_apply_retry_requires_exact_normalized_postconditions(
+    app, monkeypatch, tmp_path
+):
+    monkeypatch.setenv(operations.REPORT_DIR_ENV, str(tmp_path / "reports"))
+    monkeypatch.setattr(operations, "create_import_app", lambda: app)
+    package = _write_curriculum_package(tmp_path)
+    dry_args = _args()
+    dry_args.operation = "curriculum-sync"
+    dry_args.package_id = package["id"]
+    dry = operations._run(dry_args, package)
+    _write_approved_report("curriculum-initial", dry)
+    first = operations._run(
+        _apply_args("curriculum-sync", package["id"], "curriculum-initial"),
+        package,
+    )
+
+    post_apply_dry = operations._run(dry_args, package)
+    _write_approved_report("curriculum-after", post_apply_dry)
+    retry = operations._run(
+        _apply_args("curriculum-sync", package["id"], "curriculum-after"),
+        package,
+    )
+
+    assert operations._result_status(first) == "applied"
+    assert retry["status"] == "already-applied"
+    with app.app_context():
+        group = CurriculumRequirementGroup.query.filter_by(
+            key="major_required"
+        ).one()
+        assert group.rule["rule_tree"]["courses"][0] == "AIAA2205"
+        group.rule = {"rule_tree": {"type": "required", "courses": []}}
+        db.session.commit()
+
+    with pytest.raises(operations.OperationBlocked, match="current data state"):
+        operations._run(
+            _apply_args("curriculum-sync", package["id"], "curriculum-after"),
+            package,
+        )
 
 
 def test_database_upgrade_uses_fixed_argv_without_shell(monkeypatch):

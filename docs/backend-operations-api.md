@@ -101,9 +101,15 @@ the dispatched SHA. It serializes operations with both GitHub concurrency and
 `flock`, creates a PostgreSQL custom-format backup, verifies it with
 `pg_restore --list`, records its SHA-256, and only then starts the operation.
 The Python runner also acquires a PostgreSQL advisory lock and rebuilds a
-scheduler or curriculum plan under that lock; its canonical result digest must
-match the approved dry-run before mutation begins. After a successful apply, CI
-restarts the service and checks both systemd and the local scheduler API.
+scheduler or curriculum plan under that lock; both its canonical result digest
+and exact scoped pre-state digest must match the approved dry-run before
+mutation begins. A retry for an exact package
+may return `already-applied`, but only after the runner re-hashes the package and
+verifies the complete package-owned database projection. A package ledger alone
+is never treated as proof: an applied/running ledger with missing or drifted rows
+is blocked, and a newly applied package is verified again before success is
+reported. After a successful apply, CI restarts the service and checks both
+systemd and the local scheduler API.
 
 Sanitized JSON reports are stored immutably under the target's
 `operation-reports` directory using the request id; console logs additionally
