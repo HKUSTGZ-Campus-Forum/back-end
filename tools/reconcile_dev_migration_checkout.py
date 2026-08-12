@@ -74,10 +74,15 @@ def _validate_fixed_parent_descriptor(descriptor: int, label: str) -> tuple[int,
     details = os.fstat(descriptor)
     if (
         not stat.S_ISDIR(details.st_mode)
-        or details.st_uid != os.geteuid()
+        or details.st_uid not in {0, os.geteuid()}
         or details.st_mode & 0o022
     ):
-        raise ReconciliationBlocked(f"unsafe parent directory: {label}")
+        raise ReconciliationBlocked(
+            "unsafe parent directory: "
+            f"{label} (owner_uid={details.st_uid}, effective_uid={os.geteuid()}, "
+            f"group_gid={details.st_gid}, effective_gid={os.getegid()}, "
+            f"mode={stat.S_IMODE(details.st_mode):04o})"
+        )
     return details.st_dev, details.st_ino
 
 

@@ -525,3 +525,40 @@ def test_helper_lock_rejects_symlink_and_contended_regular_file(tmp_path, monkey
     finally:
         fcntl.flock(first_descriptor, fcntl.LOCK_UN)
         os.close(first_descriptor)
+
+
+def test_fixed_parent_accepts_root_or_current_user_but_rejects_writable_owner(
+    tmp_path, monkeypatch
+):
+    parent = tmp_path / "data"
+    parent.mkdir(mode=0o755)
+    descriptor = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+    real_fstat = reconciliation.os.fstat
+    real_details = real_fstat(descriptor)
+
+    class Details:
+        st_mode = real_details.st_mode
+        st_dev = real_details.st_dev
+        st_ino = real_details.st_ino
+        st_uid = 0
+        st_gid = os.getegid()
+
+    try:
+        monkeypatch.setattr(reconciliation.os, "fstat", lambda _descriptor: Details())
+        assert reconciliation._validate_fixed_parent_descriptor(
+            descriptor, str(parent)
+        ) == (real_details.st_dev, real_details.st_ino)
+
+        Details.st_uid = os.geteuid()
+        reconciliation._validate_fixed_parent_descriptor(descriptor, str(parent))
+
+        Details.st_uid = max(os.geteuid(), 1) + 1000
+        with pytest.raises(reconciliation.ReconciliationBlocked, match="unsafe parent"):
+            reconciliation._validate_fixed_parent_descriptor(descriptor, str(parent))
+
+        Details.st_uid = 0
+        Details.st_mode = real_details.st_mode | 0o020
+        with pytest.raises(reconciliation.ReconciliationBlocked, match="unsafe parent"):
+            reconciliation._validate_fixed_parent_descriptor(descriptor, str(parent))
+    finally:
+        os.close(descriptor)
