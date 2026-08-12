@@ -20,20 +20,28 @@ def _load_revision_metadata():
                 if isinstance(target, ast.Name) and target.id in {
                     "revision",
                     "down_revision",
+                    "depends_on",
                 }:
                     metadata[target.id] = ast.literal_eval(node.value)
         revision = metadata.get("revision")
         if revision:
             assert revision not in revisions, f"duplicate Alembic revision: {revision}"
-            revisions[revision] = (path, metadata.get("down_revision"))
+            revisions[revision] = (
+                path,
+                metadata.get("down_revision"),
+                metadata.get("depends_on"),
+            )
     return revisions
 
 
 def test_alembic_revision_chain_references_existing_revisions():
     revisions = _load_revision_metadata()
     missing = []
-    for revision, (path, down_revision) in revisions.items():
-        parents = down_revision if isinstance(down_revision, tuple) else (down_revision,)
+    for revision, (path, down_revision, depends_on) in revisions.items():
+        parents = (
+            *(down_revision if isinstance(down_revision, tuple) else (down_revision,)),
+            *(depends_on if isinstance(depends_on, tuple) else (depends_on,)),
+        )
         for parent in parents:
             if parent is not None and parent not in revisions:
                 missing.append((revision, parent, path.name))
@@ -51,8 +59,11 @@ def test_alembic_revision_graph_is_acyclic_and_has_expected_heads():
         if revision in visited:
             return
         visiting.add(revision)
-        down_revision = revisions[revision][1]
-        parents = down_revision if isinstance(down_revision, tuple) else (down_revision,)
+        _path, down_revision, depends_on = revisions[revision]
+        parents = (
+            *(down_revision if isinstance(down_revision, tuple) else (down_revision,)),
+            *(depends_on if isinstance(depends_on, tuple) else (depends_on,)),
+        )
         for parent in parents:
             if parent is not None:
                 visit(parent)
@@ -64,7 +75,7 @@ def test_alembic_revision_graph_is_acyclic_and_has_expected_heads():
 
     parents = {
         parent
-        for _path, down_revision in revisions.values()
+        for _path, down_revision, _depends_on in revisions.values()
         for parent in (
             down_revision if isinstance(down_revision, tuple) else (down_revision,)
         )
@@ -72,8 +83,20 @@ def test_alembic_revision_graph_is_acyclic_and_has_expected_heads():
     }
     assert set(revisions) - parents == {
         "20260812_pop_history",
-        "5202003d1ec0",
+        "20260813_feedback_schema",
     }
+
+
+def test_cross_branch_dependencies_order_pristine_database_revisions():
+    oauth_migration = (
+        VERSION_DIR / "create_oauth_tables.py"
+    ).read_text(encoding="utf-8")
+    academic_migration = (
+        VERSION_DIR / "20260529_academic_map.py"
+    ).read_text(encoding="utf-8")
+
+    assert "depends_on = '7658cd1e9afd'" in oauth_migration
+    assert 'depends_on = "7ddb3557965d"' in academic_migration
 
 
 def test_migration_manifest_covers_and_authenticates_every_revision():
@@ -137,6 +160,21 @@ def test_auto_initialized_migrations_are_idempotent():
                 '"idx_user_offering_carts_popularity" not in cart_indexes',
                 '"idx_user_section_selections_popularity" not in selection_indexes',
                 'INSERT INTO user_section_selections',
+            ],
+        ),
+        (
+            "b79b55da2342_.py",
+            [
+                'if "track" not in columns',
+                'inspector.get_unique_constraints("contest_submissions")',
+                'inspector.get_indexes("contest_submissions")',
+            ],
+        ),
+        (
+            "5202003d1ec0_.py",
+            [
+                'if "reply_to_message_id" not in columns',
+                'inspector.get_foreign_keys("gugu_messages")',
             ],
         ),
     ]
