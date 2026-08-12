@@ -216,6 +216,9 @@ def test_dev_migration_checkout_reconciliation_is_two_phase_and_fixed_scope():
     assert "cancel-in-progress: false" in workflow
     assert "exec 9>/data/dev_unikorn/backend-mutations-dev.lock" in deploy_workflow
     assert "/tmp/unikorn-backend-mutation-dev.lock" not in deploy_workflow
+    assert deploy_workflow.index("umask 077") < deploy_workflow.index(
+        "exec 9>/data/dev_unikorn/backend-mutations-dev.lock"
+    )
     assert "refs/heads/main" in workflow
     assert "secrets.DEV_HOST" in workflow
     assert "secrets.DEV_USER" in workflow
