@@ -411,6 +411,81 @@ def test_production_deploy_activates_bounded_popularity_sampling():
     assert "OnCalendar=2026-09-30 23:59:00 Asia/Shanghai" in final_timer
 
 
+def test_production_first_install_loads_every_reset_unit_before_resetting_failures():
+    deploy_workflow = (
+        ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
+    ).read_text(encoding="utf-8")
+
+    staging = deploy_workflow[
+        deploy_workflow.index("Staging scheduler popularity sampling units..."):
+        deploy_workflow.index("Smoke-testing popularity sampling")
+    ]
+    reset_at = staging.index("systemctl reset-failed")
+    daemon_reload_at = staging.rindex("systemctl daemon-reload", 0, reset_at)
+    install_loop_at = staging.rindex("for unit_name in \\", 0, daemon_reload_at)
+    install_loop = staging[install_loop_at:staging.index("done", install_loop_at)]
+    reset_command = staging[reset_at:staging.index("\n", reset_at)]
+
+    installed_units = set(re.findall(r'"\$\{(\w+)\}"', install_loop))
+    reset_units = set(re.findall(r'"\$\{(\w+)\}"', reset_command))
+
+    assert reset_units
+    assert reset_units <= installed_units
+    assert "final_service" not in installed_units
+    assert "final_service" not in reset_units
+    assert "final_timer" not in installed_units
+    assert '"${unit_stage}/${unit_name}" "/etc/systemd/system/${unit_name}"' in install_loop
+    assert install_loop_at < daemon_reload_at < reset_at
+
+    preflight = deploy_workflow[
+        deploy_workflow.index("Preflighting non-interactive"):
+        deploy_workflow.index("Required sudo permissions are available")
+    ]
+    assert (
+        'require_sudo_permission /usr/bin/systemctl reset-failed \\\n'
+        '            "${baseline_service}" "${sample_service}" "${verify_service}"'
+        in preflight
+    )
+    assert (
+        'require_sudo_permission /usr/bin/systemctl reset-failed "${final_service}"'
+        in preflight
+    )
+
+    before_cutoff_at = deploy_workflow.index("if (( deploy_epoch < sample_end_epoch ))")
+    terminal_only_at = deploy_workflow.index(
+        "elif (( deploy_epoch < terminal_cutoff_epoch ))"
+    )
+    campaign_complete_at = deploy_workflow.index(
+        'else\n            echo "Popularity sampling campaign is complete'
+    )
+
+    def assert_terminal_unit_installed_before_activation(branch):
+        final_service_install_at = branch.index(
+            '"${unit_stage}/${final_service}" "/etc/systemd/system/${final_service}"'
+        )
+        final_timer_install_at = branch.index(
+            '"${unit_stage}/${final_timer}" "/etc/systemd/system/${final_timer}"'
+        )
+        terminal_reload_at = branch.index("systemctl daemon-reload")
+        terminal_reset_at = branch.index('systemctl reset-failed "${final_service}"')
+        terminal_activate_at = branch.index('activate_timer "${final_timer}"')
+
+        assert (
+            max(final_service_install_at, final_timer_install_at)
+            < terminal_reload_at
+            < terminal_reset_at
+            < terminal_activate_at
+        )
+
+    assert deploy_workflow.index("sampler_validated=true") < before_cutoff_at
+    assert_terminal_unit_installed_before_activation(
+        deploy_workflow[before_cutoff_at:terminal_only_at]
+    )
+    assert_terminal_unit_installed_before_activation(
+        deploy_workflow[terminal_only_at:campaign_complete_at]
+    )
+
+
 def test_popularity_sampler_disables_app_startup_side_effects_before_import():
     sampler = (ROOT / "scripts" / "sample_scheduler_popularity.py").read_text(
         encoding="utf-8"
