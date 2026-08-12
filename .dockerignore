@@ -1,0 +1,17 @@
+**
+!.dockerignore
+!Dockerfile
+!build-requirements.lock
+!requirements.txt
+!requirements.lock
+!wsgi.py
+!app/
+!app/**
+!migrations/
+!migrations/**
+
+**/__pycache__/
+**/*.py[cod]
+**/.env
+**/.env.*
+**/.DS_Store

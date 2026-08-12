@@ -10,6 +10,41 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, '..', '.env'))
 
 
+_TRUE_VALUES = frozenset({'1', 'true', 'yes', 'on'})
+_FALSE_VALUES = frozenset({'0', 'false', 'no', 'off'})
+
+
+def get_env_bool(name, default=False):
+    """Read a boolean environment variable without silently accepting typos."""
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+
+    value = raw_value.strip().lower()
+    if value in _TRUE_VALUES:
+        return True
+    if value in _FALSE_VALUES:
+        return False
+    raise ValueError(
+        f'{name} must be one of: '
+        f'{", ".join(sorted(_TRUE_VALUES | _FALSE_VALUES))}'
+    )
+
+
+def get_env_nonnegative_int(name, default):
+    """Read a non-negative integer environment variable."""
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ValueError(f'{name} must be a non-negative integer') from exc
+    if value < 0:
+        raise ValueError(f'{name} must be a non-negative integer')
+    return value
+
+
 def normalize_database_config(database_url):
     """Return a SQLAlchemy URI and engine options for DATABASE_URL."""
     if database_url.startswith('postgres://'):
@@ -36,6 +71,10 @@ _database_uri, _database_engine_options = normalize_database_config(
 
 
 class Config:
+    APP_ENV = os.getenv(
+        'APP_ENV',
+        os.getenv('ENVIRONMENT', os.getenv('FLASK_ENV', 'development')),
+    ).strip().lower()
     SECRET_KEY = os.getenv('SECRET_KEY', 'your_default_secret_key')
     SQLALCHEMY_DATABASE_URI = _database_uri
     SQLALCHEMY_ENGINE_OPTIONS = _database_engine_options
@@ -93,8 +132,26 @@ class Config:
     DASHVECTOR_API_KEY = os.getenv('DASHVECTOR_API_KEY')
     DASHVECTOR_ENDPOINT = os.getenv('DASHVECTOR_ENDPOINT')
 
+    # Web Push Configuration
+    VAPID_PRIVATE_KEY = os.getenv('VAPID_PRIVATE_KEY')
+    VAPID_PUBLIC_KEY = os.getenv('VAPID_PUBLIC_KEY')
+    VAPID_EMAIL = os.getenv('VAPID_EMAIL', 'admin@example.com')
+
     # Background Tasks Configuration
-    ENABLE_BACKGROUND_TASKS = os.getenv('ENABLE_BACKGROUND_TASKS', 'true').lower() == 'true'
+    AUTO_INIT_ON_STARTUP = get_env_bool('AUTO_INIT_ON_STARTUP', True)
+    ENABLE_BACKGROUND_TASKS = get_env_bool('ENABLE_BACKGROUND_TASKS', True)
     EMBEDDING_MAINTENANCE_INTERVAL_MINUTES = int(os.getenv('EMBEDDING_MAINTENANCE_INTERVAL_MINUTES', '60'))  # 1 hour default
     EMBEDDING_MAINTENANCE_BATCH_SIZE = int(os.getenv('EMBEDDING_MAINTENANCE_BATCH_SIZE', '50'))
     EMBEDDING_MAINTENANCE_MAX_TIME_MINUTES = int(os.getenv('EMBEDDING_MAINTENANCE_MAX_TIME_MINUTES', '30'))
+
+    # Forwarded headers are untrusted unless a deployment opts in explicitly.
+    # Separate counts avoid assuming every trusted proxy appends every header.
+    _LEGACY_TRUSTED_PROXY_HOPS = get_env_nonnegative_int('TRUSTED_PROXY_HOPS', 0)
+    TRUSTED_PROXY_FOR_HOPS = get_env_nonnegative_int(
+        'TRUSTED_PROXY_FOR_HOPS',
+        _LEGACY_TRUSTED_PROXY_HOPS,
+    )
+    TRUSTED_PROXY_PROTO_HOPS = get_env_nonnegative_int(
+        'TRUSTED_PROXY_PROTO_HOPS',
+        _LEGACY_TRUSTED_PROXY_HOPS,
+    )
