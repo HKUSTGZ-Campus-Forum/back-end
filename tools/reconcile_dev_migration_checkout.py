@@ -174,9 +174,9 @@ def _inspect_file(path: Path, relative_path: str) -> dict[str, Any]:
     }
 
 
-def aggregate_digest(files: list[dict[str, Any]]) -> str:
+def aggregate_digest(context: dict[str, Any]) -> str:
     canonical = json.dumps(
-        files,
+        context,
         ensure_ascii=True,
         separators=(",", ":"),
         sort_keys=True,
@@ -218,6 +218,7 @@ def committed_graph(repo: Path, allowlisted_revisions: set[str]) -> dict[str, An
     all_parents = {parent for parents in revisions.values() for parent in parents}
     references = sorted(allowlisted_revisions & all_parents)
     return {
+        "revisions": sorted(revisions),
         "heads": sorted(set(revisions) - all_parents),
         "allowlisted_revision_references": references,
         "allowlisted_revision_referenced": bool(references),
@@ -290,15 +291,24 @@ def audit(repo: Path, *, live_revisions: list[str] | None = None) -> dict[str, A
     current_revisions = (
         _live_database_revisions(repo) if live_revisions is None else live_revisions
     )
+    current_revisions = sorted(set(current_revisions))
+    for revision in current_revisions:
+        _validate_revision(revision, "dev alembic_version")
     current_allowlisted = sorted(set(revisions) & set(current_revisions))
-    return {
+    current_unknown = sorted(
+        set(current_revisions) - set(graph["revisions"]) - set(revisions)
+    )
+    context = {
         "schema_version": 1,
         "target": "dev",
         "repository": str(APP_DIR),
         "branch": EXPECTED_BRANCH,
+        "repository_sha": _git(repo, "rev-parse", "HEAD"),
         "database": EXPECTED_DATABASE,
         "live_current_revisions": current_revisions,
         "live_current_allowlisted_revisions": current_allowlisted,
+        "live_current_unknown_revisions": current_unknown,
+        "committed_revisions": graph["revisions"],
         "committed_heads": graph["heads"],
         "committed_allowlisted_revision_references": graph[
             "allowlisted_revision_references"
@@ -307,8 +317,8 @@ def audit(repo: Path, *, live_revisions: list[str] | None = None) -> dict[str, A
             "allowlisted_revision_referenced"
         ],
         "files": files,
-        "aggregate_sha256": aggregate_digest(files),
     }
+    return {**context, "aggregate_sha256": aggregate_digest(context)}
 
 
 def _validate_quarantine_target(path: Path, run_id: str) -> Path:
@@ -349,6 +359,14 @@ def apply(
     if before["live_current_allowlisted_revisions"]:
         raise ReconciliationBlocked(
             "live dev database still identifies an allowlisted migration as current"
+        )
+    if before["committed_allowlisted_revision_referenced"]:
+        raise ReconciliationBlocked(
+            "committed migration graph still references an allowlisted revision"
+        )
+    if before["live_current_unknown_revisions"]:
+        raise ReconciliationBlocked(
+            "live dev database has a current revision outside the committed and allowlisted graphs"
         )
 
     destination = _validate_quarantine_target(

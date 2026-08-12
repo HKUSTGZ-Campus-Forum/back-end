@@ -189,6 +189,9 @@ def test_dev_migration_checkout_reconciliation_is_two_phase_and_fixed_scope():
     assert "manifest.json" in helper
     assert "live_current_revisions" in helper
     assert "live_current_allowlisted_revisions" in helper
+    assert "live_current_unknown_revisions" in helper
+    assert "repository_sha" in helper
+    assert "committed_revisions" in helper
     assert "committed_heads" in helper
     assert "committed_allowlisted_revision_references" in helper
     assert "SELECT version_num FROM alembic_version" in helper

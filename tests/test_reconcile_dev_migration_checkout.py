@@ -36,7 +36,11 @@ def _checkout(tmp_path: Path, monkeypatch):
     _git(repository, "config", "user.name", "Checkout Recovery Test")
     _git(repository, "config", "user.email", "recovery@example.test")
     (repository / "README.md").write_text("tracked\n", encoding="utf-8")
+    committed_migration = repository / "migrations" / "versions" / "committed.py"
+    committed_migration.parent.mkdir(parents=True)
+    committed_migration.write_bytes(_migration("committed_head", None))
     _git(repository, "add", "README.md")
+    _git(repository, "add", "migrations/versions/committed.py")
     _git(repository, "commit", "--quiet", "-m", "initial")
 
     allowlist = (
@@ -73,14 +77,18 @@ def test_audit_is_deterministic_and_parses_metadata_without_execution(tmp_path, 
     second = reconciliation.audit(repository)
 
     assert first == second
-    assert first["aggregate_sha256"] == reconciliation.aggregate_digest(first["files"])
+    context = {key: value for key, value in first.items() if key != "aggregate_sha256"}
+    assert first["aggregate_sha256"] == reconciliation.aggregate_digest(context)
+    assert first["repository_sha"] == _git(repository, "rev-parse", "HEAD")
     assert [entry["path"] for entry in first["files"]] == list(payloads)
     assert [entry["revision"] for entry in first["files"]] == ["legacy_a", "legacy_b"]
     assert first["files"][1]["down_revision"] == "legacy_a"
     assert first["live_current_revisions"] == ["committed_head"]
     assert first["live_current_allowlisted_revisions"] == []
-    assert first["committed_heads"] == []
+    assert first["committed_revisions"] == ["committed_head"]
+    assert first["committed_heads"] == ["committed_head"]
     assert first["committed_allowlisted_revision_referenced"] is False
+    assert first["live_current_unknown_revisions"] == []
     assert first["files"][0]["sha256"] == hashlib.sha256(
         payloads["migrations/versions/legacy-a.py"]
     ).hexdigest()
@@ -162,6 +170,7 @@ def test_apply_blocks_if_live_database_current_revision_is_allowlisted(
         "_live_database_revisions",
         lambda _repository: ["legacy_b"],
     )
+    audited = reconciliation.audit(repository)
 
     with pytest.raises(reconciliation.ReconciliationBlocked, match="still identifies"):
         reconciliation.apply(
@@ -171,6 +180,65 @@ def test_apply_blocks_if_live_database_current_revision_is_allowlisted(
             "123",
         )
 
+    assert not quarantine.exists()
+
+
+def test_context_digest_changes_with_repo_head_and_live_revision_context(
+    tmp_path, monkeypatch
+):
+    repository, _quarantine, _payloads = _checkout(tmp_path, monkeypatch)
+    first = reconciliation.audit(repository)
+
+    (repository / "README.md").write_text("new commit\n", encoding="utf-8")
+    _git(repository, "add", "README.md")
+    _git(repository, "commit", "--quiet", "-m", "advance head")
+    after_head = reconciliation.audit(repository)
+    assert after_head["repository_sha"] != first["repository_sha"]
+    assert after_head["aggregate_sha256"] != first["aggregate_sha256"]
+
+    after_live = reconciliation.audit(repository, live_revisions=["legacy_a"])
+    assert after_live["live_current_revisions"] == ["legacy_a"]
+    assert after_live["aggregate_sha256"] != after_head["aggregate_sha256"]
+
+
+def test_apply_blocks_if_committed_graph_references_allowlisted_revision(
+    tmp_path, monkeypatch
+):
+    repository, quarantine, _payloads = _checkout(tmp_path, monkeypatch)
+    committed = repository / "migrations" / "versions" / "committed.py"
+    committed.write_bytes(_migration("committed_head", "legacy_b"))
+    _git(repository, "add", "migrations/versions/committed.py")
+    _git(repository, "commit", "--quiet", "-m", "reference legacy")
+    audited = reconciliation.audit(repository)
+    assert audited["committed_allowlisted_revision_referenced"] is True
+
+    with pytest.raises(reconciliation.ReconciliationBlocked, match="still references"):
+        reconciliation.apply(
+            repository,
+            audited["aggregate_sha256"],
+            reconciliation.APPLY_CONFIRMATION,
+            "123",
+        )
+    assert not quarantine.exists()
+
+
+def test_apply_blocks_unknown_live_current_revision(tmp_path, monkeypatch):
+    repository, quarantine, _payloads = _checkout(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        reconciliation,
+        "_live_database_revisions",
+        lambda _repository: ["unrecognized_live_head"],
+    )
+    audited = reconciliation.audit(repository)
+    assert audited["live_current_unknown_revisions"] == ["unrecognized_live_head"]
+
+    with pytest.raises(reconciliation.ReconciliationBlocked, match="outside the committed"):
+        reconciliation.apply(
+            repository,
+            audited["aggregate_sha256"],
+            reconciliation.APPLY_CONFIRMATION,
+            "123",
+        )
     assert not quarantine.exists()
 
 
