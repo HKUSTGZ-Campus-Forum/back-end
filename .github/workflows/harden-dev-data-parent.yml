@@ -1,0 +1,99 @@
+name: Harden Dev Data Parent
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Audit first; apply only after reviewing the exact host digest"
+        required: true
+        default: audit
+        type: choice
+        options:
+          - audit
+          - apply
+      expected_aggregate_sha256:
+        description: "Exact aggregate SHA-256 emitted by the reviewed audit (apply only)"
+        required: false
+        type: string
+      confirmation:
+        description: "Apply requires HARDEN_DEV_DATA_PARENT_0777_TO_0755"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-mutations-dev
+  cancel-in-progress: false
+
+jobs:
+  harden:
+    name: ${{ inputs.mode }} fixed dev data parent
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Require a fixed dev request
+        env:
+          MODE: ${{ inputs.mode }}
+          EXPECTED_AGGREGATE_SHA256: ${{ inputs.expected_aggregate_sha256 }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -Eeuo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          case "$MODE" in
+            audit)
+              test -z "$EXPECTED_AGGREGATE_SHA256"
+              test -z "$CONFIRMATION"
+              ;;
+            apply)
+              [[ "$EXPECTED_AGGREGATE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+              test "$CONFIRMATION" = "HARDEN_DEV_DATA_PARENT_0777_TO_0755"
+              ;;
+            *) exit 2 ;;
+          esac
+
+      - name: Checkout reviewed helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Encode reviewed helper
+        id: helper
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sha256="$(sha256sum tools/harden_dev_data_parent.py | cut -d ' ' -f 1)"
+          gzip -n -9 -c tools/harden_dev_data_parent.py > /tmp/harden-dev-data-parent.py.gz
+          payload="$(base64 -w 0 /tmp/harden-dev-data-parent.py.gz)"
+          rm -f /tmp/harden-dev-data-parent.py.gz
+          printf 'sha256=%s\n' "$sha256" >> "$GITHUB_OUTPUT"
+          printf 'payload=%s\n' "$payload" >> "$GITHUB_OUTPUT"
+
+      - name: Audit or harden exact dev data parent
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        env:
+          HARDEN_MODE: ${{ inputs.mode }}
+          HARDEN_EXPECTED_AGGREGATE_SHA256: ${{ inputs.expected_aggregate_sha256 }}
+          HARDEN_CONFIRMATION: ${{ inputs.confirmation }}
+          HARDEN_HELPER_SHA256: ${{ steps.helper.outputs.sha256 }}
+          HARDEN_HELPER_GZIP_B64: ${{ steps.helper.outputs.payload }}
+        with:
+          host: ${{ secrets.DEV_HOST }}
+          username: ${{ secrets.DEV_USER }}
+          key: ${{ secrets.DEV_SSH_KEY }}
+          command_timeout: 5m
+          envs: HARDEN_MODE,HARDEN_EXPECTED_AGGREGATE_SHA256,HARDEN_CONFIRMATION,HARDEN_HELPER_SHA256,HARDEN_HELPER_GZIP_B64
+          script: |
+            set -Eeuo pipefail
+            helper="$(mktemp)"
+            trap 'rm -f "$helper"' EXIT
+            printf '%s' "$HARDEN_HELPER_GZIP_B64" | base64 --decode | gzip -d >"$helper"
+            test "$(sha256sum "$helper" | cut -d ' ' -f 1)" = "$HARDEN_HELPER_SHA256"
+            chmod 0500 "$helper"
+            if [ "$HARDEN_MODE" = "audit" ]; then
+              python3 -I "$helper" --mode audit
+            else
+              python3 -I "$helper" \
+                --mode apply \
+                --expected-aggregate-sha256 "$HARDEN_EXPECTED_AGGREGATE_SHA256" \
+                --confirmation "$HARDEN_CONFIRMATION"
+            fi
