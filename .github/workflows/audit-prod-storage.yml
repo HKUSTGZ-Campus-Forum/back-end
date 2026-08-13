@@ -56,8 +56,10 @@ jobs:
             python3 -I "$helper"
             effective_identity="$(id -u):$(id -g)"
             for request in \
+              "/usr/bin/chmod 0755 -- /data" \
               "/usr/bin/chmod 1777 -- /data" \
               "/usr/bin/chown ${effective_identity} -- /data/prod_unikorn" \
+              "/usr/bin/chown --no-dereference --from=33:33 ${effective_identity} -- /data/prod_unikorn" \
               "/usr/bin/chmod 0755 -- /data/prod_unikorn"; do
               if /usr/bin/sudo -n -l ${request} >/dev/null 2>&1; then
                 printf 'sudo_permission=allowed command=%s\n' "$request"
@@ -65,3 +67,11 @@ jobs:
                 printf 'sudo_permission=denied command=%s\n' "$request"
               fi
             done
+            printf 'identity_user=%s\n' "$(id -un)"
+            printf 'identity_uid=%s\n' "$(id -u)"
+            printf 'identity_primary_group=%s\n' "$(id -gn)"
+            printf 'identity_primary_gid=%s\n' "$(id -g)"
+            printf 'identity_all_groups=%s\n' "$(id -G)"
+            getent passwd "$(id -u)"
+            getent group "$(id -g)"
+            getent passwd | awk -F: -v gid="$(id -g)" '$4 == gid { print "primary_gid_user=" $1 }'
