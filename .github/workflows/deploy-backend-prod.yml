@@ -340,12 +340,57 @@ jobs:
             api_transaction_prepared=false
           }
 
+          read_systemd_unit_state() {
+            local unit_name="$1"
+            local properties property_line
+            local seen_load_state=false
+            local seen_active_state=false
+            local seen_unit_file_state=false
+
+            systemd_load_state=""
+            systemd_active_state=""
+            systemd_unit_file_state=""
+            if ! properties="$(/usr/bin/systemctl show --all \
+                -p LoadState -p ActiveState -p UnitFileState -- "${unit_name}")"; then
+              return 1
+            fi
+            while IFS= read -r property_line || [[ -n "${property_line}" ]]; do
+              case "${property_line}" in
+                LoadState=*)
+                  [[ "${seen_load_state}" == "false" ]] || return 1
+                  systemd_load_state="${property_line#LoadState=}"
+                  seen_load_state=true
+                  ;;
+                ActiveState=*)
+                  [[ "${seen_active_state}" == "false" ]] || return 1
+                  systemd_active_state="${property_line#ActiveState=}"
+                  seen_active_state=true
+                  ;;
+                UnitFileState=*)
+                  [[ "${seen_unit_file_state}" == "false" ]] || return 1
+                  systemd_unit_file_state="${property_line#UnitFileState=}"
+                  seen_unit_file_state=true
+                  ;;
+                *)
+                  return 1
+                  ;;
+              esac
+            done <<< "${properties}"
+            [[ "${seen_load_state}" == "true" && \
+               "${seen_active_state}" == "true" && \
+               "${seen_unit_file_state}" == "true" ]]
+          }
+
           assert_unit_inactive() {
             unit_name="$1"
-            load_state="$(/usr/bin/systemctl show -p LoadState --value "${unit_name}")"
-            active_state="$(/usr/bin/systemctl show -p ActiveState --value "${unit_name}")"
-            if [[ "${load_state}" != "not-found" && "${active_state}" != "inactive" && "${active_state}" != "failed" ]]; then
-              echo "${unit_name} did not quiesce (load=${load_state}, active=${active_state})." >&2
+            if ! read_systemd_unit_state "${unit_name}"; then
+              echo "Unable to verify that ${unit_name} quiesced." >&2
+              return 1
+            fi
+            if [[ "${systemd_load_state}" != "loaded" || \
+                  ( "${systemd_active_state}" != "inactive" && \
+                    "${systemd_active_state}" != "failed" ) ]]; then
+              echo "${unit_name} did not quiesce (load=${systemd_load_state}, active=${systemd_active_state}, unit-file=${systemd_unit_file_state})." >&2
               return 1
             fi
           }
@@ -368,13 +413,14 @@ jobs:
               unikorn-scheduler-popularity-verify.service \
               unikorn-scheduler-popularity-sample.timer \
               unikorn-scheduler-popularity-final.timer; do
-              legacy_load_state="$(/usr/bin/systemctl show -p LoadState --value "${legacy_sampler_unit}")"
-              legacy_active_state="$(/usr/bin/systemctl show -p ActiveState --value "${legacy_sampler_unit}")"
-              legacy_unit_file_state="$(/usr/bin/systemctl is-enabled "${legacy_sampler_unit}" 2>/dev/null || true)"
-              if [[ "${legacy_load_state}" != "not-found" || \
-                    "${legacy_active_state}" != "inactive" || \
-                    "${legacy_unit_file_state}" != "not-found" ]]; then
-                echo "Refusing user-cron activation while legacy sampler unit ${legacy_sampler_unit} exists (load=${legacy_load_state}, active=${legacy_active_state}, enabled=${legacy_unit_file_state})." >&2
+              if ! read_systemd_unit_state "${legacy_sampler_unit}"; then
+                echo "Unable to verify legacy sampler unit ${legacy_sampler_unit}." >&2
+                return 1
+              fi
+              if [[ "${systemd_load_state}" != "not-found" || \
+                    "${systemd_active_state}" != "inactive" || \
+                    -n "${systemd_unit_file_state}" ]]; then
+                echo "Refusing user-cron activation while legacy sampler unit ${legacy_sampler_unit} exists (load=${systemd_load_state}, active=${systemd_active_state}, unit-file=${systemd_unit_file_state})." >&2
                 return 1
               fi
             done
@@ -429,6 +475,23 @@ jobs:
               fi
               grep -Fq 'no crontab for' "${crontab_stage}/rollback-error" || return 1
             fi
+            crontab_mutated=false
+          }
+
+          activate_sampling_crontab() {
+            # This is the final pre-mutation gate. A failure here leaves the
+            # already-committed API in place and the original crontab untouched,
+            # so the same deployment SHA can safely retry sampler activation.
+            assert_legacy_sampler_units_absent
+            crontab_mutated=true
+            crontab "${crontab_candidate}"
+            crontab -l > "${crontab_readback}"
+            test "$(sha256sum "${crontab_readback}" | cut -d ' ' -f1)" = "${expected_crontab_sha}"
+            # A second read closes the most obvious concurrent-edit window.
+            sleep 1
+            crontab -l > "${crontab_readback}.second"
+            cmp -s "${crontab_readback}" "${crontab_readback}.second"
+            "${sampler_args[@]}" --mode status >/dev/null
             crontab_mutated=false
           }
 
@@ -1065,16 +1128,7 @@ jobs:
             fi
             cmp -s "${crontab_before}" "${crontab_before}.verify"
             installed_crontab_sha="${expected_crontab_sha}"
-            crontab_mutated=true
-            crontab "${crontab_candidate}"
-            crontab -l > "${crontab_readback}"
-            test "$(sha256sum "${crontab_readback}" | cut -d ' ' -f1)" = "${expected_crontab_sha}"
-            # A second read closes the most obvious concurrent-edit window.
-            sleep 1
-            crontab -l > "${crontab_readback}.second"
-            cmp -s "${crontab_readback}" "${crontab_readback}.second"
-            "${sampler_args[@]}" --mode status >/dev/null
-            crontab_mutated=false
+            activate_sampling_crontab
             unset UNIKORN_BACKEND_MUTATION_LOCK_FD UNIKORN_BACKEND_MUTATION_LOCK_DEV_INO
             echo "Scheduler popularity user crontab activated and byte-for-byte verified."
           }

@@ -586,10 +586,11 @@ def test_production_deploy_activates_bounded_popularity_sampling_with_user_cront
     health_at = deploy_workflow.index("Local scheduler API verified")
     release_at = deploy_workflow.index("Building an immutable popularity sampler release")
     baseline_at = deploy_workflow.index("Taking the one permitted deployment baseline")
+    activate_call_at = deploy_workflow.rindex("activate_sampling_crontab")
     activate_at = deploy_workflow.index('crontab "${crontab_candidate}"')
 
     assert trap_at < flock_at < checkout_at < migrate_at < health_at
-    assert health_at < release_at < baseline_at < activate_at
+    assert health_at < release_at < baseline_at < activate_call_at
     assert "restore_sampling_crontab" in deploy_workflow
     assert "Immutable sampler release ready" in deploy_workflow
     assert "git archive" in deploy_workflow
@@ -611,7 +612,7 @@ def test_production_deploy_activates_bounded_popularity_sampling_with_user_cront
     assert "systemctl enable" not in deploy_workflow
     assert "Refusing user-cron activation while legacy sampler unit" in deploy_workflow
     assert "unikorn-scheduler-popularity-final.timer" in deploy_workflow
-    assert deploy_workflow.count("assert_legacy_sampler_units_absent") == 3
+    assert deploy_workflow.count("assert_legacy_sampler_units_absent") == 4
     migration = deploy_workflow.index("flask db upgrade heads")
     pre_migration_guard = deploy_workflow.index(
         "assert_legacy_sampler_units_absent",
@@ -624,11 +625,24 @@ def test_production_deploy_activates_bounded_popularity_sampling_with_user_cront
     release_build = deploy_workflow.index(
         "Building an immutable popularity sampler release", sampler_start
     )
+    activation_helper_at = deploy_workflow.index("activate_sampling_crontab()")
+    final_legacy_guard = deploy_workflow.index(
+        "assert_legacy_sampler_units_absent", activation_helper_at
+    )
     assert pre_migration_guard < migration
     assert sampler_start < legacy_guard < release_build
-    assert 'legacy_load_state="$(/usr/bin/systemctl show -p LoadState' in deploy_workflow
-    assert 'legacy_active_state="$(/usr/bin/systemctl show -p ActiveState' in deploy_workflow
-    assert 'legacy_unit_file_state="$(/usr/bin/systemctl is-enabled' in deploy_workflow
+    assert final_legacy_guard < activate_at
+    assert release_build < activate_call_at
+    assert deploy_workflow.index('test "${journal_phase}" = "COMMITTED"') < activate_call_at
+    assert "/usr/bin/systemctl show --all" in deploy_workflow
+    assert "-p LoadState -p ActiveState -p UnitFileState" in deploy_workflow
+    assert "seen_load_state" in deploy_workflow
+    assert "seen_active_state" in deploy_workflow
+    assert "seen_unit_file_state" in deploy_workflow
+    assert "systemctl is-enabled" not in deploy_workflow
+    assert "Unable to verify legacy sampler unit" in deploy_workflow
+    assert '-n "${systemd_unit_file_state}"' in deploy_workflow
+    assert '"${systemd_load_state}" != "loaded"' in deploy_workflow
 
 
 def test_production_sampling_cutoff_epochs_are_exact_and_parse_fail_closed():
@@ -661,15 +675,20 @@ def test_production_crontab_install_is_verified_and_rollback_safe():
     deploy_workflow = (
         ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
     ).read_text(encoding="utf-8")
+    activation_helper = deploy_workflow.index("activate_sampling_crontab()")
     capture = deploy_workflow.index('crontab -l > "${crontab_before}"')
     race_check = deploy_workflow.index('cmp -s "${crontab_before}" "${crontab_before}.verify"')
-    install = deploy_workflow.index('crontab "${crontab_candidate}"')
+    activation_call = deploy_workflow.rindex("activate_sampling_crontab")
+    install = deploy_workflow.index('crontab "${crontab_candidate}"', activation_helper)
     readback = deploy_workflow.index('crontab -l > "${crontab_readback}"')
     hash_check = deploy_workflow.index('sha256sum "${crontab_readback}"')
     smoke = deploy_workflow.index('"${sampler_args[@]}" --mode status >/dev/null')
     commit = deploy_workflow.index("crontab_mutated=false", install)
-    mutation_guard = deploy_workflow.rindex("crontab_mutated=true", capture, install)
-    assert capture < race_check < mutation_guard < install < readback < hash_check < smoke < commit
+    mutation_guard = deploy_workflow.rindex(
+        "crontab_mutated=true", activation_helper, install
+    )
+    assert mutation_guard < install < readback < hash_check < smoke < commit
+    assert capture < race_check < activation_call
     assert "restore_sampling_crontab()" in deploy_workflow
     assert 'crontab "${crontab_before}" || return 1' in deploy_workflow
     assert 'cmp -s "${crontab_before}" "${crontab_stage}/rollback-read"' in deploy_workflow
@@ -678,7 +697,7 @@ def test_production_crontab_install_is_verified_and_rollback_safe():
     candidate_hash_bound = deploy_workflow.index(
         'installed_crontab_sha="${expected_crontab_sha}"'
     )
-    assert capture < original_hash < candidate_hash_bound < mutation_guard < install
+    assert capture < original_hash < candidate_hash_bound < activation_call
     assert '"${rollback_current_sha}" == "${original_crontab_sha}"' in deploy_workflow
     assert '"${rollback_current_sha}" != "${installed_crontab_sha}"' in deploy_workflow
     assert "Refusing rollback because the user crontab changed after candidate activation" in deploy_workflow
