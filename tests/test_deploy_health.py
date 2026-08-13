@@ -526,6 +526,33 @@ def test_production_api_deploy_is_journaled_backup_first_and_forward_recoverable
     assert 'git cat-file -e "${DEPLOY_SHA}^{commit}"' in remote_script
     assert 'system_identifier FROM pg_control_system()' in remote_script
 
+    # Do not feed external command output or unbounded decimal strings into
+    # Bash arithmetic. The tested Python helper uses statvfs and arbitrary-size
+    # integers, and every capacity gate invokes it directly under errexit.
+    assert "df -PB1 --output" not in remote_script
+    assert "--payload-bytes" in remote_script
+    assert "--reserve-bytes" in remote_script
+    assert remote_script.count('"${candidate_stage}/tools/check_backup_capacity.py"') == 3
+    assert "required_bytes=$((" not in remote_script
+    assert "available_bytes <" not in remote_script
+
+    # The deploy identity cannot dereference /proc/<www-data pid>/cwd. systemd's
+    # effective WorkingDirectory property is readable without widening sudo or
+    # procfs permissions and is the source used to start the service process.
+    assert 'systemctl show -p WorkingDirectory --value "${service_name}"' in remote_script
+    assert 'systemctl show -p RootDirectory --value "${service_name}"' in remote_script
+    assert 'systemctl show -p RootImage --value "${service_name}"' in remote_script
+    assert remote_script.count('if ! api_main_pid="$(/usr/bin/systemctl show') == 1
+    assert remote_script.count('! api_working_directory="$(/usr/bin/systemctl show') == 1
+    assert remote_script.count('! api_root_directory="$(/usr/bin/systemctl show') == 1
+    assert remote_script.count('! api_root_image="$(/usr/bin/systemctl show') == 1
+    assert "Unable to verify the production API service launch context." in remote_script
+    assert '"${api_working_directory}" != "${app_dir}"' in remote_script
+    assert '-n "${api_root_directory}"' in remote_script
+    assert '-n "${api_root_image}"' in remote_script
+    assert 'readlink -e "/proc/${api_main_pid}/cwd"' not in remote_script
+    assert remote_script.count("assert_api_service_checkout") == 3
+
     for phase in (
         "PREPARED",
         "SERVICE_STOP_REQUESTED",

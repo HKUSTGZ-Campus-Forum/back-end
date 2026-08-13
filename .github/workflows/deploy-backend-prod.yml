@@ -277,6 +277,22 @@ jobs:
             fi
           }
 
+          assert_api_service_checkout() {
+            if ! api_main_pid="$(/usr/bin/systemctl show -p MainPID --value "${service_name}")" || \
+                ! api_working_directory="$(/usr/bin/systemctl show -p WorkingDirectory --value "${service_name}")" || \
+                ! api_root_directory="$(/usr/bin/systemctl show -p RootDirectory --value "${service_name}")" || \
+                ! api_root_image="$(/usr/bin/systemctl show -p RootImage --value "${service_name}")"; then
+              echo "Unable to verify the production API service launch context." >&2
+              return 1
+            fi
+            if [[ ! "${api_main_pid}" =~ ^[1-9][0-9]*$ || \
+                  "${api_working_directory}" != "${app_dir}" || \
+                  -n "${api_root_directory}" || -n "${api_root_image}" ]]; then
+              echo "Production API service is not running from the exact fixed checkout." >&2
+              return 1
+            fi
+          }
+
           restore_api_before_forward_boundary() {
             [[ "${api_transaction_prepared}" == "true" ]] || return 0
             [[ "${api_forward_only}" == "false" ]] || return 0
@@ -295,12 +311,7 @@ jobs:
               sudo -n /usr/bin/systemctl restart "${service_name}" || return 1
             fi
             /usr/bin/systemctl is-active --quiet "${service_name}" || return 1
-            api_main_pid="$(/usr/bin/systemctl show -p MainPID --value "${service_name}")"
-            if [[ ! "${api_main_pid}" =~ ^[1-9][0-9]*$ || \
-                  "$(readlink -e "/proc/${api_main_pid}/cwd")" != "${app_dir}" ]]; then
-              echo "Restored API process is not running from the exact fixed checkout." >&2
-              return 1
-            fi
+            assert_api_service_checkout || return 1
             rollback_health="$(mktemp)"
             rollback_ready=false
             for attempt in {1..12}; do
@@ -657,12 +668,11 @@ jobs:
           if [[ "${journal_phase}" == "PREPARED" ]]; then
             identity_json="$(database_identity)"
             database_size="$(printf '%s' "${identity_json}" | journal_field database_size)"
-            available_bytes="$(df -PB1 --output=avail "${backup_dir}" | tail -n 1 | tr -d ' ')"
-            required_bytes="$((database_size + minimum_free_reserve_bytes))"
-            if (( available_bytes < required_bytes )); then
-              echo "Insufficient disk for a full backup plus the 1 GiB safety reserve: available=${available_bytes}, required=${required_bytes}." >&2
-              exit 1
-            fi
+            "${app_dir}/venv/bin/python" -I \
+              "${candidate_stage}/tools/check_backup_capacity.py" \
+              --path "${backup_dir}" --payload-bytes "${database_size}" \
+              --reserve-bytes "${minimum_free_reserve_bytes}" \
+              --purpose "a full backup plus the 1 GiB safety reserve"
             journal_advance SERVICE_STOP_REQUESTED
             journal_phase="SERVICE_STOP_REQUESTED"
           fi
@@ -693,12 +703,11 @@ jobs:
             database_name="$(printf '%s' "${identity_json}" | journal_field database_name)"
             database_system_identifier="$(printf '%s' "${identity_json}" | journal_field database_system_identifier)"
             database_size="$(printf '%s' "${identity_json}" | journal_field database_size)"
-            available_bytes="$(df -PB1 --output=avail "${backup_dir}" | tail -n 1 | tr -d ' ')"
-            required_bytes="$((database_size + minimum_free_reserve_bytes))"
-            if (( available_bytes < required_bytes )); then
-              echo "Insufficient disk for the offline backup plus the 1 GiB safety reserve: available=${available_bytes}, required=${required_bytes}." >&2
-              exit 1
-            fi
+            "${app_dir}/venv/bin/python" -I \
+              "${candidate_stage}/tools/check_backup_capacity.py" \
+              --path "${backup_dir}" --payload-bytes "${database_size}" \
+              --reserve-bytes "${minimum_free_reserve_bytes}" \
+              --purpose "the offline backup plus the 1 GiB safety reserve"
             echo "Creating the final verified backup with API writes stopped..."
             umask 077
             planned_backup_name="$(printf '%s' "${journal_state}" | journal_field backup_name)"
@@ -724,10 +733,11 @@ jobs:
             backup_device="$(printf '%s' "${backup_result}" | journal_field device)"
             backup_inode="$(printf '%s' "${backup_result}" | journal_field inode)"
             backup_mtime_ns="$(printf '%s' "${backup_result}" | journal_field mtime_ns)"
-            if (( $(df -PB1 --output=avail "${backup_dir}" | tail -n 1 | tr -d ' ') < minimum_free_reserve_bytes )); then
-              echo "Verified backup consumed the production disk safety reserve." >&2
-              exit 1
-            fi
+            "${app_dir}/venv/bin/python" -I \
+              "${candidate_stage}/tools/check_backup_capacity.py" \
+              --path "${backup_dir}" --payload-bytes 0 \
+              --reserve-bytes "${minimum_free_reserve_bytes}" \
+              --purpose "the post-backup 1 GiB safety reserve"
             journal_advance FINAL_BACKUP_VERIFIED \
               --backup-path "${database_backup}" \
               --backup-size "${backup_size}" \
@@ -826,12 +836,7 @@ jobs:
               test -z "$(git status --porcelain=v1 --untracked-files=all)"
               /usr/bin/systemctl is-active --quiet "${service_name}" || \
                 sudo -n /usr/bin/systemctl start "${service_name}"
-              api_main_pid="$(/usr/bin/systemctl show -p MainPID --value "${service_name}")"
-              if [[ ! "${api_main_pid}" =~ ^[1-9][0-9]*$ || \
-                    "$(readlink -e "/proc/${api_main_pid}/cwd")" != "${app_dir}" ]]; then
-                echo "Production API process is not running from the exact fixed checkout." >&2
-                exit 1
-              fi
+              assert_api_service_checkout
 
               api_response="$(mktemp)"
               api_ready=false
