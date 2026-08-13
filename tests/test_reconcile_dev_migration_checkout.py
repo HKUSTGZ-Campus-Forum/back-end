@@ -557,6 +557,18 @@ def test_production_target_is_fixed_to_the_single_observed_collision(monkeypatch
     reconciliation.configure_target("dev")
 
 
+def test_pinned_production_canonical_collision_blobs_match_repository():
+    repository = Path(reconciliation.__file__).resolve().parents[1]
+    expected = reconciliation.PRODUCTION_CANONICAL_COLLISION
+
+    assert reconciliation._git_blob_sha256(
+        repository, expected["canonical_path"]
+    ) == expected["canonical_sha256"]
+    assert reconciliation._git_blob_sha256(
+        repository, expected["merge_path"]
+    ) == expected["merge_sha256"]
+
+
 def _configure_production_transaction_fixture(
     tmp_path: Path,
     monkeypatch,
@@ -654,6 +666,161 @@ def _configure_production_transaction_fixture(
         operations / "backend-mutations.lock",
     )
     return transaction, archived
+
+
+def _configure_reviewed_production_collision(
+    tmp_path: Path, monkeypatch, *, legacy_payload: bytes | None = None
+):
+    repository = tmp_path / "back-end"
+    repository.mkdir()
+    _git(repository, "init", "--quiet", "--initial-branch=production")
+    _git(repository, "config", "user.name", "Production Collision Test")
+    _git(repository, "config", "user.email", "collision@example.test")
+    versions = repository / "migrations" / "versions"
+    versions.mkdir(parents=True)
+
+    canonical = b"reviewed canonical oauth migration\n"
+    merge = b"reviewed oauth merge migration\n"
+    canonical_path = "migrations/versions/create_oauth_tables.py"
+    merge_path = "migrations/versions/3fc3cff37648_merge_oauth_into_main.py"
+    (repository / canonical_path).write_bytes(canonical)
+    (repository / merge_path).write_bytes(merge)
+    _git(repository, "add", canonical_path, merge_path)
+    _git(repository, "commit", "--quiet", "-m", "canonical oauth graph")
+
+    legacy_path = reconciliation.PRODUCTION_ALLOWLIST[0]
+    legacy = legacy_payload or _migration("create_oauth_tables", "3fc3cff37648")
+    (repository / legacy_path).write_bytes(legacy)
+    os.chmod(repository / legacy_path, 0o644)
+
+    operations = repository / ".git" / "unikorn-operations"
+    quarantine_root = operations / "quarantine" / "legacy-migrations"
+    monkeypatch.setattr(reconciliation, "TARGET_NAME", "production")
+    monkeypatch.setattr(reconciliation, "APP_DIR", repository)
+    monkeypatch.setattr(reconciliation, "QUARANTINE_ROOT", quarantine_root)
+    monkeypatch.setattr(
+        reconciliation,
+        "LOCK_PATH",
+        operations / "backend-mutations.lock",
+    )
+    monkeypatch.setattr(reconciliation, "EXPECTED_BRANCH", "production")
+    monkeypatch.setattr(reconciliation, "EXPECTED_DATABASE", "prod_unikorn")
+    monkeypatch.setattr(
+        reconciliation,
+        "APPLY_CONFIRMATION",
+        "QUARANTINE_PRODUCTION_LEGACY_OAUTH_MIGRATION",
+    )
+    monkeypatch.setattr(
+        reconciliation, "ALLOWLIST", reconciliation.PRODUCTION_ALLOWLIST
+    )
+    monkeypatch.setattr(
+        reconciliation,
+        "ALLOWLIST_SET",
+        frozenset(reconciliation.PRODUCTION_ALLOWLIST),
+    )
+    monkeypatch.setattr(
+        reconciliation,
+        "PRODUCTION_CANONICAL_COLLISION",
+        {
+            "repository_sha": _git(repository, "rev-parse", "HEAD"),
+            "legacy_path": legacy_path,
+            "legacy_revision": "create_oauth_tables",
+            "legacy_down_revision": "3fc3cff37648",
+            "legacy_sha256": hashlib.sha256(legacy).hexdigest(),
+            "canonical_path": canonical_path,
+            "canonical_sha256": hashlib.sha256(canonical).hexdigest(),
+            "merge_path": merge_path,
+            "merge_sha256": hashlib.sha256(merge).hexdigest(),
+            "committed_heads": ["committed_head"],
+            "live_current_revisions": ["committed_head"],
+        },
+    )
+    monkeypatch.setattr(
+        reconciliation,
+        "_live_database_revisions",
+        lambda _repository: ["committed_head"],
+    )
+    monkeypatch.setattr(
+        reconciliation,
+        "committed_graph",
+        lambda _repository, _allowlisted: {
+            "revisions": ["committed_head", "create_oauth_tables"],
+            "heads": ["committed_head"],
+            "allowlisted_revision_references": ["create_oauth_tables"],
+            "allowlisted_revision_referenced": True,
+        },
+    )
+    return repository, quarantine_root, legacy
+
+
+def test_production_apply_allows_only_the_exact_reviewed_canonical_collision(
+    tmp_path, monkeypatch
+):
+    repository, quarantine, legacy = _configure_reviewed_production_collision(
+        tmp_path, monkeypatch
+    )
+    audited = reconciliation.audit(repository)
+
+    result = reconciliation.apply(
+        repository,
+        audited["aggregate_sha256"],
+        reconciliation.APPLY_CONFIRMATION,
+        "12345",
+    )
+
+    destination = quarantine / "run-12345"
+    assert result["status"] == "quarantined"
+    assert result["file_count"] == 1
+    assert not (repository / reconciliation.PRODUCTION_ALLOWLIST[0]).exists()
+    assert (
+        destination / "files" / "000000000000_create_oauth_tables.py"
+    ).read_bytes() == legacy
+    assert _git(repository, "status", "--porcelain=v1", "--untracked-files=all") == ""
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    ["legacy_content", "canonical_blob", "merge_blob", "database_current"],
+)
+def test_production_canonical_collision_exception_fails_closed(
+    tmp_path, monkeypatch, tamper
+):
+    repository, quarantine, _legacy = _configure_reviewed_production_collision(
+        tmp_path, monkeypatch
+    )
+    if tamper == "legacy_content":
+        path = repository / reconciliation.PRODUCTION_ALLOWLIST[0]
+        path.write_bytes(_migration("create_oauth_tables", "wrong_parent"))
+        audited = reconciliation.audit(repository)
+    elif tamper == "canonical_blob":
+        path = repository / "migrations/versions/create_oauth_tables.py"
+        path.write_bytes(b"tampered canonical\n")
+        _git(repository, "add", str(path.relative_to(repository)))
+        _git(repository, "commit", "--quiet", "-m", "tamper canonical")
+        audited = reconciliation.audit(repository)
+    elif tamper == "merge_blob":
+        path = repository / "migrations/versions/3fc3cff37648_merge_oauth_into_main.py"
+        path.write_bytes(b"tampered merge\n")
+        _git(repository, "add", str(path.relative_to(repository)))
+        _git(repository, "commit", "--quiet", "-m", "tamper merge")
+        audited = reconciliation.audit(repository)
+    else:
+        monkeypatch.setattr(
+            reconciliation,
+            "_live_database_revisions",
+            lambda _repository: ["create_oauth_tables"],
+        )
+        audited = reconciliation.audit(repository)
+
+    with pytest.raises(reconciliation.ReconciliationBlocked):
+        reconciliation.apply(
+            repository,
+            audited["aggregate_sha256"],
+            reconciliation.APPLY_CONFIRMATION,
+            "12345",
+        )
+    assert not quarantine.exists()
+    assert (repository / reconciliation.PRODUCTION_ALLOWLIST[0]).is_file()
 
 
 def test_production_transaction_guard_accepts_only_authenticated_commit(
