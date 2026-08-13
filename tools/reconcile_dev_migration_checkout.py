@@ -183,7 +183,14 @@ def _open_lock_parent() -> int:
         or git_details.st_mode & 0o022
     ):
         os.close(git_fd)
-        raise ReconciliationBlocked("production Git directory has unsafe metadata")
+        raise ReconciliationBlocked(
+            "production Git directory has unsafe metadata: "
+            f"{APP_DIR / '.git'} (owner_uid={git_details.st_uid}, "
+            f"effective_uid={os.geteuid()}, group_gid={git_details.st_gid}, "
+            f"effective_gid={os.getegid()}, "
+            f"mode={stat.S_IMODE(git_details.st_mode):04o}, "
+            f"required_owner_uid={os.geteuid()}, forbidden_write_bits=0022)"
+        )
     source_parent_fd, _source_parent_identity = _open_source_parent(APP_DIR)
     source_parent_details = os.fstat(source_parent_fd)
     os.close(source_parent_fd)

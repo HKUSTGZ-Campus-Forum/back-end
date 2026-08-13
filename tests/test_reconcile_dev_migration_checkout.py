@@ -695,6 +695,34 @@ def test_production_audit_rejects_group_or_world_writable_allowlisted_file(
         reconciliation.audit(repository)
 
 
+def test_production_lock_parent_reports_unsafe_git_metadata_without_mutation(
+    tmp_path, monkeypatch
+):
+    repository, _quarantine, _payloads = _checkout(tmp_path, monkeypatch)
+    operations = repository / ".git" / "unikorn-operations"
+    monkeypatch.setattr(reconciliation, "TARGET_NAME", "production")
+    monkeypatch.setattr(reconciliation, "APP_DIR", repository)
+    monkeypatch.setattr(
+        reconciliation,
+        "LOCK_PATH",
+        operations / "backend-mutations.lock",
+    )
+    os.chmod(repository / ".git", 0o775)
+    git_details = (repository / ".git").stat()
+
+    with pytest.raises(reconciliation.ReconciliationBlocked) as caught:
+        reconciliation._open_lock_parent()
+
+    assert str(caught.value) == (
+        "production Git directory has unsafe metadata: "
+        f"{repository / '.git'} (owner_uid={git_details.st_uid}, "
+        f"effective_uid={os.geteuid()}, group_gid={git_details.st_gid}, "
+        f"effective_gid={os.getegid()}, mode=0775, "
+        f"required_owner_uid={os.geteuid()}, forbidden_write_bits=0022)"
+    )
+    assert not operations.exists()
+
+
 @pytest.mark.parametrize("tamper", ["prepared", "payload", "extra", "symlink"])
 def test_production_transaction_guard_blocks_tampering(tmp_path, monkeypatch, tamper):
     transaction, archived = _configure_production_transaction_fixture(

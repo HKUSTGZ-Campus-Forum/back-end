@@ -334,10 +334,17 @@ jobs:
               echo "Production Git directory is not the fixed real directory." >&2
               exit 1
             fi
-            git_owner="$(stat -c '%u' "${production_git_dir}")"
-            git_mode="$(stat -c '%a' "${production_git_dir}")"
-            if [[ "${git_owner}" != "$(id -u)" || $((8#${git_mode} & 022)) -ne 0 ]]; then
-              echo "Production Git directory has unsafe metadata." >&2
+            IFS=: read -r git_owner git_group git_mode < <(
+              stat -c '%u:%g:%a' "${production_git_dir}"
+            )
+            effective_uid="$(id -u)"
+            effective_gid="$(id -g)"
+            if [[ "${git_owner}" != "${effective_uid}" || $((8#${git_mode} & 022)) -ne 0 ]]; then
+              printf \
+                'Production Git directory has unsafe metadata: %s (owner_uid=%s, effective_uid=%s, group_gid=%s, effective_gid=%s, mode=%04o, required_owner_uid=%s, forbidden_write_bits=0022).\n' \
+                "${production_git_dir}" "${git_owner}" "${effective_uid}" \
+                "${git_group}" "${effective_gid}" "$((8#${git_mode}))" \
+                "${effective_uid}" >&2
               exit 1
             fi
             umask 077
