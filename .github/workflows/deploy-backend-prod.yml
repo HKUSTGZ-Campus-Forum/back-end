@@ -426,6 +426,18 @@ jobs:
             done
           }
 
+          extract_sampler_release() {
+            local destination="$1"
+            # The sampler imports the application package, but it must not
+            # inherit unrelated tracked development artifacts (including
+            # repository-local virtualenv symlinks) from a whole-tree archive.
+            git archive "${DEPLOY_SHA}" -- \
+              app \
+              scripts/run_scheduler_popularity_cron.py \
+              scripts/sample_scheduler_popularity.py \
+              tools/render_scheduler_popularity_crontab.py | tar -x -C "${destination}"
+          }
+
           restore_sampling_crontab() {
             [[ "${crontab_mutated}" == "true" ]] || return 0
             echo "Restoring the exact pre-deployment user crontab." >&2
@@ -1000,12 +1012,13 @@ jobs:
               test "$(<"${sampler_candidate}/.unikorn-commit")" = "${DEPLOY_SHA}"
               test -f "${sampler_candidate}/scripts/run_scheduler_popularity_cron.py"
               test -f "${sampler_candidate}/scripts/sample_scheduler_popularity.py"
+              test -f "${sampler_candidate}/tools/render_scheduler_popularity_crontab.py"
               test -L "${sampler_candidate}/venv"
               test "$(readlink "${sampler_candidate}/venv")" = "${app_dir}/venv"
               test ! -w "${sampler_candidate}/scripts/run_scheduler_popularity_cron.py"
             else
               sampler_release_stage="$(mktemp -d "${sampler_root}/.${DEPLOY_SHA}.XXXXXX")"
-              git archive "${DEPLOY_SHA}" | tar -x -C "${sampler_release_stage}"
+              extract_sampler_release "${sampler_release_stage}"
               ln -s "${app_dir}/venv" "${sampler_release_stage}/venv"
               printf '%s\n' "${DEPLOY_SHA}" > "${sampler_release_stage}/.unikorn-commit"
               chmod -R a-w,a+rX "${sampler_release_stage}"
@@ -1014,7 +1027,7 @@ jobs:
             fi
             "${sampler_candidate}/venv/bin/python" -I -c 'import flask, sqlalchemy'
             sampler_verify_stage="$(mktemp -d /tmp/unikorn-popularity-release-verify.XXXXXX)"
-            git archive "${DEPLOY_SHA}" | tar -x -C "${sampler_verify_stage}"
+            extract_sampler_release "${sampler_verify_stage}"
             find "${sampler_candidate}" -type l -print | \
               grep -Fxq "${sampler_candidate}/venv"
             test "$(find "${sampler_candidate}" -type l -print | wc -l)" -eq 1
