@@ -53,26 +53,13 @@ jobs:
         PY
         python -m pytest tests/ -q
 
-    - name: Validate scheduler popularity systemd units
+    - name: Validate scheduler popularity cron tooling
       run: |
         set -euo pipefail
-        stage_dir="$(mktemp -d)"
-        trap 'rm -rf "${stage_dir}"' EXIT
-        for template in deploy/systemd/*.service.in; do
-          unit_name="$(basename "${template}" .in)"
-          sed \
-            -e "s|__SAMPLER_DIR__|${GITHUB_WORKSPACE}|g" \
-            -e "s|__APP_ENV_FILE__|/dev/null|g" \
-            -e "s|__PYTHON__|$(command -v python)|g" \
-            -e 's|__SERVICE_USER__|root|g' \
-            -e 's|__SERVICE_GROUP__|root|g' \
-            "${template}" > "${stage_dir}/${unit_name}"
-        done
-        cp deploy/systemd/*.timer "${stage_dir}/"
-        systemd-analyze calendar '2026-08-* *:0/5:00 Asia/Shanghai' >/dev/null
-        systemd-analyze calendar '2026-09-* *:0/5:00 Asia/Shanghai' >/dev/null
-        systemd-analyze calendar '2026-09-30 23:59:00 Asia/Shanghai' >/dev/null
-        systemd-analyze verify "${stage_dir}"/*.service "${stage_dir}"/*.timer
+        python -m py_compile \
+          scripts/run_scheduler_popularity_cron.py \
+          scripts/sample_scheduler_popularity.py \
+          tools/render_scheduler_popularity_crontab.py
 
   deploy:
     name: Deploy the verified candidate
@@ -97,6 +84,18 @@ jobs:
         printf 'sha256=%s\n' "${sha256}" >> "${GITHUB_OUTPUT}"
         printf 'payload=%s\n' "${payload}" >> "${GITHUB_OUTPUT}"
 
+    - name: Encode production API deployment journal
+      id: deploy-journal
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+        sha256="$(sha256sum tools/production_deploy_journal.py | cut -d ' ' -f 1)"
+        gzip -n -9 -c tools/production_deploy_journal.py > /tmp/production-deploy-journal.py.gz
+        payload="$(base64 -w 0 /tmp/production-deploy-journal.py.gz)"
+        rm -f /tmp/production-deploy-journal.py.gz
+        printf 'sha256=%s\n' "${sha256}" >> "${GITHUB_OUTPUT}"
+        printf 'payload=%s\n' "${payload}" >> "${GITHUB_OUTPUT}"
+
     - name: Deploy exact commit via SSH
       uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
       env:
@@ -104,29 +103,28 @@ jobs:
         CONFIGURED_PROD_API_URL: ${{ vars.PROD_SCHEDULER_HEALTH_URL }}
         PROD_RECONCILE_HELPER_GZIP_B64: ${{ steps.verifier.outputs.payload }}
         PROD_RECONCILE_HELPER_SHA256: ${{ steps.verifier.outputs.sha256 }}
+        PROD_DEPLOY_JOURNAL_GZIP_B64: ${{ steps.deploy-journal.outputs.payload }}
+        PROD_DEPLOY_JOURNAL_SHA256: ${{ steps.deploy-journal.outputs.sha256 }}
       with:
         host: ${{ secrets.PROD_SSH_HOST }}
         username: ${{ secrets.PROD_SSH_USER }}
         key: ${{ secrets.PROD_SSH_KEY }}
         fingerprint: ${{ secrets.PROD_SSH_FINGERPRINT }}
-        envs: DEPLOY_SHA,CONFIGURED_PROD_API_URL,PROD_RECONCILE_HELPER_GZIP_B64,PROD_RECONCILE_HELPER_SHA256
+        envs: DEPLOY_SHA,CONFIGURED_PROD_API_URL,PROD_RECONCILE_HELPER_GZIP_B64,PROD_RECONCILE_HELPER_SHA256,PROD_DEPLOY_JOURNAL_GZIP_B64,PROD_DEPLOY_JOURNAL_SHA256
         command_timeout: 35m
         script: |
           set -Eeuo pipefail
 
           readonly app_dir="/data/prod_unikorn/back-end"
           readonly backup_dir="/data/prod_unikorn/backups"
+          readonly minimum_free_reserve_bytes=1073741824
           readonly sampler_root="/data/prod_unikorn/scheduler-popularity-releases"
-          readonly sampler_candidate="${sampler_root}/${DEPLOY_SHA}.v1"
+          readonly sampler_candidate="${sampler_root}/${DEPLOY_SHA}.v2"
+          readonly sampler_env_file="${app_dir}/.env"
+          readonly sampler_lock_file="${app_dir}/.git/unikorn-operations/backend-mutations.lock"
           readonly service_name="prod-unikorn-api.service"
           readonly local_api_url="http://127.0.0.1:8001/scheduler/semesters"
           readonly public_api_url="${CONFIGURED_PROD_API_URL:-https://unikorn.axfff.com/api/scheduler/semesters}"
-          readonly sample_service="unikorn-scheduler-popularity-sample.service"
-          readonly baseline_service="unikorn-scheduler-popularity-baseline.service"
-          readonly final_service="unikorn-scheduler-popularity-final.service"
-          readonly sample_timer="unikorn-scheduler-popularity-sample.timer"
-          readonly final_timer="unikorn-scheduler-popularity-final.timer"
-          readonly verify_service="unikorn-scheduler-popularity-verify.service"
           # Fixed UTC epochs for 2026-09-30 23:55 and 23:59 Asia/Shanghai.
           # Keeping these as literals makes date parsing fail-closed and the
           # corresponding test derives them independently with zoneinfo.
@@ -141,35 +139,194 @@ jobs:
           readonly protected_start_epoch="$((terminal_cutoff_epoch - 45 * 60))"
           readonly protected_end_epoch="$((terminal_cutoff_epoch + 130))"
 
-          sample_timer_was_active=false
-          final_timer_was_active=false
-          sample_timer_was_enabled=false
-          final_timer_was_enabled=false
-          sample_timer_was_loaded=false
-          final_timer_was_loaded=false
-          sampling_state_captured=false
-          sampler_units_mutated=false
-          regular_sampler_quiesced=false
           deployment_succeeded=false
-          sampler_validated=false
-          final_timer_touched=false
-          unit_stage=""
-          unit_backup_stage=""
+          crontab_existed=false
+          crontab_mutated=false
+          crontab_stage=""
+          crontab_before=""
+          crontab_candidate=""
+          crontab_readback=""
+          original_crontab_sha=""
+          installed_crontab_sha=""
+          sampler_block=""
           sampler_release_stage=""
+          sampler_verify_stage=""
+          candidate_stage=""
           verifier=""
+          deploy_journal=""
           api_response=""
           public_api_response=""
+          api_transaction_prepared=false
+          api_forward_only=false
+          api_transaction_committed=false
+          api_recovery_mode=false
+          skip_sampler_activation=false
+          api_old_sha=""
+          journal_phase=""
 
-          unit_active() {
-            /usr/bin/systemctl is-active --quiet "$1"
+          journal_field() {
+            field_name="$1"
+            "${app_dir}/venv/bin/python" -c \
+              'import json,sys; print(json.load(sys.stdin)[sys.argv[1]])' \
+              "${field_name}"
           }
 
-          unit_enabled() {
-            /usr/bin/systemctl is-enabled --quiet "$1"
+          journal_advance() {
+            next_phase="$1"
+            shift
+            "${app_dir}/venv/bin/python" -I "${deploy_journal}" \
+              advance --target-sha "${DEPLOY_SHA}" --phase "${next_phase}" "$@" >/dev/null
           }
 
-          unit_loaded() {
-            [[ "$(/usr/bin/systemctl show -p LoadState --value "$1")" != "not-found" ]]
+          sync_api_transaction_state() {
+            [[ "${api_transaction_prepared}" == "true" ]] || return 0
+            journal_state="$("${app_dir}/venv/bin/python" -I "${deploy_journal}" \
+              show --target-sha "${DEPLOY_SHA}")" || {
+                # A corrupt or unavailable journal must never cause an automatic
+                # rollback after a migration may have begun.
+                api_forward_only=true
+                return 1
+              }
+            journal_phase="$(printf '%s' "${journal_state}" | journal_field phase)"
+            api_old_sha="$(printf '%s' "${journal_state}" | journal_field old_sha)"
+            case "${journal_phase}" in
+              MIGRATION_STARTED|DB_AT_TARGET|CANDIDATE_START_REQUESTED|CANDIDATE_STARTED|HEALTHY|COMMITTED)
+                api_forward_only=true
+                ;;
+              *)
+                api_forward_only=false
+                ;;
+            esac
+            if [[ "${journal_phase}" == "COMMITTED" ]]; then
+              api_transaction_committed=true
+            fi
+          }
+
+          assert_api_checkout_for_phase() {
+            current_sha="$(git rev-parse HEAD)"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+            case "${journal_phase}" in
+              PREPARED|SERVICE_STOP_REQUESTED|SERVICE_STOPPED|FINAL_BACKUP_STARTED|FINAL_BACKUP_VERIFIED)
+                test "${current_sha}" = "${api_old_sha}"
+                ;;
+              CHECKOUT_ACTIVATION_REQUESTED)
+                if [[ "${current_sha}" != "${api_old_sha}" && "${current_sha}" != "${DEPLOY_SHA}" ]]; then
+                  echo "Checkout ${current_sha} is inconsistent with recovery phase ${journal_phase}." >&2
+                  return 1
+                fi
+                ;;
+              CANDIDATE_CHECKED_OUT|MIGRATION_STARTED|DB_AT_TARGET|CANDIDATE_START_REQUESTED|CANDIDATE_STARTED|HEALTHY|COMMITTED)
+                test "${current_sha}" = "${DEPLOY_SHA}"
+                ;;
+              *)
+                echo "Unexpected API deployment journal phase: ${journal_phase}" >&2
+                return 1
+                ;;
+            esac
+          }
+
+          database_identity() {
+            AUTO_INIT_ON_STARTUP=false ENABLE_BACKGROUND_TASKS=false \
+              "${app_dir}/venv/bin/python" - <<'PY'
+          import json
+          from sqlalchemy import create_engine, text
+          from sqlalchemy.engine import make_url
+          from app.config import Config
+
+          url = make_url(Config.SQLALCHEMY_DATABASE_URI)
+          if url.get_backend_name() != "postgresql" or url.database != "prod_unikorn":
+              raise SystemExit("production database configuration mismatch")
+          engine = create_engine(
+              Config.SQLALCHEMY_DATABASE_URI,
+              **Config.SQLALCHEMY_ENGINE_OPTIONS,
+          )
+          with engine.connect() as connection:
+              database_name = connection.execute(
+                  text("SELECT current_database()")
+              ).scalar_one()
+              if database_name != "prod_unikorn":
+                  raise SystemExit("connected database mismatch")
+              system_identifier = str(
+                  connection.execute(
+                      text("SELECT system_identifier FROM pg_control_system()")
+                  ).scalar_one()
+              )
+              database_size = connection.execute(
+                  text("SELECT pg_database_size(current_database())")
+              ).scalar_one()
+          if not system_identifier.isdecimal():
+              raise SystemExit("PostgreSQL system identifier is invalid")
+          print(json.dumps({
+              "database_name": database_name,
+              "database_size": database_size,
+              "database_system_identifier": system_identifier,
+          }, sort_keys=True))
+          PY
+          }
+
+          assert_recorded_database_identity() {
+            identity_json="$(database_identity)"
+            actual_database_name="$(printf '%s' "${identity_json}" | journal_field database_name)"
+            actual_system_identifier="$(printf '%s' "${identity_json}" | journal_field database_system_identifier)"
+            recorded_database_name="$(printf '%s' "${journal_state}" | journal_field database_name)"
+            recorded_system_identifier="$(printf '%s' "${journal_state}" | journal_field database_system_identifier)"
+            if [[ "${actual_database_name}" != "${recorded_database_name}" || \
+                  "${actual_system_identifier}" != "${recorded_system_identifier}" ]]; then
+              echo "Production database identity differs from the recovery journal." >&2
+              return 1
+            fi
+          }
+
+          restore_api_before_forward_boundary() {
+            [[ "${api_transaction_prepared}" == "true" ]] || return 0
+            [[ "${api_forward_only}" == "false" ]] || return 0
+            [[ "${api_transaction_committed}" == "false" ]] || return 0
+            echo "Restoring the pre-deployment API checkout before the database boundary." >&2
+            cd "${app_dir}" || return 1
+            git checkout --detach "${api_old_sha}" || return 1
+            test "$(git rev-parse HEAD)" = "${api_old_sha}" || return 1
+            test -z "$(git status --porcelain=v1 --untracked-files=all)" || return 1
+            if [[ "${journal_phase}" == "SERVICE_STOP_REQUESTED" || \
+                  "${journal_phase}" == "SERVICE_STOPPED" || \
+                  "${journal_phase}" == "FINAL_BACKUP_STARTED" || \
+                  "${journal_phase}" == "FINAL_BACKUP_VERIFIED" || \
+                  "${journal_phase}" == "CHECKOUT_ACTIVATION_REQUESTED" ]] || \
+                ! /usr/bin/systemctl is-active --quiet "${service_name}"; then
+              sudo -n /usr/bin/systemctl restart "${service_name}" || return 1
+            fi
+            /usr/bin/systemctl is-active --quiet "${service_name}" || return 1
+            api_main_pid="$(/usr/bin/systemctl show -p MainPID --value "${service_name}")"
+            if [[ ! "${api_main_pid}" =~ ^[1-9][0-9]*$ || \
+                  "$(readlink -e "/proc/${api_main_pid}/cwd")" != "${app_dir}" ]]; then
+              echo "Restored API process is not running from the exact fixed checkout." >&2
+              return 1
+            fi
+            rollback_health="$(mktemp)"
+            rollback_ready=false
+            for attempt in {1..12}; do
+              if curl --fail --silent --show-error --connect-timeout 2 --max-time 5 \
+                  --output "${rollback_health}" "${local_api_url}"; then
+                rollback_ready=true
+                break
+              fi
+              sleep 3
+            done
+            if [[ "${rollback_ready}" != "true" ]]; then
+              rm -f -- "${rollback_health}"
+              return 1
+            fi
+            "${app_dir}/venv/bin/python" - "${rollback_health}" <<'PY'
+          import json
+          import sys
+          with open(sys.argv[1], encoding="utf-8") as response_file:
+              payload = json.load(response_file)
+          if not isinstance(payload, list) or not payload:
+              raise SystemExit("restored local scheduler health is invalid")
+          PY
+            rm -f -- "${rollback_health}"
+            "${app_dir}/venv/bin/python" -I "${deploy_journal}" \
+              archive-aborted --target-sha "${DEPLOY_SHA}" >/dev/null || return 1
+            api_transaction_prepared=false
           }
 
           assert_unit_inactive() {
@@ -182,25 +339,6 @@ jobs:
             fi
           }
 
-          timer_next_epoch() {
-            timer_name="$1"
-            next_elapse="$(
-              LC_ALL=C TZ=UTC0 /usr/bin/systemctl show \
-                -p NextElapseUSecRealtime --value "${timer_name}"
-            )"
-            if [[ -z "${next_elapse}" || "${next_elapse}" == "n/a" ]]; then
-              echo "${timer_name} has no next realtime elapse." >&2
-              return 1
-            fi
-            if ! next_epoch="$(
-              LC_ALL=C TZ=UTC0 /usr/bin/date --date="${next_elapse}" +%s
-            )" || [[ ! "${next_epoch}" =~ ^[0-9]+$ ]]; then
-              echo "Cannot parse ${timer_name} next elapse as UTC: ${next_elapse}" >&2
-              return 1
-            fi
-            printf '%s\n' "${next_epoch}"
-          }
-
           require_sudo_permission() {
             if ! sudo -n -l -- "$@" >/dev/null; then
               echo "Missing non-interactive sudo permission for: $*" >&2
@@ -208,169 +346,79 @@ jobs:
             fi
           }
 
-          verify_timer_state() {
-            timer_name="$1"
-            expected_loaded="$2"
-            expected_enabled="$3"
-            expected_active="$4"
-            if [[ "${expected_loaded}" == "false" ]] && ! unit_loaded "${timer_name}"; then
-              if unit_enabled "${timer_name}"; then
-                echo "${timer_name} remained enabled without its pre-deployment unit." >&2
+          assert_legacy_sampler_units_absent() {
+            # Production was audited with no legacy sampler units installed.
+            # Refuse coexistence instead of silently double-sampling or asking
+            # for new sampler sudo authority during this user-cron rollout.
+            for legacy_sampler_unit in \
+              unikorn-scheduler-popularity-baseline.service \
+              unikorn-scheduler-popularity-sample.service \
+              unikorn-scheduler-popularity-final.service \
+              unikorn-scheduler-popularity-verify.service \
+              unikorn-scheduler-popularity-sample.timer \
+              unikorn-scheduler-popularity-final.timer; do
+              legacy_load_state="$(/usr/bin/systemctl show -p LoadState --value "${legacy_sampler_unit}")"
+              legacy_active_state="$(/usr/bin/systemctl show -p ActiveState --value "${legacy_sampler_unit}")"
+              legacy_unit_file_state="$(/usr/bin/systemctl is-enabled "${legacy_sampler_unit}" 2>/dev/null || true)"
+              if [[ "${legacy_load_state}" != "not-found" || \
+                    "${legacy_active_state}" != "inactive" || \
+                    "${legacy_unit_file_state}" != "not-found" ]]; then
+                echo "Refusing user-cron activation while legacy sampler unit ${legacy_sampler_unit} exists (load=${legacy_load_state}, active=${legacy_active_state}, enabled=${legacy_unit_file_state})." >&2
                 return 1
               fi
+            done
+          }
+
+          restore_sampling_crontab() {
+            [[ "${crontab_mutated}" == "true" ]] || return 0
+            echo "Restoring the exact pre-deployment user crontab." >&2
+            if [[ -z "${original_crontab_sha}" || -z "${installed_crontab_sha}" ]]; then
+              echo "Refusing rollback because crontab identity metadata is incomplete." >&2
+              return 1
+            fi
+            rollback_current_existed=false
+            if crontab -l > "${crontab_stage}/rollback-current" \
+                2>"${crontab_stage}/rollback-current-error"; then
+              rollback_current_existed=true
+            else
+              rollback_read_status=$?
+              if [[ "${rollback_read_status}" -eq 1 ]] && \
+                  grep -Fq 'no crontab for' "${crontab_stage}/rollback-current-error"; then
+                : > "${crontab_stage}/rollback-current"
+              else
+                echo "Refusing rollback because the current user crontab is unreadable." >&2
+                return 1
+              fi
+            fi
+            rollback_current_sha="$(sha256sum "${crontab_stage}/rollback-current" | cut -d ' ' -f1)"
+            if [[ "${rollback_current_existed}" == "${crontab_existed}" && \
+                  "${rollback_current_sha}" == "${original_crontab_sha}" ]]; then
+              echo "Candidate crontab was not installed; the original remains byte-identical." >&2
+              crontab_mutated=false
               return 0
             fi
-            if ! unit_loaded "${timer_name}"; then
-              echo "${timer_name} is not loaded but was present before deployment." >&2
+            if [[ "${rollback_current_existed}" != "true" || \
+                  "${rollback_current_sha}" != "${installed_crontab_sha}" ]]; then
+              echo "Refusing rollback because the user crontab changed after candidate activation." >&2
               return 1
             fi
-            if [[ "${expected_enabled}" == "true" ]]; then
-              unit_enabled "${timer_name}"
-            elif unit_enabled "${timer_name}"; then
-              echo "${timer_name} remained enabled unexpectedly." >&2
-              return 1
-            fi
-            if [[ "${expected_active}" == "true" ]]; then
-              unit_active "${timer_name}"
+            if [[ "${crontab_existed}" == "true" ]]; then
+              crontab "${crontab_before}" || return 1
+              crontab -l > "${crontab_stage}/rollback-read" || return 1
+              cmp -s "${crontab_before}" "${crontab_stage}/rollback-read" || return 1
             else
-              assert_unit_inactive "${timer_name}"
-            fi
-          }
-
-          restore_sampler_unit_files() {
-            unit_restore_failed=false
-            [[ "${sampler_units_mutated}" == "true" ]] || return 0
-            echo "Restoring the exact pre-deployment sampler unit files." >&2
-            for unit_name in \
-              "${baseline_service}" "${sample_service}" "${verify_service}" \
-              "${sample_timer}"; do
-              marker_path="${unit_backup_stage}/${unit_name}.present"
-              backup_path="${unit_backup_stage}/${unit_name}"
-              target_path="/etc/systemd/system/${unit_name}"
-              if [[ -f "${marker_path}" ]]; then
-                sudo -n /usr/bin/install -m 0644 \
-                  "${backup_path}" "${target_path}" || unit_restore_failed=true
-                if [[ "${unit_restore_failed}" == "false" && \
-                      "$(sha256sum "${target_path}" | awk '{print $1}')" != "$(<"${marker_path}")" ]]; then
-                  echo "Restored unit checksum mismatch: ${target_path}" >&2
-                  unit_restore_failed=true
-                fi
-              else
-                if [[ -e "${target_path}" || -L "${target_path}" ]]; then
-                  sudo -n /usr/bin/rm -- "${target_path}" || unit_restore_failed=true
-                fi
-                if [[ -e "${target_path}" || -L "${target_path}" ]]; then
-                  echo "New sampler unit override remained after rollback: ${target_path}" >&2
-                  unit_restore_failed=true
-                fi
-              fi
-            done
-            sudo -n /usr/bin/systemctl daemon-reload || unit_restore_failed=true
-            for unit_name in \
-              "${baseline_service}" "${sample_service}" "${verify_service}" \
-              "${sample_timer}"; do
-              expected_load_state="$(<"${unit_backup_stage}/${unit_name}.load-state")"
-              expected_fragment_path="$(<"${unit_backup_stage}/${unit_name}.fragment-path")"
-              actual_load_state="$(/usr/bin/systemctl show -p LoadState --value "${unit_name}")"
-              actual_fragment_path="$(/usr/bin/systemctl show -p FragmentPath --value "${unit_name}")"
-              effective_fragment_matches=false
-              if [[ "${expected_fragment_path}" == "/etc/systemd/system/${unit_name}" ]]; then
-                [[ "${actual_fragment_path}" == "${expected_fragment_path}" ]] && \
-                  effective_fragment_matches=true
-              elif [[ -n "${expected_fragment_path}" && \
-                      "${actual_fragment_path}" == "${expected_fragment_path}" ]]; then
-                effective_fragment_matches=true
-              elif [[ -z "${expected_fragment_path}" && \
-                      ( "${actual_load_state}" == "not-found" || "${actual_load_state}" == "masked" ) ]]; then
-                effective_fragment_matches=true
-              fi
-              if [[ "${actual_load_state}" != "${expected_load_state}" || \
-                    "${effective_fragment_matches}" != "true" ]]; then
-                echo "Sampler unit rollback mismatch for ${unit_name}: expected load=${expected_load_state}, fragment=${expected_fragment_path}; got load=${actual_load_state}, fragment=${actual_fragment_path}." >&2
-                unit_restore_failed=true
-              fi
-            done
-            if [[ "${unit_restore_failed}" == "false" ]]; then
-              sampler_units_mutated=false
-            fi
-            [[ "${unit_restore_failed}" == "false" ]]
-          }
-
-          restore_sampling_state() {
-            deploy_status="$1"
-            cleanup_failed=false
-            sampler_fragments_restored=true
-            echo "Deployment failed (${deploy_status}); restoring prior sampling timer state." >&2
-            if [[ "${sampling_state_captured}" == "true" ]]; then
-              if unit_loaded "${sample_timer}"; then
-                sudo -n /usr/bin/systemctl stop "${sample_timer}" || cleanup_failed=true
-              fi
-              # Remove candidate enablement links while its fragment is still
-              # loaded; prior enablement is recreated only after restoration.
-              if unit_enabled "${sample_timer}"; then
-                sudo -n /usr/bin/systemctl disable "${sample_timer}" || cleanup_failed=true
-              fi
-              if unit_loaded "${sample_service}"; then
-                sudo -n /usr/bin/systemctl stop "${sample_service}" || cleanup_failed=true
-              fi
-              for unit_name in "${baseline_service}" "${verify_service}"; do
-                if unit_loaded "${unit_name}"; then
-                  sudo -n /usr/bin/systemctl stop "${unit_name}" || cleanup_failed=true
-                fi
-              done
-
-              if [[ "${sampler_units_mutated}" == "true" ]]; then
-                if ! restore_sampler_unit_files; then
-                  sampler_fragments_restored=false
-                  cleanup_failed=true
-                  echo "CRITICAL: sampler unit files were not restored; leaving the regular timer stopped." >&2
-                fi
-              elif [[ "${regular_sampler_quiesced}" == "true" ]]; then
-                echo "No sampler unit files changed; restoring the timer state after quiescing." >&2
-              fi
-
-              if [[ "${sampler_fragments_restored}" == "true" ]] && unit_loaded "${sample_timer}"; then
-                if [[ "${sample_timer_was_enabled}" == "true" ]]; then
-                  sudo -n /usr/bin/systemctl enable "${sample_timer}" || cleanup_failed=true
-                else
-                  sudo -n /usr/bin/systemctl disable "${sample_timer}" || cleanup_failed=true
-                fi
-                [[ "${sample_timer_was_active}" == "false" ]] || \
-                  sudo -n /usr/bin/systemctl start "${sample_timer}" || cleanup_failed=true
-              fi
-              if [[ "${sampler_fragments_restored}" == "true" ]]; then
-                verify_timer_state \
-                  "${sample_timer}" "${sample_timer_was_loaded}" \
-                  "${sample_timer_was_enabled}" "${sample_timer_was_active}" || cleanup_failed=true
-              fi
-              [[ "${cleanup_failed}" == "false" ]] || echo "WARNING: prior timer state could not be fully restored." >&2
-            fi
-          }
-
-          verify_terminal_timer_untouched() {
-            if [[ "${final_timer_was_loaded}" == "true" && "${final_timer_was_enabled}" == "true" && "${final_timer_was_active}" == "true" ]]; then
-              if ! unit_enabled "${final_timer}" || ! unit_active "${final_timer}"; then
-                echo "CRITICAL: untouched terminal timer lost its armed state." >&2
+              crontab -r >/dev/null 2>&1 || return 1
+              set +e
+              crontab -l > "${crontab_stage}/rollback-read" \
+                2>"${crontab_stage}/rollback-error"
+              rollback_read_status=$?
+              set -e
+              if [[ "${rollback_read_status}" -ne 1 ]]; then
                 return 1
               fi
-              if ! next_epoch="$(timer_next_epoch "${final_timer}")" || \
-                  (( next_epoch != terminal_cutoff_epoch )); then
-                echo "CRITICAL: untouched terminal timer no longer targets the exact cutoff." >&2
-                return 1
-              fi
+              grep -Fq 'no crontab for' "${crontab_stage}/rollback-error" || return 1
             fi
-          }
-
-          arm_validated_terminal_timer() {
-            if [[ "${final_timer_touched}" == "true" && "${sampler_validated}" == "true" && $(date +%s) -lt ${protected_start_epoch} ]]; then
-              echo "Ensuring the validated terminal timer remains armed despite a later deployment failure." >&2
-              sudo -n /usr/bin/systemctl enable "${final_timer}"
-              sudo -n /usr/bin/systemctl restart "${final_timer}"
-              unit_enabled "${final_timer}"
-              unit_active "${final_timer}"
-              next_epoch="$(timer_next_epoch "${final_timer}")"
-              test "${next_epoch}" -eq "${terminal_cutoff_epoch}"
-            fi
+            crontab_mutated=false
           }
 
           cleanup_deployment() {
@@ -380,24 +428,30 @@ jobs:
             trap '' HUP INT TERM
             set +e
             if [[ "${deploy_status}" -ne 0 && "${deployment_succeeded}" != "true" ]]; then
-              restore_sampling_state "${deploy_status}"
-              arm_validated_terminal_timer || cleanup_failed=true
-              verify_terminal_timer_untouched || cleanup_failed=true
+              if ! sync_api_transaction_state; then
+                cleanup_failed=true
+                echo "CRITICAL: API deployment journal could not be read safely." >&2
+              fi
+              if [[ "${api_forward_only}" == "true" && "${api_transaction_committed}" == "false" ]]; then
+                echo "CRITICAL: API deployment crossed MIGRATION_STARTED; the recorded candidate must be resumed forward." >&2
+              elif ! restore_api_before_forward_boundary; then
+                cleanup_failed=true
+                echo "CRITICAL: pre-migration API checkout could not be restored." >&2
+              fi
+              if ! restore_sampling_crontab; then
+                cleanup_failed=true
+                echo "CRITICAL: the pre-deployment user crontab could not be restored." >&2
+              fi
             fi
             [[ -z "${api_response}" ]] || rm -f -- "${api_response}"
             [[ -z "${public_api_response}" ]] || rm -f -- "${public_api_response}"
-            [[ -z "${unit_stage}" ]] || rm -rf -- "${unit_stage}"
-            if [[ -n "${unit_backup_stage}" ]]; then
-              if [[ "${sampler_units_mutated}" == "true" ]]; then
-                echo "CRITICAL: preserving sampler unit rollback evidence at ${unit_backup_stage}." >&2
-                cleanup_failed=true
-              else
-                rm -rf -- "${unit_backup_stage}"
-              fi
-            fi
+            [[ -z "${crontab_stage}" ]] || rm -rf -- "${crontab_stage}"
             [[ -z "${sampler_release_stage}" ]] || rm -rf -- "${sampler_release_stage}"
+            [[ -z "${sampler_verify_stage}" ]] || rm -rf -- "${sampler_verify_stage}"
+            [[ -z "${candidate_stage}" ]] || rm -rf -- "${candidate_stage}"
             [[ -z "${verifier}" ]] || rm -f -- "${verifier}"
-            [[ "${cleanup_failed}" == "false" ]] || echo "CRITICAL: terminal popularity timer verification failed during cleanup." >&2
+            [[ -z "${deploy_journal}" ]] || rm -f -- "${deploy_journal}"
+            [[ "${cleanup_failed}" == "false" ]] || echo "CRITICAL: production deployment cleanup was incomplete." >&2
             exit "${deploy_status}"
           }
 
@@ -413,12 +467,6 @@ jobs:
           trap 'exit_for_signal 1 HUP' HUP
           trap 'exit_for_signal 2 INT' INT
           trap 'exit_for_signal 15 TERM' TERM
-
-          deploy_epoch="$(date +%s)"
-          if (( deploy_epoch >= protected_start_epoch && deploy_epoch <= protected_end_epoch )); then
-            echo "Refusing deployment during the protected terminal-sampling window." >&2
-            exit 1
-          fi
 
           echo "Starting production deployment for ${DEPLOY_SHA}..."
           cd "${app_dir}"
@@ -470,272 +518,339 @@ jobs:
             exit 1
           fi
           flock -n 9
-          verifier="$(mktemp)"
-          printf '%s' "${PROD_RECONCILE_HELPER_GZIP_B64}" | base64 --decode | gzip -d > "${verifier}"
-          test "$(sha256sum "${verifier}" | cut -d ' ' -f 1)" = "${PROD_RECONCILE_HELPER_SHA256}"
-          chmod 0500 "${verifier}"
-          export UNIKORN_BACKEND_MUTATION_LOCK_FD=9
-          export UNIKORN_BACKEND_MUTATION_LOCK_DEV_INO="$(stat -Lc '%d:%i' "/proc/$$/fd/9")"
-          python3 -I "${verifier}" --target production --mode verify-transactions
-          rm -f -- "${verifier}"
-          verifier=""
-          unset UNIKORN_BACKEND_MUTATION_LOCK_FD UNIKORN_BACKEND_MUTATION_LOCK_DEV_INO
-          echo "Preflighting non-interactive production service permissions..."
-          unit_stage="$(mktemp -d /tmp/unikorn-popularity-units.XXXXXX)"
-          unit_backup_stage="$(mktemp -d /tmp/unikorn-popularity-unit-backup.XXXXXX)"
-          for unit_name in "${sample_timer}" "${final_timer}" "${sample_service}" "${baseline_service}" "${final_service}" "${verify_service}"; do
-            require_sudo_permission /usr/bin/systemctl stop "${unit_name}"
-            require_sudo_permission /usr/bin/systemctl start "${unit_name}"
-          done
-          for timer_name in "${sample_timer}" "${final_timer}"; do
-            require_sudo_permission /usr/bin/systemctl enable "${timer_name}"
-            require_sudo_permission /usr/bin/systemctl disable "${timer_name}"
-            require_sudo_permission /usr/bin/systemctl restart "${timer_name}"
-          done
-          require_sudo_permission /usr/bin/systemctl daemon-reload
-          require_sudo_permission /usr/bin/systemctl restart "${service_name}"
-          require_sudo_permission /usr/bin/systemctl reset-failed \
-            "${baseline_service}" "${sample_service}" "${verify_service}"
-          require_sudo_permission /usr/bin/systemctl reset-failed "${final_service}"
-          for unit_name in \
-            "${baseline_service}" "${sample_service}" "${final_service}" "${verify_service}" \
-            "${sample_timer}" "${final_timer}"; do
-            require_sudo_permission /usr/bin/install -m 0644 \
-              "${unit_stage}/${unit_name}" "/etc/systemd/system/${unit_name}"
-          done
-          for unit_name in \
-            "${baseline_service}" "${sample_service}" "${verify_service}" \
-            "${sample_timer}"; do
-            require_sudo_permission /usr/bin/install -m 0644 \
-              "${unit_backup_stage}/${unit_name}" "/etc/systemd/system/${unit_name}"
-            require_sudo_permission /usr/bin/rm -- "/etc/systemd/system/${unit_name}"
-          done
-          echo "Required sudo permissions are available."
+          deploy_journal="$(mktemp)"
+          printf '%s' "${PROD_DEPLOY_JOURNAL_GZIP_B64}" | base64 --decode | gzip -d > "${deploy_journal}"
+          test "$(sha256sum "${deploy_journal}" | cut -d ' ' -f 1)" = "${PROD_DEPLOY_JOURNAL_SHA256}"
+          chmod 0500 "${deploy_journal}"
 
-          unit_loaded "${sample_timer}" && sample_timer_was_loaded=true
-          unit_loaded "${final_timer}" && final_timer_was_loaded=true
-          unit_active "${sample_timer}" && sample_timer_was_active=true
-          unit_active "${final_timer}" && final_timer_was_active=true
-          unit_enabled "${sample_timer}" && sample_timer_was_enabled=true
-          unit_enabled "${final_timer}" && final_timer_was_enabled=true
-          for unit_name in \
-            "${baseline_service}" "${sample_service}" "${verify_service}" \
-            "${sample_timer}"; do
-            unit_path="/etc/systemd/system/${unit_name}"
-            /usr/bin/systemctl show -p LoadState --value "${unit_name}" > \
-              "${unit_backup_stage}/${unit_name}.load-state"
-            /usr/bin/systemctl show -p FragmentPath --value "${unit_name}" > \
-              "${unit_backup_stage}/${unit_name}.fragment-path"
-            if [[ -e "${unit_path}" || -L "${unit_path}" ]]; then
-              if [[ ! -f "${unit_path}" || -L "${unit_path}" ]]; then
-                echo "Refusing to replace non-regular sampler unit path: ${unit_path}" >&2
+          # An interrupted transaction is the first production concern.  It is
+          # authenticated and resumed before mutable remote refs, protected
+          # sampling windows, sampler permissions, or ordinary dirty-tree gates.
+          journal_inspection="$("${app_dir}/venv/bin/python" -I "${deploy_journal}" inspect)"
+          journal_status="$(printf '%s' "${journal_inspection}" | journal_field status)"
+          if [[ "${journal_status}" == "active" ]]; then
+            journal_state="$(printf '%s' "${journal_inspection}" | \
+              "${app_dir}/venv/bin/python" -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["journal"], sort_keys=True))')"
+            journal_phase="$(printf '%s' "${journal_state}" | journal_field phase)"
+            journal_target_sha="$(printf '%s' "${journal_state}" | journal_field target_sha)"
+            if [[ "${journal_phase}" != "COMMITTED" ]]; then
+              if [[ "${journal_target_sha}" != "${DEPLOY_SHA}" ]]; then
+                echo "Incomplete API deployment must be recovered at target ${journal_target_sha}; refusing ${DEPLOY_SHA}." >&2
                 exit 1
               fi
-              if [[ "$(stat -c '%u:%g:%a' "${unit_path}")" != "0:0:644" ]]; then
-                echo "Refusing unexpected sampler unit ownership or mode: ${unit_path}" >&2
-                exit 1
-              fi
-              /usr/bin/install -m 0600 \
-                "${unit_path}" "${unit_backup_stage}/${unit_name}"
-              sha256sum "${unit_backup_stage}/${unit_name}" | awk '{print $1}' > \
-                "${unit_backup_stage}/${unit_name}.present"
-              if [[ "$(sha256sum "${unit_path}" | awk '{print $1}')" != \
-                    "$(<"${unit_backup_stage}/${unit_name}.present")" ]]; then
-                echo "Sampler unit changed while it was being snapshotted: ${unit_path}" >&2
-                exit 1
-              fi
+              api_recovery_mode=true
+              api_transaction_prepared=true
+              api_old_sha="$(printf '%s' "${journal_state}" | journal_field old_sha)"
+              git cat-file -e "${DEPLOY_SHA}^{commit}"
+              sync_api_transaction_state
+              assert_api_checkout_for_phase
+            fi
+          elif [[ "${journal_status}" != "absent" ]]; then
+            echo "Production API journal inspection returned an unexpected status." >&2
+            exit 1
+          fi
+
+          # Reconciliation evidence is an ordinary new-deploy preflight.  An
+          # incomplete API transaction must recover even if unrelated retained
+          # quarantine evidence has since become unreadable.
+          if [[ "${api_recovery_mode}" != "true" ]]; then
+            command -v crontab >/dev/null
+            # This first check is deliberately before backup, checkout, and
+            # migration. A fresh deployment must not advance the API/database
+            # while an old timer could still sample concurrently.
+            assert_legacy_sampler_units_absent
+            verifier="$(mktemp)"
+            printf '%s' "${PROD_RECONCILE_HELPER_GZIP_B64}" | base64 --decode | gzip -d > "${verifier}"
+            test "$(sha256sum "${verifier}" | cut -d ' ' -f 1)" = "${PROD_RECONCILE_HELPER_SHA256}"
+            chmod 0500 "${verifier}"
+            export UNIKORN_BACKEND_MUTATION_LOCK_FD=9
+            export UNIKORN_BACKEND_MUTATION_LOCK_DEV_INO="$(stat -Lc '%d:%i' "/proc/$$/fd/9")"
+            python3 -I "${verifier}" --target production --mode verify-transactions
+            rm -f -- "${verifier}"
+            verifier=""
+            unset UNIKORN_BACKEND_MUTATION_LOCK_FD UNIKORN_BACKEND_MUTATION_LOCK_DEV_INO
+          fi
+
+          deploy_epoch="$(date +%s)"
+          if (( deploy_epoch >= protected_start_epoch && deploy_epoch <= protected_end_epoch )); then
+            if [[ "${api_recovery_mode}" == "true" ]]; then
+              skip_sampler_activation=true
+              echo "Protected terminal window: recovering the incomplete API transaction only; sampler activation will be skipped."
+            else
+              echo "Refusing a new deployment during the protected terminal-sampling window." >&2
+              exit 1
+            fi
+          fi
+
+          require_sudo_permission /usr/bin/systemctl stop "${service_name}"
+          require_sudo_permission /usr/bin/systemctl start "${service_name}"
+          require_sudo_permission /usr/bin/systemctl restart "${service_name}"
+
+          live_checkout_sha="$(git rev-parse HEAD)"
+          if [[ "${api_recovery_mode}" != "true" ]]; then
+            dirty_state="$(git status --porcelain=v1 --untracked-files=all)"
+            if [[ -n "${dirty_state}" ]]; then
+              echo "Refusing to deploy over a dirty production checkout:" >&2
+              printf '%s\n' "${dirty_state}" >&2
+              echo "Run the reviewed production migration reconciliation workflow before retrying deployment." >&2
+              exit 1
+            fi
+
+            git fetch --prune origin \
+              "+refs/heads/production:refs/remotes/origin/production"
+            remote_sha="$(git rev-parse refs/remotes/origin/production)"
+            if [[ "${remote_sha}" != "${DEPLOY_SHA}" ]]; then
+              echo "Fetched production SHA ${remote_sha}, expected ${DEPLOY_SHA}." >&2
+              exit 1
+            fi
+
+            journal_state="$("${app_dir}/venv/bin/python" -I "${deploy_journal}" \
+              prepare --target-sha "${DEPLOY_SHA}" --old-sha "${live_checkout_sha}")"
+            api_transaction_prepared=true
+            journal_phase="$(printf '%s' "${journal_state}" | journal_field phase)"
+            api_old_sha="$(printf '%s' "${journal_state}" | journal_field old_sha)"
+            sync_api_transaction_state
+          fi
+          assert_api_checkout_for_phase
+
+          if [[ "${api_recovery_mode}" != "true" ]] && \
+              ! git merge-base --is-ancestor "${api_old_sha}" "${DEPLOY_SHA}"; then
+            echo "Production candidate is not a descendant of the journaled live checkout." >&2
+            exit 1
+          fi
+          for dependency_manifest in requirements.txt requirements.lock; do
+            live_manifest="$(git rev-parse "${api_old_sha}:${dependency_manifest}")"
+            candidate_manifest="$(git rev-parse "${DEPLOY_SHA}:${dependency_manifest}")"
+            if [[ "${live_manifest}" != "${candidate_manifest}" ]]; then
+              echo "${dependency_manifest} changed; refusing to mutate the shared production venv." >&2
+              exit 1
             fi
           done
-          sampling_state_captured=true
-
-          echo "Existing SHA-pinned popularity samplers remain available during release mutations."
-
-          dirty_state="$(git status --porcelain=v1 --untracked-files=all)"
-          if [[ -n "${dirty_state}" ]]; then
-            echo "Refusing to deploy over a dirty production checkout:" >&2
-            printf '%s\n' "${dirty_state}" >&2
-            exit 1
-          fi
-
-          git fetch --prune origin \
-            "+refs/heads/production:refs/remotes/origin/production"
-          remote_sha="$(git rev-parse refs/remotes/origin/production)"
-          if [[ "${remote_sha}" != "${DEPLOY_SHA}" ]]; then
-            echo "Fetched production SHA ${remote_sha}, expected ${DEPLOY_SHA}." >&2
-            exit 1
-          fi
-
-          git checkout production
-          git merge --ff-only "${DEPLOY_SHA}"
-          deployed_sha="$(git rev-parse HEAD)"
-          if [[ "${deployed_sha}" != "${DEPLOY_SHA}" ]]; then
-            echo "Production checkout is ${deployed_sha}, expected ${DEPLOY_SHA}." >&2
-            exit 1
-          fi
-          if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
-            echo "Production checkout became dirty after updating it." >&2
-            exit 1
-          fi
-          echo "Checked out the exact production commit."
-
-          source venv/bin/activate
-          echo "Installing Python packages..."
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt --timeout 600
-          python -m pip check
-          python - <<'PY'
+          "${app_dir}/venv/bin/python" -m pip check
+          "${app_dir}/venv/bin/python" - <<'PY'
           from alibabacloud_green20220302.client import Client  # noqa: F401
           from alibabacloud_tea_openapi import models  # noqa: F401
           PY
-          echo "Python packages installed and validated."
+          echo "Existing production dependencies match the candidate and are healthy."
 
-          echo "Building an immutable popularity sampler release..."
-          install -d -m 0755 "${sampler_root}"
-          if [[ -d "${sampler_candidate}" ]]; then
-            test "$(<"${sampler_candidate}/.unikorn-commit")" = "${DEPLOY_SHA}"
-            test -f "${sampler_candidate}/scripts/sample_scheduler_popularity.py"
-            test -x "${sampler_candidate}/venv/bin/python"
-            test ! -w "${sampler_candidate}/scripts/sample_scheduler_popularity.py"
-          else
-            sampler_release_stage="$(mktemp -d "${sampler_root}/.${DEPLOY_SHA}.XXXXXX")"
-            git archive "${DEPLOY_SHA}" | tar -x -C "${sampler_release_stage}"
-            cp -a "${app_dir}/venv" "${sampler_release_stage}/venv"
-            printf '%s\n' "${DEPLOY_SHA}" > "${sampler_release_stage}/.unikorn-commit"
-            chmod -R a-w,a+rX "${sampler_release_stage}"
-            mv -- "${sampler_release_stage}" "${sampler_candidate}"
-            sampler_release_stage=""
-          fi
-          "${sampler_candidate}/venv/bin/python" -c 'import flask, sqlalchemy'
-          echo "Immutable sampler release ready at ${sampler_candidate}."
-
-          echo "Creating a verified database backup..."
-          umask 077
-          install -d -m 0750 "${backup_dir}"
-          timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-          short_sha="$(printf '%.12s' "${DEPLOY_SHA}")"
-          database_backup="${backup_dir}/prod_unikorn-${timestamp}-${short_sha}.dump"
-          python -m app.scripts.create_verified_database_backup \
-            --output "${database_backup}" \
-            --expected-database prod_unikorn
-          backup_size="$(stat -c '%s' "${database_backup}")"
-          backup_sha256="$(sha256sum "${database_backup}" | awk '{print $1}')"
-          echo "Verified database backup: ${database_backup} (${backup_size} bytes, sha256=${backup_sha256})"
-          umask 022
-
-          echo "Applying database migrations..."
-          python -m flask db upgrade heads
-          echo "Database migrations applied."
-
-          echo "Initializing predefined data..."
-          python -m app.scripts.init_db
-          echo "Database initialization completed."
-
-          echo "Backfilling 2024-25 legacy scheduler offerings..."
-          python -m app.scripts.backfill_legacy_scheduler_offerings --semesters 2430 2440 --apply
-          echo "2024-25 legacy scheduler offerings backfilled."
-
-          echo "Restarting production service..."
-          sudo -n /usr/bin/systemctl restart "${service_name}"
-          if ! /usr/bin/systemctl is-active --quiet "${service_name}"; then
-            echo "Production service failed to start." >&2
-            sudo -n /usr/bin/systemctl status --no-pager --full "${service_name}" || true
-            sudo -n /usr/bin/journalctl -u "${service_name}" -n 100 --no-pager || true
+          candidate_stage="$(mktemp -d /tmp/unikorn-api-candidate.XXXXXX)"
+          git archive "${DEPLOY_SHA}" | tar -x -C "${candidate_stage}"
+          ln -s "${app_dir}/venv" "${candidate_stage}/venv"
+          ln -s "${app_dir}/.env" "${candidate_stage}/.env"
+          candidate_heads="$(
+            cd "${candidate_stage}"
+            AUTO_INIT_ON_STARTUP=false ENABLE_BACKGROUND_TASKS=false \
+              "${app_dir}/venv/bin/python" -m flask db heads 2>/dev/null |
+              awk '{print $1}' | sort -u
+          )"
+          expected_candidate_heads=$'20260813_feedback_schema\n20260813_pop_history_truth'
+          if [[ "${candidate_heads}" != "${expected_candidate_heads}" ]]; then
+            echo "Candidate Alembic heads are unexpected:" >&2
+            printf '%s\n' "${candidate_heads}" >&2
             exit 1
           fi
-
-          echo "Staging scheduler popularity sampling units..."
-          service_user="$(/usr/bin/systemctl show -p User --value "${service_name}")"
-          if [[ -z "${service_user}" ]]; then
-            service_user="$(stat -c '%U' "${app_dir}")"
-          fi
-          service_group="$(/usr/bin/systemctl show -p Group --value "${service_name}")"
-          if [[ -z "${service_group}" ]]; then
-            service_group="$(id -gn "${service_user}")"
-          fi
-          if [[ ! "${service_user}" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]]; then
-            echo "Refusing invalid derived service user: ${service_user}" >&2
+          if [[ -L "${backup_dir}" || ! -d "${backup_dir}" || \
+                "$(stat -c '%u:%g:%a' "${backup_dir}")" != "$(id -u):$(id -g):750" ]]; then
+            echo "Production backup directory has unsafe metadata." >&2
             exit 1
           fi
-          if [[ ! "${service_group}" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]]; then
-            echo "Refusing invalid derived service group: ${service_group}" >&2
-            exit 1
-          fi
-
-          for unit_name in \
-            unikorn-scheduler-popularity-baseline.service \
-            unikorn-scheduler-popularity-sample.service \
-            unikorn-scheduler-popularity-final.service \
-            unikorn-scheduler-popularity-verify.service; do
-            template_path="${app_dir}/deploy/systemd/${unit_name}.in"
-            sed \
-              -e "s|__SAMPLER_DIR__|${sampler_candidate}|g" \
-              -e "s|__APP_ENV_FILE__|${app_dir}/.env|g" \
-              -e "s|__PYTHON__|${sampler_candidate}/venv/bin/python|g" \
-              -e "s|__SERVICE_USER__|${service_user}|g" \
-              -e "s|__SERVICE_GROUP__|${service_group}|g" \
-              "${template_path}" > "${unit_stage}/${unit_name}"
-          done
-          /usr/bin/install -m 0644 \
-            "${app_dir}/deploy/systemd/unikorn-scheduler-popularity-sample.timer" \
-            "${unit_stage}/${sample_timer}"
-          /usr/bin/install -m 0644 \
-            "${app_dir}/deploy/systemd/unikorn-scheduler-popularity-final.timer" \
-            "${unit_stage}/${final_timer}"
-
-          if command -v systemd-analyze >/dev/null 2>&1; then
-            /usr/bin/systemd-analyze calendar '2026-08-* *:0/5:00 Asia/Shanghai' >/dev/null
-            /usr/bin/systemd-analyze calendar '2026-09-* *:0/5:00 Asia/Shanghai' >/dev/null
-            /usr/bin/systemd-analyze calendar '2026-09-30 23:59:00 Asia/Shanghai' >/dev/null
-            /usr/bin/systemd-analyze verify "${unit_stage}"/*.service "${unit_stage}"/*.timer
-          fi
-
-          regular_sampler_quiesced=true
-          if unit_loaded "${sample_timer}"; then
-            sudo -n /usr/bin/systemctl stop "${sample_timer}"
-          fi
-          if unit_loaded "${sample_service}"; then
-            sudo -n /usr/bin/systemctl stop "${sample_service}"
-          fi
-          assert_unit_inactive "${sample_timer}"
-          assert_unit_inactive "${sample_service}"
-          for unit_name in \
-            "${baseline_service}" "${sample_service}" "${verify_service}" \
-            "${sample_timer}"; do
-            sampler_units_mutated=true
-            sudo -n /usr/bin/install -m 0644 \
-              "${unit_stage}/${unit_name}" "/etc/systemd/system/${unit_name}"
-          done
-          sudo -n /usr/bin/systemctl daemon-reload
-          # The terminal unit is intentionally withheld until the sampler passes smoke checks.
-          sudo -n /usr/bin/systemctl reset-failed "${baseline_service}" "${sample_service}" "${verify_service}"
-
-          echo "Smoke-testing popularity sampling as ${service_user}:${service_group}..."
-          sudo -n /usr/bin/systemctl start "${baseline_service}"
-          test "$(/usr/bin/systemctl show -p Result --value "${baseline_service}")" = "success"
-          sudo -n /usr/bin/systemctl start "${sample_service}"
-          test "$(/usr/bin/systemctl show -p Result --value "${sample_service}")" = "success"
-          sampler_validated=true
-          echo "Popularity sampling service identity and database access verified."
-
-          api_response="$(mktemp)"
-          api_ready=false
-          for attempt in {1..12}; do
-            if curl --fail --silent --show-error \
-              --connect-timeout 2 --max-time 5 \
-              --output "${api_response}" "${local_api_url}"; then
-              api_ready=true
-              break
+          if [[ "${journal_phase}" == "PREPARED" ]]; then
+            identity_json="$(database_identity)"
+            database_size="$(printf '%s' "${identity_json}" | journal_field database_size)"
+            available_bytes="$(df -PB1 --output=avail "${backup_dir}" | tail -n 1 | tr -d ' ')"
+            required_bytes="$((database_size + minimum_free_reserve_bytes))"
+            if (( available_bytes < required_bytes )); then
+              echo "Insufficient disk for a full backup plus the 1 GiB safety reserve: available=${available_bytes}, required=${required_bytes}." >&2
+              exit 1
             fi
-            echo "Local API is not ready yet (attempt ${attempt}/12)."
-            sleep 3
-          done
-          if [[ "${api_ready}" != "true" ]]; then
-            echo "Local production API did not become ready." >&2
-            sudo -n /usr/bin/journalctl -u "${service_name}" -n 100 --no-pager || true
-            exit 1
+            journal_advance SERVICE_STOP_REQUESTED
+            journal_phase="SERVICE_STOP_REQUESTED"
           fi
 
-          python - "${api_response}" <<'PY'
+          if [[ "${journal_phase}" == "SERVICE_STOP_REQUESTED" ]]; then
+            sudo -n /usr/bin/systemctl stop "${service_name}"
+            assert_unit_inactive "${service_name}"
+            journal_advance SERVICE_STOPPED
+            journal_phase="SERVICE_STOPPED"
+          fi
+          if [[ "${journal_phase}" == "SERVICE_STOPPED" ]]; then
+            timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+            short_sha="$(printf '%.12s' "${DEPLOY_SHA}")"
+            planned_backup_name="prod_unikorn-${timestamp}-${short_sha}.dump"
+            journal_advance FINAL_BACKUP_STARTED \
+              --backup-name "${planned_backup_name}"
+            journal_phase="FINAL_BACKUP_STARTED"
+            journal_state="$("${app_dir}/venv/bin/python" -I "${deploy_journal}" \
+              show --target-sha "${DEPLOY_SHA}")"
+          fi
+          if [[ "${journal_phase}" == "FINAL_BACKUP_STARTED" ]]; then
+            assert_unit_inactive "${service_name}"
+            if [[ -z "${journal_state}" ]]; then
+              journal_state="$("${app_dir}/venv/bin/python" -I "${deploy_journal}" \
+                show --target-sha "${DEPLOY_SHA}")"
+            fi
+            identity_json="$(database_identity)"
+            database_name="$(printf '%s' "${identity_json}" | journal_field database_name)"
+            database_system_identifier="$(printf '%s' "${identity_json}" | journal_field database_system_identifier)"
+            database_size="$(printf '%s' "${identity_json}" | journal_field database_size)"
+            available_bytes="$(df -PB1 --output=avail "${backup_dir}" | tail -n 1 | tr -d ' ')"
+            required_bytes="$((database_size + minimum_free_reserve_bytes))"
+            if (( available_bytes < required_bytes )); then
+              echo "Insufficient disk for the offline backup plus the 1 GiB safety reserve: available=${available_bytes}, required=${required_bytes}." >&2
+              exit 1
+            fi
+            echo "Creating the final verified backup with API writes stopped..."
+            umask 077
+            planned_backup_name="$(printf '%s' "${journal_state}" | journal_field backup_name)"
+            database_backup="${backup_dir}/${planned_backup_name}"
+            if [[ -e "${database_backup}" || -L "${database_backup}" ]]; then
+              if [[ -L "${database_backup}" || ! -f "${database_backup}" || \
+                    "$(stat -c '%u:%g:%a:%h' "${database_backup}")" != "$(id -u):$(id -g):600:1" ]]; then
+                echo "Refusing to remove an unsafe unbound final backup path." >&2
+                exit 1
+              fi
+              echo "Removing the exact unbound final backup from an interrupted retry."
+              rm -- "${database_backup}"
+            fi
+            backup_result="$(
+              cd "${candidate_stage}"
+              AUTO_INIT_ON_STARTUP=false ENABLE_BACKGROUND_TASKS=false \
+                "${app_dir}/venv/bin/python" -m app.scripts.create_verified_database_backup \
+                  --output "${database_backup}" \
+                  --expected-database prod_unikorn
+            )"
+            backup_size="$(printf '%s' "${backup_result}" | journal_field size)"
+            backup_sha256="$(printf '%s' "${backup_result}" | journal_field sha256)"
+            backup_device="$(printf '%s' "${backup_result}" | journal_field device)"
+            backup_inode="$(printf '%s' "${backup_result}" | journal_field inode)"
+            backup_mtime_ns="$(printf '%s' "${backup_result}" | journal_field mtime_ns)"
+            if (( $(df -PB1 --output=avail "${backup_dir}" | tail -n 1 | tr -d ' ') < minimum_free_reserve_bytes )); then
+              echo "Verified backup consumed the production disk safety reserve." >&2
+              exit 1
+            fi
+            journal_advance FINAL_BACKUP_VERIFIED \
+              --backup-path "${database_backup}" \
+              --backup-size "${backup_size}" \
+              --backup-sha256 "${backup_sha256}" \
+              --backup-device "${backup_device}" \
+              --backup-inode "${backup_inode}" \
+              --backup-mtime-ns "${backup_mtime_ns}" \
+              --database-name "${database_name}" \
+              --database-system-identifier "${database_system_identifier}"
+            journal_phase="FINAL_BACKUP_VERIFIED"
+            umask 022
+          fi
+
+          rm -rf -- "${candidate_stage}"
+          candidate_stage=""
+
+          case "${journal_phase}" in
+            FINAL_BACKUP_VERIFIED|CHECKOUT_ACTIVATION_REQUESTED|CANDIDATE_CHECKED_OUT|MIGRATION_STARTED)
+              journal_state="$("${app_dir}/venv/bin/python" -I "${deploy_journal}" \
+                show --target-sha "${DEPLOY_SHA}")"
+              "${app_dir}/venv/bin/python" -I "${deploy_journal}" \
+                verify-backup --target-sha "${DEPLOY_SHA}" >/dev/null
+              assert_recorded_database_identity
+              ;;
+          esac
+
+          if [[ "${journal_phase}" == "FINAL_BACKUP_VERIFIED" ]]; then
+            journal_advance CHECKOUT_ACTIVATION_REQUESTED
+            journal_phase="CHECKOUT_ACTIVATION_REQUESTED"
+          fi
+          if [[ "${journal_phase}" == "CHECKOUT_ACTIVATION_REQUESTED" ]]; then
+            if [[ "$(git rev-parse HEAD)" != "${DEPLOY_SHA}" ]]; then
+              git checkout --detach "${DEPLOY_SHA}"
+            fi
+            test "$(git rev-parse HEAD)" = "${DEPLOY_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+            journal_advance CANDIDATE_CHECKED_OUT
+            journal_phase="CANDIDATE_CHECKED_OUT"
+          fi
+          if [[ "${journal_phase}" == "CANDIDATE_CHECKED_OUT" ]]; then
+            journal_state="$("${app_dir}/venv/bin/python" -I "${deploy_journal}" \
+              show --target-sha "${DEPLOY_SHA}")"
+            "${app_dir}/venv/bin/python" -I "${deploy_journal}" \
+              verify-backup --target-sha "${DEPLOY_SHA}" >/dev/null
+            assert_recorded_database_identity
+            journal_advance MIGRATION_STARTED
+            journal_phase="MIGRATION_STARTED"
+          fi
+          if [[ "${journal_phase}" == "MIGRATION_STARTED" ]]; then
+            api_forward_only=true
+            test "$(git rev-parse HEAD)" = "${DEPLOY_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+            journal_state="$("${app_dir}/venv/bin/python" -I "${deploy_journal}" \
+              show --target-sha "${DEPLOY_SHA}")"
+            "${app_dir}/venv/bin/python" -I "${deploy_journal}" \
+              verify-backup --target-sha "${DEPLOY_SHA}" >/dev/null
+            assert_recorded_database_identity
+            AUTO_INIT_ON_STARTUP=false ENABLE_BACKGROUND_TASKS=false \
+              "${app_dir}/venv/bin/python" -m flask db upgrade heads
+            live_heads="$(
+              AUTO_INIT_ON_STARTUP=false ENABLE_BACKGROUND_TASKS=false \
+                "${app_dir}/venv/bin/python" -m flask db current 2>/dev/null |
+                awk '{print $1}' | sort -u
+            )"
+            if [[ "${live_heads}" != "${expected_candidate_heads}" ]]; then
+              echo "Database did not reach the exact candidate Alembic heads:" >&2
+              printf '%s\n' "${live_heads}" >&2
+              exit 1
+            fi
+            journal_advance DB_AT_TARGET
+            journal_phase="DB_AT_TARGET"
+          elif [[ "${journal_phase}" != "PREPARED" && \
+                  "${journal_phase}" != "SERVICE_STOP_REQUESTED" && "${journal_phase}" != "SERVICE_STOPPED" && \
+                  "${journal_phase}" != "FINAL_BACKUP_STARTED" && "${journal_phase}" != "FINAL_BACKUP_VERIFIED" && \
+                  "${journal_phase}" != "CHECKOUT_ACTIVATION_REQUESTED" && "${journal_phase}" != "CANDIDATE_CHECKED_OUT" ]]; then
+            api_forward_only=true
+          fi
+
+          if [[ "${journal_phase}" == "DB_AT_TARGET" ]]; then
+            journal_advance CANDIDATE_START_REQUESTED
+            journal_phase="CANDIDATE_START_REQUESTED"
+          fi
+          if [[ "${journal_phase}" == "CANDIDATE_START_REQUESTED" ]]; then
+            test "$(git rev-parse HEAD)" = "${DEPLOY_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+            /usr/bin/systemctl is-active --quiet "${service_name}" || \
+              sudo -n /usr/bin/systemctl start "${service_name}"
+            /usr/bin/systemctl is-active --quiet "${service_name}"
+            journal_advance CANDIDATE_STARTED
+            journal_phase="CANDIDATE_STARTED"
+          fi
+
+          case "${journal_phase}" in
+            CANDIDATE_STARTED|HEALTHY|COMMITTED)
+              test "$(git rev-parse HEAD)" = "${DEPLOY_SHA}"
+              test -z "$(git status --porcelain=v1 --untracked-files=all)"
+              /usr/bin/systemctl is-active --quiet "${service_name}" || \
+                sudo -n /usr/bin/systemctl start "${service_name}"
+              api_main_pid="$(/usr/bin/systemctl show -p MainPID --value "${service_name}")"
+              if [[ ! "${api_main_pid}" =~ ^[1-9][0-9]*$ || \
+                    "$(readlink -e "/proc/${api_main_pid}/cwd")" != "${app_dir}" ]]; then
+                echo "Production API process is not running from the exact fixed checkout." >&2
+                exit 1
+              fi
+
+              api_response="$(mktemp)"
+              api_ready=false
+              for attempt in {1..12}; do
+                if curl --fail --silent --show-error \
+                  --connect-timeout 2 --max-time 5 \
+                  --output "${api_response}" "${local_api_url}"; then
+                  api_ready=true
+                  break
+                fi
+                echo "Local API is not ready yet (attempt ${attempt}/12)."
+                sleep 3
+              done
+              if [[ "${api_ready}" != "true" ]]; then
+                echo "Local production API did not become ready." >&2
+                sudo -n /usr/bin/journalctl -u "${service_name}" -n 100 --no-pager || true
+                exit 1
+              fi
+              "${app_dir}/venv/bin/python" - "${api_response}" <<'PY'
           import json
           import sys
 
@@ -744,21 +859,29 @@ jobs:
           if not isinstance(payload, list) or not payload:
               raise SystemExit("scheduler semester API returned no semesters")
           required = {"id", "name", "section_count"}
-          if any(not isinstance(row, dict) or not required <= row.keys() for row in payload):
+          if any(
+              not isinstance(row, dict) or not required <= row.keys()
+              for row in payload
+          ):
               raise SystemExit("scheduler semester API returned an unexpected schema")
-          if not any(isinstance(row["section_count"], int) and row["section_count"] > 0 for row in payload):
+          if not any(
+              isinstance(row["section_count"], int) and row["section_count"] > 0
+              for row in payload
+          ):
               raise SystemExit("scheduler semester API returned no populated semester")
           print(f"Local scheduler API verified with {len(payload)} semester(s).")
           PY
+              rm -f -- "${api_response}"
+              api_response=""
 
-          public_api_response="$(mktemp)"
-          if ! curl --fail --silent --show-error \
-            --connect-timeout 5 --max-time 15 \
-            --output "${public_api_response}" "${public_api_url}"; then
-            echo "Public production API did not pass the pre-activation health check." >&2
-            exit 1
-          fi
-          python - "${public_api_response}" <<'PY'
+              public_api_response="$(mktemp)"
+              if ! curl --fail --silent --show-error \
+                --connect-timeout 5 --max-time 15 \
+                --output "${public_api_response}" "${public_api_url}"; then
+                echo "Public production API did not pass the candidate health check." >&2
+                exit 1
+              fi
+              "${app_dir}/venv/bin/python" - "${public_api_response}" <<'PY'
           import json
           import sys
 
@@ -767,79 +890,192 @@ jobs:
           if not isinstance(payload, list) or not payload:
               raise SystemExit("public scheduler semester API returned no semesters")
           PY
-          rm -f "${public_api_response}"
-          public_api_response=""
+              rm -f -- "${public_api_response}"
+              public_api_response=""
+              ;;
+            *)
+              echo "Unexpected API deployment journal phase: ${journal_phase}" >&2
+              exit 1
+              ;;
+          esac
 
-          activate_timer() {
-            timer_name="$1"
-            expected_epoch="${2:-}"
-            sudo -n /usr/bin/systemctl enable "${timer_name}"
-            sudo -n /usr/bin/systemctl restart "${timer_name}"
-            unit_enabled "${timer_name}"
-            unit_active "${timer_name}"
-            next_epoch="$(timer_next_epoch "${timer_name}")"
-            if (( next_epoch <= $(date +%s) )); then
-              echo "${timer_name} next elapse is not in the future: ${next_epoch}" >&2
-              return 1
-            fi
-            if [[ -n "${expected_epoch}" ]] && (( next_epoch != expected_epoch )); then
-              echo "${timer_name} targets ${next_epoch}, expected ${expected_epoch}." >&2
-              return 1
-            fi
-            echo "${timer_name} next elapse epoch: ${next_epoch}"
-          }
-
-          deactivate_timer() {
-            timer_name="$1"
-            sudo -n /usr/bin/systemctl stop "${timer_name}"
-            sudo -n /usr/bin/systemctl disable "${timer_name}"
-            if unit_enabled "${timer_name}"; then
-              echo "${timer_name} remained enabled unexpectedly." >&2
-              return 1
-            fi
-            assert_unit_inactive "${timer_name}"
-          }
-
-          deploy_epoch="$(date +%s)"
-          if (( deploy_epoch < sample_end_epoch )); then
-            echo "Activating regular and terminal popularity sampling timers..."
-            final_timer_touched=true
-            sudo -n /usr/bin/install -m 0644 \
-              "${unit_stage}/${final_service}" "/etc/systemd/system/${final_service}"
-            sudo -n /usr/bin/install -m 0644 \
-              "${unit_stage}/${final_timer}" "/etc/systemd/system/${final_timer}"
-            sudo -n /usr/bin/systemctl daemon-reload
-            # reset-failed requires the just-installed service to be loaded on a first rollout.
-            sudo -n /usr/bin/systemctl reset-failed "${final_service}"
-            activate_timer "${sample_timer}"
-            activate_timer "${final_timer}" "${terminal_cutoff_epoch}"
-          elif (( deploy_epoch < terminal_cutoff_epoch )); then
-            echo "Regular sampling is complete; preserving only the terminal timer."
-            final_timer_touched=true
-            sudo -n /usr/bin/install -m 0644 \
-              "${unit_stage}/${final_service}" "/etc/systemd/system/${final_service}"
-            sudo -n /usr/bin/install -m 0644 \
-              "${unit_stage}/${final_timer}" "/etc/systemd/system/${final_timer}"
-            sudo -n /usr/bin/systemctl daemon-reload
-            # reset-failed requires the just-installed service to be loaded on a first rollout.
-            sudo -n /usr/bin/systemctl reset-failed "${final_service}"
-            deactivate_timer "${sample_timer}"
-            activate_timer "${final_timer}" "${terminal_cutoff_epoch}"
-          else
-            echo "Popularity sampling campaign is complete; disabling timers and verifying the terminal sample."
-            deactivate_timer "${sample_timer}"
-            deactivate_timer "${final_timer}"
-            sudo -n /usr/bin/systemctl start "${verify_service}"
-            test "$(/usr/bin/systemctl show -p Result --value "${verify_service}")" = "success"
+          if [[ "${journal_phase}" == "CANDIDATE_STARTED" ]]; then
+            journal_advance HEALTHY
+            journal_phase="HEALTHY"
           fi
+          if [[ "${journal_phase}" == "HEALTHY" ]]; then
+            git checkout -B production "${DEPLOY_SHA}"
+            test "$(git symbolic-ref --short HEAD)" = "production"
+            test "$(git rev-parse HEAD)" = "${DEPLOY_SHA}"
+            test -z "$(git status --porcelain=v1 --untracked-files=all)"
+            journal_advance COMMITTED
+            journal_phase="COMMITTED"
+          fi
+          test "${journal_phase}" = "COMMITTED"
+          api_transaction_committed=true
+          deployed_sha="$(git rev-parse HEAD)"
+          echo "Production API transaction committed at ${deployed_sha}."
+
+          if [[ "${skip_sampler_activation}" == "true" ]]; then
+            echo "Incomplete API transaction recovered during the protected window; sampler activation intentionally skipped."
+            deployment_succeeded=true
+            exit 0
+          fi
+
+          {
+            command -v crontab >/dev/null
+            # Recheck after the API commit to close the deployment-time race.
+            assert_legacy_sampler_units_absent
+            echo "Building an immutable popularity sampler release..."
+            install -d -m 0755 "${sampler_root}"
+            if [[ -d "${sampler_candidate}" ]]; then
+              test "$(<"${sampler_candidate}/.unikorn-commit")" = "${DEPLOY_SHA}"
+              test -f "${sampler_candidate}/scripts/run_scheduler_popularity_cron.py"
+              test -f "${sampler_candidate}/scripts/sample_scheduler_popularity.py"
+              test -L "${sampler_candidate}/venv"
+              test "$(readlink "${sampler_candidate}/venv")" = "${app_dir}/venv"
+              test ! -w "${sampler_candidate}/scripts/run_scheduler_popularity_cron.py"
+            else
+              sampler_release_stage="$(mktemp -d "${sampler_root}/.${DEPLOY_SHA}.XXXXXX")"
+              git archive "${DEPLOY_SHA}" | tar -x -C "${sampler_release_stage}"
+              ln -s "${app_dir}/venv" "${sampler_release_stage}/venv"
+              printf '%s\n' "${DEPLOY_SHA}" > "${sampler_release_stage}/.unikorn-commit"
+              chmod -R a-w,a+rX "${sampler_release_stage}"
+              mv -- "${sampler_release_stage}" "${sampler_candidate}"
+              sampler_release_stage=""
+            fi
+            "${sampler_candidate}/venv/bin/python" -I -c 'import flask, sqlalchemy'
+            sampler_verify_stage="$(mktemp -d /tmp/unikorn-popularity-release-verify.XXXXXX)"
+            git archive "${DEPLOY_SHA}" | tar -x -C "${sampler_verify_stage}"
+            find "${sampler_candidate}" -type l -print | \
+              grep -Fxq "${sampler_candidate}/venv"
+            test "$(find "${sampler_candidate}" -type l -print | wc -l)" -eq 1
+            if ! diff -qr --no-dereference \
+                --exclude=venv --exclude=.unikorn-commit \
+                "${sampler_verify_stage}" "${sampler_candidate}"; then
+              echo "Immutable sampler release differs from the candidate commit." >&2
+              exit 1
+            fi
+            rm -rf -- "${sampler_verify_stage}"
+            sampler_verify_stage=""
+            echo "Immutable sampler release ready at ${sampler_candidate}."
+
+            # The SSH deployment identity is exactly the future cron identity.
+            # Prove that it can read only the fixed root:www-data environment.
+            effective_uid="$(id -u)"
+            www_data_gid="$(getent group www-data | cut -d: -f3)"
+            test "${www_data_gid}" = "33"
+            IFS=: read -r env_uid env_gid env_mode < <(stat -c '%u:%g:%a' "${sampler_env_file}")
+            test "${env_uid}:${env_gid}:${env_mode}" = "0:33:640"
+            id -G | tr ' ' '\n' | grep -Fxq "${www_data_gid}"
+            test -r "${sampler_env_file}"
+            test "$(timedatectl show -p Timezone --value)" = "Asia/Shanghai"
+
+            sampler_state_dir="${HOME}/.local/state/unikorn/scheduler-popularity-2610"
+            install -d -m 0700 "${sampler_state_dir}"
+            test "$(stat -c '%u:%a' "${sampler_state_dir}")" = "${effective_uid}:700"
+            sampler_runner="${sampler_candidate}/scripts/run_scheduler_popularity_cron.py"
+            sampler_args=(
+              "${sampler_candidate}/venv/bin/python" -I "${sampler_runner}"
+              --expected-sha "${DEPLOY_SHA}"
+              --env-file "${sampler_env_file}"
+              --lock-file "${sampler_lock_file}"
+              --state-dir "${sampler_state_dir}"
+            )
+            export UNIKORN_BACKEND_MUTATION_LOCK_FD=9
+            export UNIKORN_BACKEND_MUTATION_LOCK_DEV_INO="$(stat -Lc '%d:%i' "/proc/$$/fd/9")"
+            status_output="$("${sampler_args[@]}" --mode status)"
+            sampling_state="$(printf '%s' "${status_output}" | \
+              "${sampler_candidate}/venv/bin/python" -c \
+              'import json,sys; print(json.load(sys.stdin)["sampler_result"]["sampling_state"])')"
+            if [[ "${sampling_state}" == "not_started" ]]; then
+              echo "Taking the one permitted deployment baseline before cron activation."
+              baseline_output="$("${sampler_args[@]}" --mode baseline)"
+              baseline_status="$(printf '%s' "${baseline_output}" | \
+                "${sampler_candidate}/venv/bin/python" -c \
+                'import json,sys; print(json.load(sys.stdin)["sampler_result"]["status"])')"
+              test "${baseline_status}" = "completed"
+            elif [[ "${sampling_state}" == "fresh" ]]; then
+              "${sampler_args[@]}" --mode verify-freshness >/dev/null
+            elif [[ "${sampling_state}" == "ended_complete" ]]; then
+              "${sampler_args[@]}" --mode verify-terminal >/dev/null
+            else
+              echo "Refusing sampler activation from database state ${sampling_state}; never re-baselining existing history." >&2
+              exit 1
+            fi
+
+            crontab_stage="$(mktemp -d /tmp/unikorn-popularity-crontab.XXXXXX)"
+            crontab_before="${crontab_stage}/before"
+            crontab_candidate="${crontab_stage}/candidate"
+            crontab_readback="${crontab_stage}/readback"
+            sampler_block="${crontab_stage}/managed-block"
+            if crontab -l > "${crontab_before}" 2>"${crontab_stage}/read-error"; then
+              crontab_existed=true
+            else
+              crontab_read_status=$?
+              if [[ "${crontab_read_status}" -eq 1 ]] && \
+                  grep -Fq 'no crontab for' "${crontab_stage}/read-error"; then
+                : > "${crontab_before}"
+              else
+                echo "Unable to read the deployment user's existing crontab." >&2
+                exit 1
+              fi
+            fi
+            original_crontab_sha="$(sha256sum "${crontab_before}" | cut -d ' ' -f1)"
+            if (( deploy_epoch < terminal_cutoff_epoch )); then
+              {
+                echo '# BEGIN UNIKORN SCHEDULER POPULARITY 2610 (MANAGED)'
+                if (( deploy_epoch < sample_end_epoch )); then
+                  printf '*/5 * 1-31 8,9 * %q -I %q --mode regular --expected-sha %q --env-file %q --lock-file %q --state-dir %q\n' \
+                    "${sampler_candidate}/venv/bin/python" "${sampler_runner}" "${DEPLOY_SHA}" \
+                    "${sampler_env_file}" "${sampler_lock_file}" "${sampler_state_dir}"
+                fi
+                printf '59 23 30 9 * %q -I %q --mode terminal --expected-sha %q --env-file %q --lock-file %q --state-dir %q\n' \
+                  "${sampler_candidate}/venv/bin/python" "${sampler_runner}" "${DEPLOY_SHA}" \
+                  "${sampler_env_file}" "${sampler_lock_file}" "${sampler_state_dir}"
+                echo '# END UNIKORN SCHEDULER POPULARITY 2610 (MANAGED)'
+              } > "${sampler_block}"
+              "${sampler_candidate}/venv/bin/python" -I \
+                "${sampler_candidate}/tools/render_scheduler_popularity_crontab.py" \
+                --existing "${crontab_before}" --replacement "${sampler_block}" \
+                --output "${crontab_candidate}"
+            else
+              "${sampler_candidate}/venv/bin/python" -I \
+                "${sampler_candidate}/tools/render_scheduler_popularity_crontab.py" \
+                --existing "${crontab_before}" --remove --output "${crontab_candidate}"
+            fi
+            expected_crontab_sha="$(sha256sum "${crontab_candidate}" | cut -d ' ' -f1)"
+            if crontab -l > "${crontab_before}.verify" 2>"${crontab_stage}/verify-error"; then
+              test "${crontab_existed}" = "true"
+            else
+              crontab_verify_status=$?
+              if [[ "${crontab_verify_status}" -eq 1 ]] && \
+                  grep -Fq 'no crontab for' "${crontab_stage}/verify-error"; then
+                test "${crontab_existed}" = "false"
+                : > "${crontab_before}.verify"
+              else
+                echo "Unable to re-read the user crontab immediately before activation." >&2
+                exit 1
+              fi
+            fi
+            cmp -s "${crontab_before}" "${crontab_before}.verify"
+            installed_crontab_sha="${expected_crontab_sha}"
+            crontab_mutated=true
+            crontab "${crontab_candidate}"
+            crontab -l > "${crontab_readback}"
+            test "$(sha256sum "${crontab_readback}" | cut -d ' ' -f1)" = "${expected_crontab_sha}"
+            # A second read closes the most obvious concurrent-edit window.
+            sleep 1
+            crontab -l > "${crontab_readback}.second"
+            cmp -s "${crontab_readback}" "${crontab_readback}.second"
+            "${sampler_args[@]}" --mode status >/dev/null
+            crontab_mutated=false
+            unset UNIKORN_BACKEND_MUTATION_LOCK_FD UNIKORN_BACKEND_MUTATION_LOCK_DEV_INO
+            echo "Scheduler popularity user crontab activated and byte-for-byte verified."
+          }
           deployment_succeeded=true
-          sampler_units_mutated=false
-          regular_sampler_quiesced=false
-          rm -rf "${unit_stage}"
-          unit_stage=""
-          rm -rf "${unit_backup_stage}"
-          unit_backup_stage=""
-          echo "Scheduler popularity sampling timers activated for ${service_user}:${service_group}."
+          [[ -z "${crontab_stage}" ]] || rm -rf -- "${crontab_stage}"
+          crontab_stage=""
 
           echo "Production deployment completed at ${deployed_sha}."
 

@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import tempfile
 
@@ -49,12 +50,26 @@ class BackupError(RuntimeError):
     pass
 
 
-def _sha256(path: Path) -> str:
+def _descriptor_sha256(descriptor: int) -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
+    os.lseek(descriptor, 0, os.SEEK_SET)
+    while chunk := os.read(descriptor, 1024 * 1024):
+        digest.update(chunk)
     return digest.hexdigest()
+
+
+def _stable_file_identity(details: os.stat_result) -> tuple[int, ...]:
+    return (
+        details.st_dev,
+        details.st_ino,
+        details.st_uid,
+        details.st_gid,
+        details.st_mode,
+        details.st_nlink,
+        details.st_size,
+        details.st_mtime_ns,
+        details.st_ctime_ns,
+    )
 
 
 def create_verified_backup(
@@ -74,8 +89,19 @@ def create_verified_backup(
             f"database mismatch: configured={url.database!r} expected={expected_database!r}"
         )
 
-    destination = output_path.expanduser().resolve()
-    destination.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
+    expanded_destination = output_path.expanduser()
+    if not expanded_destination.is_absolute():
+        expanded_destination = Path.cwd() / expanded_destination
+    destination = expanded_destination
+    if destination.parent.is_symlink() or not destination.parent.is_dir():
+        raise BackupError("backup parent must be an existing real directory")
+    parent_details = destination.parent.stat()
+    if (
+        parent_details.st_uid != os.geteuid()
+        or parent_details.st_gid != os.getegid()
+        or stat.S_IMODE(parent_details.st_mode) != 0o750
+    ):
+        raise BackupError("backup parent has unsafe metadata")
     if destination.exists():
         raise BackupError("backup destination already exists")
 
@@ -115,6 +141,8 @@ def create_verified_backup(
     os.close(descriptor)
     temporary = Path(temporary_name)
     os.chmod(temporary, 0o600)
+    destination_created = False
+    durable = False
     try:
         subprocess.run(
             [
@@ -135,21 +163,99 @@ def create_verified_backup(
             stdout=subprocess.DEVNULL,
             env=pg_environment,
         )
-        size = temporary.stat().st_size
-        sha256 = _sha256(temporary)
-        os.link(temporary, destination)
-        temporary.unlink()
+        descriptor = os.open(
+            temporary,
+            os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        try:
+            before = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or before.st_uid != os.geteuid()
+                or before.st_gid != os.getegid()
+                or stat.S_IMODE(before.st_mode) != 0o600
+                or before.st_nlink != 1
+                or before.st_size <= 0
+            ):
+                raise BackupError("temporary backup has unsafe metadata")
+            os.fsync(descriptor)
+            sha256 = _descriptor_sha256(descriptor)
+            after = os.fstat(descriptor)
+            if _stable_file_identity(after) != _stable_file_identity(before):
+                raise BackupError("temporary backup changed while it was verified")
+            size = after.st_size
+            os.link(temporary, destination)
+            destination_created = True
+            temporary.unlink()
+            published_before = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(published_before.st_mode)
+                or published_before.st_uid != os.geteuid()
+                or published_before.st_gid != os.getegid()
+                or stat.S_IMODE(published_before.st_mode) != 0o600
+                or published_before.st_nlink != 1
+                or published_before.st_size != size
+            ):
+                raise BackupError("published backup has unsafe metadata")
+            published_sha256 = _descriptor_sha256(descriptor)
+            published_after = os.fstat(descriptor)
+            if _stable_file_identity(published_after) != _stable_file_identity(
+                published_before
+            ):
+                raise BackupError("published backup changed while it was verified")
+            if published_sha256 != sha256:
+                raise BackupError("published backup digest does not match")
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        destination_descriptor = os.open(
+            destination,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        try:
+            path_details = os.fstat(destination_descriptor)
+            if _stable_file_identity(path_details) != _stable_file_identity(
+                published_after
+            ):
+                raise BackupError("published backup path identity changed")
+        finally:
+            os.close(destination_descriptor)
+        parent_descriptor = os.open(
+            destination.parent,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        try:
+            os.fsync(parent_descriptor)
+        finally:
+            os.close(parent_descriptor)
+        durable = True
         return {
             "status": "verified",
             "database": expected_database,
             "path": str(destination),
             "size": size,
             "sha256": sha256,
+            "device": published_after.st_dev,
+            "inode": published_after.st_ino,
+            "mtime_ns": published_after.st_mtime_ns,
         }
     except subprocess.CalledProcessError as exc:
         raise BackupError(f"backup command failed with exit code {exc.returncode}") from exc
     finally:
         temporary.unlink(missing_ok=True)
+        if destination_created and not durable:
+            destination.unlink(missing_ok=True)
+            try:
+                parent_descriptor = os.open(
+                    destination.parent,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                )
+                try:
+                    os.fsync(parent_descriptor)
+                finally:
+                    os.close(parent_descriptor)
+            except OSError:
+                pass
 
 
 def build_parser() -> argparse.ArgumentParser:
