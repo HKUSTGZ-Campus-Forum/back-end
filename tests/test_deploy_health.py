@@ -593,7 +593,15 @@ def test_production_deploy_activates_bounded_popularity_sampling_with_user_cront
     assert health_at < release_at < baseline_at < activate_call_at
     assert "restore_sampling_crontab" in deploy_workflow
     assert "Immutable sampler release ready" in deploy_workflow
-    assert "git archive" in deploy_workflow
+    assert 'test -f "${sampler_candidate}/tools/render_scheduler_popularity_crontab.py"' in deploy_workflow
+    assert 'extract_sampler_release "${sampler_release_stage}"' in deploy_workflow
+    assert 'extract_sampler_release "${sampler_verify_stage}"' in deploy_workflow
+    assert 'git archive "${DEPLOY_SHA}" -- \\' in deploy_workflow
+    assert "              app \\" in deploy_workflow
+    assert "              scripts/run_scheduler_popularity_cron.py \\" in deploy_workflow
+    assert "              scripts/sample_scheduler_popularity.py \\" in deploy_workflow
+    assert "              tools/render_scheduler_popularity_crontab.py | tar -x" in deploy_workflow
+    assert deploy_workflow.count('git archive "${DEPLOY_SHA}" | tar') == 1
     assert "sampler_current" not in deploy_workflow
     assert 'chmod -R a-w,a+rX "${sampler_release_stage}"' in deploy_workflow
     assert 'ln -s "${app_dir}/venv" "${sampler_release_stage}/venv"' in deploy_workflow
