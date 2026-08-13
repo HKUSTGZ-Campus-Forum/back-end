@@ -191,8 +191,11 @@ def test_workflow_is_read_only_fixed_and_serialized():
     assert "secrets.PROD_SSH_HOST" in workflow
     assert "secrets.PROD_SSH_USER" in workflow
     assert "secrets.PROD_SSH_KEY" in workflow
+    assert "secrets.PROD_SSH_FINGERPRINT" in workflow
     assert "chmod 0500" in workflow
     assert "/usr/bin/sudo -n -l" in workflow
+    assert "sudo_policy=matched_authentication_unknown" in workflow
+    assert "sudo_policy=no_match_or_unavailable" in workflow
     assert "/usr/bin/chmod 0755 -- /data" in workflow
     assert "/usr/bin/chmod 1777 -- /data" in workflow
     assert "/usr/bin/chown ${effective_identity} -- /data/prod_unikorn" in workflow

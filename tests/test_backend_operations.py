@@ -922,4 +922,5 @@ def test_operation_workflow_is_a_hardened_dispatch_api():
     assert workflow.count('test "$api_ready" = "true"') == 2
     assert "appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2" in workflow
     assert "appleboy/ssh-action@master" not in workflow
+    assert "fingerprint: ${{ secrets.PROD_SSH_FINGERPRINT }}" in production
     assert "${{ inputs." not in workflow.split("script: |", 1)[1]

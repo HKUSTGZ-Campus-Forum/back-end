@@ -202,6 +202,14 @@ def test_deploy_workflows_fail_on_migration_errors_and_use_committed_revisions()
         assert "flask db migrate" not in deploy_workflow
 
 
+def test_production_deploy_pins_remote_host_fingerprint():
+    deploy_workflow = (
+        ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "fingerprint: ${{ secrets.PROD_SSH_FINGERPRINT }}" in deploy_workflow
+
+
 def test_dev_migration_checkout_reconciliation_is_two_phase_and_fixed_scope():
     deploy_workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(
         encoding="utf-8"

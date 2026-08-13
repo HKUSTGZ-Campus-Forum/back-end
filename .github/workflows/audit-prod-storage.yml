@@ -44,6 +44,7 @@ jobs:
           host: ${{ secrets.PROD_SSH_HOST }}
           username: ${{ secrets.PROD_SSH_USER }}
           key: ${{ secrets.PROD_SSH_KEY }}
+          fingerprint: ${{ secrets.PROD_SSH_FINGERPRINT }}
           command_timeout: 5m
           envs: AUDIT_HELPER_SHA256,AUDIT_HELPER_GZIP_B64
           script: |
@@ -62,9 +63,9 @@ jobs:
               "/usr/bin/chown --no-dereference --from=33:33 ${effective_identity} -- /data/prod_unikorn" \
               "/usr/bin/chmod 0755 -- /data/prod_unikorn"; do
               if /usr/bin/sudo -n -l ${request} >/dev/null 2>&1; then
-                printf 'sudo_permission=allowed command=%s\n' "$request"
+                printf 'sudo_policy=matched_authentication_unknown command=%s\n' "$request"
               else
-                printf 'sudo_permission=denied command=%s\n' "$request"
+                printf 'sudo_policy=no_match_or_unavailable command=%s\n' "$request"
               fi
             done
             printf 'identity_user=%s\n' "$(id -un)"
