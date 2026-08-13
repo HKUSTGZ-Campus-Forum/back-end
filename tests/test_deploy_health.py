@@ -84,7 +84,7 @@ def test_alembic_revision_graph_is_acyclic_and_has_expected_heads():
         if parent is not None
     }
     assert set(revisions) - parents == {
-        "20260812_pop_history",
+        "20260813_pop_history_truth",
         "20260813_feedback_schema",
     }
 
@@ -333,7 +333,9 @@ def test_production_migration_checkout_reconciliation_is_two_phase_and_fixed_sco
     assert "UNIKORN_BACKEND_MUTATION_LOCK_FD=9" in deploy_workflow
     flock_at = deploy_workflow.index("flock -n 9")
     verify_at = deploy_workflow.index("--mode verify-transactions")
-    sudo_preflight_at = deploy_workflow.index("Preflighting non-interactive")
+    sudo_preflight_at = deploy_workflow.index(
+        'require_sudo_permission /usr/bin/systemctl stop "${service_name}"'
+    )
     assert flock_at < verify_at < sudo_preflight_at
 
 
@@ -427,68 +429,179 @@ def test_dev_database_initialization_syncs_curriculum_requirements():
     assert init_script.index("init_identity_types()") < init_script.index("init_curriculum_requirements()")
 
 
-def test_production_deploy_backfills_2024_25_scheduler_offerings():
+def test_production_deploy_does_not_run_routine_seed_or_legacy_backfill():
     deploy_workflow = (ROOT / ".github" / "workflows" / "deploy-backend-prod.yml").read_text(encoding="utf-8")
 
-    assert "python -m app.scripts.backfill_legacy_scheduler_offerings --semesters 2430 2440 --apply" in deploy_workflow
-    assert deploy_workflow.index("python -m app.scripts.init_db") < deploy_workflow.index(
-        "python -m app.scripts.backfill_legacy_scheduler_offerings"
+    assert "app.scripts.backfill_legacy_scheduler_offerings" not in deploy_workflow
+    assert "app.scripts.init_db" not in deploy_workflow
+
+
+def test_production_api_deploy_is_journaled_backup_first_and_forward_recoverable():
+    deploy_workflow = (
+        ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
+    ).read_text(encoding="utf-8")
+    helper = (ROOT / "tools" / "production_deploy_journal.py").read_text(
+        encoding="utf-8"
     )
+    remote_script = deploy_workflow.split(
+        "        script: |", maxsplit=1
+    )[1].split("    - name: Verify the public production API", maxsplit=1)[0]
+
+    prepare_at = remote_script.index('prepare --target-sha "${DEPLOY_SHA}"')
+    disk_at = remote_script.index(
+        'database_size="$(printf', prepare_at
+    )
+    backup_at = remote_script.index(
+        "app.scripts.create_verified_database_backup"
+    )
+    backup_started_at = remote_script.index("journal_advance FINAL_BACKUP_STARTED")
+    backup_verified_at = remote_script.index("journal_advance FINAL_BACKUP_VERIFIED")
+    stop_requested_at = remote_script.index("journal_advance SERVICE_STOP_REQUESTED")
+    stop_at = remote_script.index(
+        'systemctl stop "${service_name}"', stop_requested_at
+    )
+    checkout_requested_at = remote_script.index(
+        "journal_advance CHECKOUT_ACTIVATION_REQUESTED"
+    )
+    checkout_at = remote_script.index('git checkout --detach "${DEPLOY_SHA}"')
+    migration_started_at = remote_script.index("journal_advance MIGRATION_STARTED")
+    migrate_at = remote_script.index("flask db upgrade heads")
+    start_requested_at = remote_script.index("journal_advance CANDIDATE_START_REQUESTED")
+    start_at = remote_script.index('systemctl start "${service_name}"', start_requested_at)
+    local_health_at = remote_script.index("Local scheduler API verified")
+    healthy_at = remote_script.index("journal_advance HEALTHY")
+    attach_at = remote_script.index('git checkout -B production "${DEPLOY_SHA}"')
+    committed_at = remote_script.index("journal_advance COMMITTED")
+
+    inspect_at = remote_script.index('"${deploy_journal}" inspect')
+    protected_at = remote_script.index(
+        'if (( deploy_epoch >= protected_start_epoch'
+    )
+    api_preflight_at = remote_script.index(
+        'require_sudo_permission /usr/bin/systemctl stop "${service_name}"'
+    )
+    identity_at = remote_script.rindex(
+        "assert_recorded_database_identity", 0, migrate_at
+    )
+    rollback_health_at = remote_script.index('"${local_api_url}"', remote_script.index("restore_api_before_forward_boundary()"))
+    archive_abort_at = remote_script.index("archive-aborted", rollback_health_at)
+
+    assert inspect_at < protected_at < api_preflight_at
+    assert prepare_at < disk_at < stop_requested_at < stop_at
+    assert stop_at < backup_started_at < backup_at < backup_verified_at
+    assert backup_verified_at < checkout_requested_at < checkout_at
+    assert checkout_at < migration_started_at < migrate_at
+    assert identity_at < migrate_at
+    assert migrate_at < start_requested_at < start_at < local_health_at
+    assert local_health_at < healthy_at < attach_at < committed_at
+    assert "minimum_free_reserve_bytes=1073741824" in remote_script
+    assert "verify-backup --target-sha" in remote_script
+    candidate_stage_at = remote_script.index(
+        'candidate_stage="$(mktemp -d /tmp/unikorn-api-candidate.'
+    )
+    candidate_backup_at = remote_script.index(
+        'cd "${candidate_stage}"', backup_started_at
+    )
+    candidate_cleanup_at = remote_script.index(
+        'rm -rf -- "${candidate_stage}"', candidate_backup_at
+    )
+    assert candidate_stage_at < candidate_backup_at < backup_at < candidate_cleanup_at
+    assert 'Production backup directory has unsafe metadata.' in remote_script
+    assert 'Refusing to remove an unsafe unbound final backup path.' in remote_script
+    backup_root_guard_at = remote_script.index(
+        '[[ -L "${backup_dir}" || ! -d "${backup_dir}"'
+    )
+    retry_remove_at = remote_script.index('rm -- "${database_backup}"')
+    assert backup_root_guard_at < backup_started_at < retry_remove_at
+    assert "20260813_feedback_schema\\n20260813_pop_history_truth" in remote_script
+    assert "requirements.txt requirements.lock" in remote_script
+    assert "refusing to mutate the shared production venv" in remote_script
+    assert "pip install" not in remote_script
+    assert "sync_api_transaction_state" in remote_script
+    assert "api_forward_only=true" in remote_script
+    assert "archive-aborted" in remote_script
+    assert rollback_health_at < archive_abort_at
+    assert 'if [[ "${api_recovery_mode}" == "true" ]]' in remote_script
+    assert 'skip_sampler_activation=true' in remote_script
+    assert 'git cat-file -e "${DEPLOY_SHA}^{commit}"' in remote_script
+    assert 'system_identifier FROM pg_control_system()' in remote_script
+
+    for phase in (
+        "PREPARED",
+        "SERVICE_STOP_REQUESTED",
+        "SERVICE_STOPPED",
+        "FINAL_BACKUP_STARTED",
+        "FINAL_BACKUP_VERIFIED",
+        "CHECKOUT_ACTIVATION_REQUESTED",
+        "CANDIDATE_CHECKED_OUT",
+        "MIGRATION_STARTED",
+        "DB_AT_TARGET",
+        "CANDIDATE_START_REQUESTED",
+        "CANDIDATE_STARTED",
+        "HEALTHY",
+        "COMMITTED",
+    ):
+        assert f'"{phase}"' in helper
+    assert "os.O_NOFOLLOW" in helper
+    assert "os.fsync" in helper
+    assert "verify_backup" in helper
+    assert "cannot abort a deployment at or beyond migration start" in helper
 
 
-def test_production_deploy_activates_bounded_popularity_sampling():
+def test_production_deploy_activates_bounded_popularity_sampling_with_user_crontab():
     deploy_workflow = (ROOT / ".github" / "workflows" / "deploy-backend-prod.yml").read_text(
         encoding="utf-8"
     )
-    sample_timer = (ROOT / "deploy" / "systemd" / "unikorn-scheduler-popularity-sample.timer").read_text(
-        encoding="utf-8"
-    )
-    final_timer = (ROOT / "deploy" / "systemd" / "unikorn-scheduler-popularity-final.timer").read_text(
-        encoding="utf-8"
-    )
-
     flock_at = deploy_workflow.index("flock -n 9")
     trap_at = deploy_workflow.index("trap cleanup_deployment EXIT")
-    preflight_at = deploy_workflow.index("Preflighting non-interactive")
-    checkout_at = deploy_workflow.index("git checkout production")
+    checkout_at = deploy_workflow.index('git checkout --detach "${DEPLOY_SHA}"')
     migrate_at = deploy_workflow.index("flask db upgrade heads")
-    smoke_at = deploy_workflow.index('systemctl start "${baseline_service}"')
     health_at = deploy_workflow.index("Local scheduler API verified")
-    activate_at = deploy_workflow.index("activate_timer()")
+    release_at = deploy_workflow.index("Building an immutable popularity sampler release")
+    baseline_at = deploy_workflow.index("Taking the one permitted deployment baseline")
+    activate_at = deploy_workflow.index('crontab "${crontab_candidate}"')
 
-    assert trap_at < flock_at < preflight_at < checkout_at
-    assert checkout_at < migrate_at < smoke_at < health_at < activate_at
-    assert "restore_sampling_state" in deploy_workflow
-    assert "verify_terminal_timer_untouched" in deploy_workflow
-    assert "arm_validated_terminal_timer" in deploy_workflow
-    assert "sampler_validated=true" in deploy_workflow
+    assert trap_at < flock_at < checkout_at < migrate_at < health_at
+    assert health_at < release_at < baseline_at < activate_at
+    assert "restore_sampling_crontab" in deploy_workflow
     assert "Immutable sampler release ready" in deploy_workflow
     assert "git archive" in deploy_workflow
-    assert '-e "s|__SAMPLER_DIR__|${sampler_candidate}|g"' in deploy_workflow
     assert "sampler_current" not in deploy_workflow
     assert 'chmod -R a-w,a+rX "${sampler_release_stage}"' in deploy_workflow
-    assert "Existing SHA-pinned popularity samplers remain available during release mutations" in deploy_workflow
+    assert 'ln -s "${app_dir}/venv" "${sampler_release_stage}/venv"' in deploy_workflow
+    assert 'diff -qr --no-dereference' in deploy_workflow
+    assert '--exclude=venv --exclude=.unikorn-commit' in deploy_workflow
     assert "trap '' HUP INT TERM" in deploy_workflow
     assert 'trap \'exit_for_signal 1 HUP\' HUP' in deploy_workflow
     assert 'trap \'exit_for_signal 2 INT\' INT' in deploy_workflow
     assert 'trap \'exit_for_signal 15 TERM\' TERM' in deploy_workflow
-    assert "sample_timer_was_enabled" in deploy_workflow
-    assert "verify_timer_state" in deploy_workflow
-    assert "sudo -n -l" in deploy_workflow
-    assert "assert_unit_inactive" in deploy_workflow
-    assert "systemd-analyze verify" in deploy_workflow
-    assert "NextElapseUSecRealtime" in deploy_workflow
     assert "protected terminal-sampling window" in deploy_workflow
     assert "deploy_epoch < sample_end_epoch" in deploy_workflow
     assert "deploy_epoch < terminal_cutoff_epoch" in deploy_workflow
-    assert 'systemctl start "${verify_service}"' in deploy_workflow
-    assert 'deactivate_timer "${sample_timer}"' in deploy_workflow
-    assert 'deactivate_timer "${final_timer}"' in deploy_workflow
-    assert 'systemctl show -p Result --value "${baseline_service}"' in deploy_workflow
-    assert 'systemctl show -p Result --value "${sample_service}"' in deploy_workflow
-    assert "OnCalendar=2026-08-* *:0/5:00 Asia/Shanghai" in sample_timer
-    assert "OnCalendar=2026-09-* *:0/5:00 Asia/Shanghai" in sample_timer
-    assert "OnCalendar=2026-09-30 23:59:00 Asia/Shanghai" in final_timer
+    assert "*/5 * 1-31 8,9 *" in deploy_workflow
+    assert "59 23 30 9 *" in deploy_workflow
+    assert 'test "${env_uid}:${env_gid}:${env_mode}" = "0:33:640"' in deploy_workflow
+    assert "systemctl enable" not in deploy_workflow
+    assert "Refusing user-cron activation while legacy sampler unit" in deploy_workflow
+    assert "unikorn-scheduler-popularity-final.timer" in deploy_workflow
+    assert deploy_workflow.count("assert_legacy_sampler_units_absent") == 3
+    migration = deploy_workflow.index("flask db upgrade heads")
+    pre_migration_guard = deploy_workflow.index(
+        "assert_legacy_sampler_units_absent",
+        deploy_workflow.index('if [[ "${api_recovery_mode}" != "true" ]]'),
+    )
+    sampler_start = deploy_workflow.rindex("command -v crontab")
+    legacy_guard = deploy_workflow.index(
+        "assert_legacy_sampler_units_absent", sampler_start
+    )
+    release_build = deploy_workflow.index(
+        "Building an immutable popularity sampler release", sampler_start
+    )
+    assert pre_migration_guard < migration
+    assert sampler_start < legacy_guard < release_build
+    assert 'legacy_load_state="$(/usr/bin/systemctl show -p LoadState' in deploy_workflow
+    assert 'legacy_active_state="$(/usr/bin/systemctl show -p ActiveState' in deploy_workflow
+    assert 'legacy_unit_file_state="$(/usr/bin/systemctl is-enabled' in deploy_workflow
 
 
 def test_production_sampling_cutoff_epochs_are_exact_and_parse_fail_closed():
@@ -510,235 +623,55 @@ def test_production_sampling_cutoff_epochs_are_exact_and_parse_fail_closed():
     assert int(terminal_match.group(1)) == expected_terminal
     assert expected_terminal - expected_sample == 4 * 60
     assert "terminal_cutoff_epoch <= sample_end_epoch" in deploy_workflow
-    assert "timer_next_epoch()" in deploy_workflow
-    assert "LC_ALL=C TZ=UTC0 /usr/bin/systemctl show" in deploy_workflow
-    assert (
-        'LC_ALL=C TZ=UTC0 /usr/bin/date --date="${next_elapse}" +%s'
-        in deploy_workflow
-    )
     assert "date -d" not in deploy_workflow
-    assert 'activate_timer "${final_timer}" "${terminal_cutoff_epoch}"' in deploy_workflow
     assert "readonly sample_end_epoch=\"$(date" not in deploy_workflow
     assert "readonly terminal_cutoff_epoch=\"$(date" not in deploy_workflow
     assert "backend-mutations.lock" in deploy_workflow
     assert "/tmp/unikorn-backend-mutation-production.lock" not in deploy_workflow
 
 
-def test_production_first_install_loads_every_reset_unit_before_resetting_failures():
+def test_production_crontab_install_is_verified_and_rollback_safe():
     deploy_workflow = (
         ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
     ).read_text(encoding="utf-8")
-
-    staging = deploy_workflow[
-        deploy_workflow.index("Staging scheduler popularity sampling units..."):
-        deploy_workflow.index("Smoke-testing popularity sampling")
-    ]
-    reset_at = staging.index("systemctl reset-failed")
-    daemon_reload_at = staging.rindex("systemctl daemon-reload", 0, reset_at)
-    install_loop_at = staging.rindex("for unit_name in \\", 0, daemon_reload_at)
-    install_loop = staging[install_loop_at:staging.index("done", install_loop_at)]
-    reset_command = staging[reset_at:staging.index("\n", reset_at)]
-
-    installed_units = set(re.findall(r'"\$\{(\w+)\}"', install_loop))
-    reset_units = set(re.findall(r'"\$\{(\w+)\}"', reset_command))
-
-    assert reset_units
-    assert reset_units <= installed_units
-    assert "final_service" not in installed_units
-    assert "final_service" not in reset_units
-    assert "final_timer" not in installed_units
-    assert '"${unit_stage}/${unit_name}" "/etc/systemd/system/${unit_name}"' in install_loop
-    assert install_loop_at < daemon_reload_at < reset_at
-
-    preflight = deploy_workflow[
-        deploy_workflow.index("Preflighting non-interactive"):
-        deploy_workflow.index("Required sudo permissions are available")
-    ]
-    assert (
-        'require_sudo_permission /usr/bin/systemctl reset-failed \\\n'
-        '            "${baseline_service}" "${sample_service}" "${verify_service}"'
-        in preflight
+    capture = deploy_workflow.index('crontab -l > "${crontab_before}"')
+    race_check = deploy_workflow.index('cmp -s "${crontab_before}" "${crontab_before}.verify"')
+    install = deploy_workflow.index('crontab "${crontab_candidate}"')
+    readback = deploy_workflow.index('crontab -l > "${crontab_readback}"')
+    hash_check = deploy_workflow.index('sha256sum "${crontab_readback}"')
+    smoke = deploy_workflow.index('"${sampler_args[@]}" --mode status >/dev/null')
+    commit = deploy_workflow.index("crontab_mutated=false", install)
+    mutation_guard = deploy_workflow.rindex("crontab_mutated=true", capture, install)
+    assert capture < race_check < mutation_guard < install < readback < hash_check < smoke < commit
+    assert "restore_sampling_crontab()" in deploy_workflow
+    assert 'crontab "${crontab_before}" || return 1' in deploy_workflow
+    assert 'cmp -s "${crontab_before}" "${crontab_stage}/rollback-read"' in deploy_workflow
+    assert '"${installed_crontab_sha}"' in deploy_workflow
+    original_hash = deploy_workflow.index('original_crontab_sha="$(sha256sum')
+    candidate_hash_bound = deploy_workflow.index(
+        'installed_crontab_sha="${expected_crontab_sha}"'
     )
-    assert (
-        'require_sudo_permission /usr/bin/systemctl reset-failed "${final_service}"'
-        in preflight
-    )
-
-    before_cutoff_at = deploy_workflow.index("if (( deploy_epoch < sample_end_epoch ))")
-    terminal_only_at = deploy_workflow.index(
-        "elif (( deploy_epoch < terminal_cutoff_epoch ))"
-    )
-    campaign_complete_at = deploy_workflow.index(
-        'else\n            echo "Popularity sampling campaign is complete'
-    )
-
-    def assert_terminal_unit_installed_before_activation(branch):
-        final_service_install_at = branch.index(
-            '"${unit_stage}/${final_service}" "/etc/systemd/system/${final_service}"'
-        )
-        final_timer_install_at = branch.index(
-            '"${unit_stage}/${final_timer}" "/etc/systemd/system/${final_timer}"'
-        )
-        terminal_reload_at = branch.index("systemctl daemon-reload")
-        terminal_reset_at = branch.index('systemctl reset-failed "${final_service}"')
-        terminal_activate_at = branch.index('activate_timer "${final_timer}"')
-
-        assert (
-            max(final_service_install_at, final_timer_install_at)
-            < terminal_reload_at
-            < terminal_reset_at
-            < terminal_activate_at
-        )
-
-    assert deploy_workflow.index("sampler_validated=true") < before_cutoff_at
-    assert_terminal_unit_installed_before_activation(
-        deploy_workflow[before_cutoff_at:terminal_only_at]
-    )
-    assert_terminal_unit_installed_before_activation(
-        deploy_workflow[terminal_only_at:campaign_complete_at]
-    )
+    assert capture < original_hash < candidate_hash_bound < mutation_guard < install
+    assert '"${rollback_current_sha}" == "${original_crontab_sha}"' in deploy_workflow
+    assert '"${rollback_current_sha}" != "${installed_crontab_sha}"' in deploy_workflow
+    assert "Refusing rollback because the user crontab changed after candidate activation" in deploy_workflow
+    assert '--existing "${crontab_before}" --replacement' in deploy_workflow
+    assert '--existing "${crontab_before}" --remove' in deploy_workflow
 
 
-def test_production_failure_restores_exact_predeployment_sampler_units_before_timer_state():
+def test_production_redeploy_never_rebaselines_existing_history():
     deploy_workflow = (
         ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
     ).read_text(encoding="utf-8")
-
-    capture_at = deploy_workflow.index(
-        'unit_path="/etc/systemd/system/${unit_name}"'
-    )
-    mutation_at = deploy_workflow.index("sampler_units_mutated=true")
-    smoke_at = deploy_workflow.index('systemctl start "${baseline_service}"')
-    restore_function_at = deploy_workflow.index("restore_sampler_unit_files()")
-    restore_call_at = deploy_workflow.index("if ! restore_sampler_unit_files; then")
-    timer_rearm_at = deploy_workflow.index(
-        'systemctl start "${sample_timer}"', restore_call_at
-    )
-
-    assert capture_at < mutation_at < smoke_at
-    assert restore_function_at < restore_call_at < timer_rearm_at
-    assert 'marker_path="${unit_backup_stage}/${unit_name}.present"' in deploy_workflow
-    assert '/usr/bin/install -m 0600' in deploy_workflow
-    assert 'sha256sum "${unit_backup_stage}/${unit_name}"' in deploy_workflow
-    assert 'Sampler unit changed while it was being snapshotted' in deploy_workflow
-    assert (
-        '"${backup_path}" "${target_path}" || unit_restore_failed=true'
-        in deploy_workflow
-    )
-    assert (
-        'sudo -n /usr/bin/rm -- "${target_path}" || unit_restore_failed=true'
-        in deploy_workflow
-    )
-    assert '"$(sha256sum "${target_path}" | awk' in deploy_workflow
-    assert 'New sampler unit override remained after rollback' in deploy_workflow
-    assert '"${unit_backup_stage}/${unit_name}.load-state"' in deploy_workflow
-    assert '"${unit_backup_stage}/${unit_name}.fragment-path"' in deploy_workflow
-    assert 'Sampler unit rollback mismatch for ${unit_name}' in deploy_workflow
-    assert 'effective_fragment_matches=false' in deploy_workflow
-    assert 'sampler_fragments_restored=true' in deploy_workflow
-    assert 'leaving the regular timer stopped' in deploy_workflow
-    assert 'preserving sampler unit rollback evidence at ${unit_backup_stage}' in deploy_workflow
-    assert deploy_workflow.index(
-        "systemctl daemon-reload || unit_restore_failed=true", restore_function_at
-    ) < timer_rearm_at
-    assert (
-        'if [[ ! -f "${unit_path}" || -L "${unit_path}" ]]; then'
-        in deploy_workflow
-    )
-
-    restored_units = deploy_workflow[
-        restore_function_at:deploy_workflow.index(
-            "restore_sampling_state()", restore_function_at
-        )
-    ]
-    capture_loop_at = deploy_workflow.rindex("for unit_name in \\", 0, capture_at)
-    captured_units = deploy_workflow[
-        capture_loop_at:deploy_workflow.index(
-            "sampling_state_captured=true", capture_at
-        )
-    ]
-    for unit_variable in (
-        "baseline_service",
-        "sample_service",
-        "verify_service",
-        "sample_timer",
-    ):
-        assert f'"${{{unit_variable}}}"' in restored_units
-        assert f'"${{{unit_variable}}}"' in captured_units
-
-
-def test_production_sampler_unit_rollback_permissions_are_preflighted():
-    deploy_workflow = (
-        ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
-    ).read_text(encoding="utf-8")
-    preflight = deploy_workflow[
-        deploy_workflow.index("Preflighting non-interactive"):
-        deploy_workflow.index("Required sudo permissions are available")
-    ]
-
-    assert (
-        'require_sudo_permission /usr/bin/install -m 0644 \\\n'
-        '              "${unit_backup_stage}/${unit_name}" "/etc/systemd/system/${unit_name}"'
-        in preflight
-    )
-    assert (
-        'require_sudo_permission /usr/bin/rm -- "/etc/systemd/system/${unit_name}"'
-        in preflight
-    )
-
-
-def test_first_install_rollback_removes_candidate_timer_enablement_before_fragment():
-    deploy_workflow = (
-        ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
-    ).read_text(encoding="utf-8")
-    restore = deploy_workflow[
-        deploy_workflow.index("restore_sampling_state()"):
-        deploy_workflow.index("verify_terminal_timer_untouched()")
-    ]
-
-    disable_at = restore.index('systemctl disable "${sample_timer}"')
-    fragment_restore_at = restore.index("if ! restore_sampler_unit_files; then")
-    assert disable_at < fragment_restore_at
-    verify = deploy_workflow[
-        deploy_workflow.index("verify_timer_state()"):
-        deploy_workflow.index("restore_sampler_unit_files()")
-    ]
-    assert 'if unit_enabled "${timer_name}"; then' in verify
-    assert "remained enabled without its pre-deployment unit" in verify
-
-
-def test_production_quiesces_regular_sampler_immediately_before_unit_replacement():
-    deploy_workflow = (
-        ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
-    ).read_text(encoding="utf-8")
-    staging_at = deploy_workflow.index("Staging scheduler popularity sampling units...")
-    install_at = deploy_workflow.index(
-        '"${unit_stage}/${unit_name}" "/etc/systemd/system/${unit_name}"',
-        staging_at,
-    )
-    install_loop_at = deploy_workflow.rindex("for unit_name in \\", staging_at, install_at)
-    quiesce_start = deploy_workflow.rindex(
-        "regular_sampler_quiesced=true", staging_at, install_loop_at
-    )
-    quiesce = deploy_workflow[quiesce_start:install_at]
-
-    assert quiesce.index("regular_sampler_quiesced=true") < quiesce.index(
-        'systemctl stop "${sample_timer}"'
-    )
-    assert 'systemctl stop "${sample_timer}"' in quiesce
-    assert 'systemctl stop "${sample_service}"' in quiesce
-    assert 'assert_unit_inactive "${sample_timer}"' in quiesce
-    assert 'assert_unit_inactive "${sample_service}"' in quiesce
-    assert "regular_sampler_quiesced=true" in quiesce
-    restore = deploy_workflow[
-        deploy_workflow.index("restore_sampling_state()"):
-        deploy_workflow.index("verify_terminal_timer_untouched()")
-    ]
-    assert 'elif [[ "${regular_sampler_quiesced}" == "true" ]]' in restore
-    rearm_at = restore.index('systemctl start "${sample_timer}"')
-    assert restore.rindex(
-        'if [[ "${sampler_fragments_restored}" == "true" ]]', 0, rearm_at
-    ) < rearm_at
+    status = deploy_workflow.index('--mode status)"')
+    baseline = deploy_workflow.index('--mode baseline)"')
+    fresh = deploy_workflow.index('--mode verify-freshness')
+    ended = deploy_workflow.index('--mode verify-terminal')
+    refuse = deploy_workflow.index("never re-baselining existing history")
+    assert status < baseline < fresh < ended < refuse
+    assert '[[ "${sampling_state}" == "not_started" ]]' in deploy_workflow
+    assert 'elif [[ "${sampling_state}" == "fresh" ]]' in deploy_workflow
+    assert 'elif [[ "${sampling_state}" == "ended_complete" ]]' in deploy_workflow
 
 
 def test_production_protected_window_exceeds_remote_command_timeout_margin():
@@ -761,47 +694,35 @@ def test_popularity_sampler_disables_app_startup_side_effects_before_import():
     assert sampler.index('os.environ["AUTO_INIT_ON_STARTUP"] = "false"') < app_import
     assert sampler.index('os.environ["PYTHONDONTWRITEBYTECODE"] = "1"') < app_import
 
-    for service_name in (
-        "unikorn-scheduler-popularity-baseline.service.in",
-        "unikorn-scheduler-popularity-sample.service.in",
-        "unikorn-scheduler-popularity-final.service.in",
-        "unikorn-scheduler-popularity-verify.service.in",
-    ):
-        service = (ROOT / "deploy" / "systemd" / service_name).read_text(encoding="utf-8")
-        assert "Environment=ENABLE_BACKGROUND_TASKS=false" in service
-        assert "Environment=AUTO_INIT_ON_STARTUP=false" in service
-        assert "Environment=PYTHONDONTWRITEBYTECODE=1" in service
-        assert "WorkingDirectory=__SAMPLER_DIR__" in service
-        assert "EnvironmentFile=-__APP_ENV_FILE__" in service
-        assert "ExecStart=__PYTHON__ __SAMPLER_DIR__/scripts/sample_scheduler_popularity.py" in service
-        assert "--expected-database prod_unikorn" in service
-        assert "TimeoutStartSec=" in service
+    launcher = (ROOT / "scripts" / "run_scheduler_popularity_cron.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"AUTO_INIT_ON_STARTUP": "false"' in launcher
+    assert '"ENABLE_BACKGROUND_TASKS": "false"' in launcher
+    assert '"PYTHONDONTWRITEBYTECODE": "1"' in launcher
+    assert '"PYTHONNOUSERSITE": "1"' in launcher
+    assert 'EXPECTED_DATABASE = "prod_unikorn"' in launcher
 
 
 def test_terminal_sampler_is_bounded_retried_and_exactly_verified():
-    final_service = (
-        ROOT / "deploy" / "systemd" / "unikorn-scheduler-popularity-final.service.in"
-    ).read_text(encoding="utf-8")
-
-    assert "--terminal --terminal-tolerance-seconds 120 --lock-wait-seconds 5" in final_service
-    assert "--verify-terminal" in final_service
-    assert "Restart=on-failure" in final_service
-    assert "RestartSec=5s" in final_service
-    assert "TimeoutStartSec=45s" in final_service
-    assert "--at" not in final_service
+    launcher = (ROOT / "scripts" / "run_scheduler_popularity_cron.py").read_text(
+        encoding="utf-8"
+    )
+    assert "TERMINAL_LAUNCH_TOLERANCE_SECONDS = 55" in launcher
+    assert '"--terminal"' in launcher
+    assert '"--commit-deadline"' in launcher
+    assert '"--lock-wait-seconds",\n            "0"' in launcher
+    assert 'command.append("--verify-terminal")' in launcher
 
 
 def test_redeploy_baseline_does_not_block_regular_freshness_recovery():
-    baseline_service = (
-        ROOT / "deploy" / "systemd" / "unikorn-scheduler-popularity-baseline.service.in"
+    deploy_workflow = (
+        ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
     ).read_text(encoding="utf-8")
-    sample_service = (
-        ROOT / "deploy" / "systemd" / "unikorn-scheduler-popularity-sample.service.in"
-    ).read_text(encoding="utf-8")
-
-    assert "--baseline" in baseline_service
-    assert "--verify-freshness-seconds" not in baseline_service
-    assert "--verify-freshness-seconds 600" in sample_service
+    assert 'if [[ "${sampling_state}" == "not_started" ]]' in deploy_workflow
+    assert 'elif [[ "${sampling_state}" == "fresh" ]]' in deploy_workflow
+    assert "Taking the one permitted deployment baseline" in deploy_workflow
+    assert "never re-baselining existing history" in deploy_workflow
 
 
 def test_dispatch_workflows_do_not_bypass_the_allowlisted_operation_runner():

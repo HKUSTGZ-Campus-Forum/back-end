@@ -35,17 +35,6 @@ jobs:
           printf 'sha256=%s\n' "$sha256" >> "$GITHUB_OUTPUT"
           printf 'payload=%s\n' "$payload" >> "$GITHUB_OUTPUT"
 
-      - name: Report production host public-key fingerprints
-        env:
-          PROD_SSH_HOST: ${{ secrets.PROD_SSH_HOST }}
-        run: |
-          set -Eeuo pipefail
-          keys="$(mktemp)"
-          trap 'rm -f "$keys"' EXIT
-          ssh-keyscan -T 10 -t rsa,ecdsa,ed25519 -- "$PROD_SSH_HOST" 2>/dev/null > "$keys"
-          test -s "$keys"
-          ssh-keygen -lf "$keys" -E sha256 | sed -E 's/ [^ ]+ \((RSA|ECDSA|ED25519)\)$/ (\1)/'
-
       - name: Audit exact production storage hierarchy
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
