@@ -51,6 +51,19 @@ DEV_ALLOWLIST = (
 PRODUCTION_ALLOWLIST = (
     "migrations/versions/000000000000_create_oauth_tables.py",
 )
+PRODUCTION_CANONICAL_COLLISION = {
+    "repository_sha": "840a1899af3db3311cc7e573258bc95b318ec8de",
+    "legacy_path": PRODUCTION_ALLOWLIST[0],
+    "legacy_revision": "create_oauth_tables",
+    "legacy_down_revision": "3fc3cff37648",
+    "legacy_sha256": "2025097e2c9b0025c4f7c4736268b04866700508a10991e127549eb49cfee3bd",
+    "canonical_path": "migrations/versions/create_oauth_tables.py",
+    "canonical_sha256": "ab29966853612c5bb4ba93e7fcf90b10e88cf526b1ff053ea3ee5b869c847e7e",
+    "merge_path": "migrations/versions/3fc3cff37648_merge_oauth_into_main.py",
+    "merge_sha256": "40ffeae4a8f52e3f7b4520eb4e1f6f102d20db30c0837828f46e6cdd5e2a8aaa",
+    "committed_heads": ["20260812_pop_history", "20260813_feedback_schema"],
+    "live_current_revisions": ["20260807_sched_popularity", "5202003d1ec0"],
+}
 TARGETS = {
     "dev": {
         "app_dir": Path("/data/dev_unikorn/back-end"),
@@ -470,6 +483,64 @@ def aggregate_digest(context: dict[str, Any]) -> str:
         sort_keys=True,
     ).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
+
+
+def _git_blob_sha256(repo: Path, path: str) -> str:
+    """Hash one exact committed blob without reading from the dirty checkout."""
+
+    result = subprocess.run(
+        ["git", "-C", str(repo), "show", f"HEAD:{path}"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode:
+        raise ReconciliationBlocked(f"cannot read committed migration blob: {path}")
+    return hashlib.sha256(result.stdout).hexdigest()
+
+
+def _production_canonical_collision_is_reviewed(
+    repo: Path, context: dict[str, Any]
+) -> bool:
+    """Recognize only the audited production OAuth stub/canonical collision.
+
+    The untracked stub incorrectly declares ``create_oauth_tables`` as a child
+    of the merge that already consumes the canonical revision.  Quarantining
+    it restores the committed Alembic graph; it must never broaden the generic
+    duplicate/reference exceptions used for dev or future files.
+    """
+
+    if TARGET_NAME != "production":
+        return False
+    expected = PRODUCTION_CANONICAL_COLLISION
+    if (
+        context["repository_sha"] != expected["repository_sha"]
+        or ALLOWLIST != (expected["legacy_path"],)
+        or len(context["files"]) != 1
+        or context["files"][0]["path"] != expected["legacy_path"]
+        or context["files"][0]["revision"] != expected["legacy_revision"]
+        or context["files"][0]["down_revision"] != expected["legacy_down_revision"]
+        or context["files"][0]["sha256"] != expected["legacy_sha256"]
+        or context["committed_allowlisted_revision_duplicates"]
+        != [expected["legacy_revision"]]
+        or context["committed_allowlisted_revision_references"]
+        != [expected["legacy_revision"]]
+        or context["committed_heads"] != expected["committed_heads"]
+        or context["live_current_revisions"]
+        != expected["live_current_revisions"]
+        or context["live_current_allowlisted_revisions"]
+        or context["live_current_unknown_revisions"]
+    ):
+        return False
+    try:
+        return (
+            _git_blob_sha256(repo, expected["canonical_path"])
+            == expected["canonical_sha256"]
+            and _git_blob_sha256(repo, expected["merge_path"])
+            == expected["merge_sha256"]
+        )
+    except ReconciliationBlocked:
+        return False
 
 
 def _optional_literal_assignment(tree: ast.Module, name: str, filename: str) -> Any:
@@ -1156,7 +1227,13 @@ def apply(
     before = audit(repo)
     if before["aggregate_sha256"] != expected_digest:
         raise ReconciliationBlocked("current aggregate digest does not match the reviewed audit")
-    if before["committed_allowlisted_revision_duplicates"]:
+    reviewed_production_collision = _production_canonical_collision_is_reviewed(
+        repo, before
+    )
+    if (
+        before["committed_allowlisted_revision_duplicates"]
+        and not reviewed_production_collision
+    ):
         raise ReconciliationBlocked(
             "an allowlisted file duplicates a committed migration revision"
         )
@@ -1164,7 +1241,10 @@ def apply(
         raise ReconciliationBlocked(
             f"live {TARGET_NAME} database still identifies an allowlisted migration as current"
         )
-    if before["committed_allowlisted_revision_referenced"]:
+    if (
+        before["committed_allowlisted_revision_referenced"]
+        and not reviewed_production_collision
+    ):
         raise ReconciliationBlocked(
             "committed migration graph still references an allowlisted revision"
         )
