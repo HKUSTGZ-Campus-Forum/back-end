@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 import pytest
 
@@ -18,6 +19,7 @@ class SocketConfig:
 
 
 def test_backup_uses_argv_and_environment_without_logging_credentials(monkeypatch, tmp_path):
+    tmp_path.chmod(0o750)
     calls = []
 
     def fake_run(argv, **kwargs):
@@ -40,6 +42,10 @@ def test_backup_uses_argv_and_environment_without_logging_credentials(monkeypatc
     assert result["database"] == "test_db"
     assert result["size"] == len(b"PGDMP test archive")
     assert destination.read_bytes() == b"PGDMP test archive"
+    assert destination.stat().st_nlink == 1
+    assert result["device"] == destination.stat().st_dev
+    assert result["inode"] == destination.stat().st_ino
+    assert result["mtime_ns"] == destination.stat().st_mtime_ns
     assert calls[0][0][0:4] == [
         "pg_dump",
         "--format=custom",
@@ -54,6 +60,7 @@ def test_backup_uses_argv_and_environment_without_logging_credentials(monkeypatc
 
 
 def test_backup_refuses_wrong_database_before_running_commands(monkeypatch, tmp_path):
+    tmp_path.chmod(0o750)
     monkeypatch.setattr(
         backup.subprocess,
         "run",
@@ -69,6 +76,7 @@ def test_backup_refuses_wrong_database_before_running_commands(monkeypatch, tmp_
 
 
 def test_backup_refuses_to_overwrite_existing_archive(tmp_path):
+    tmp_path.chmod(0o750)
     destination = tmp_path / "backup.dump"
     destination.write_bytes(b"existing")
 
@@ -80,7 +88,61 @@ def test_backup_refuses_to_overwrite_existing_archive(tmp_path):
         )
 
 
+def test_backup_refuses_unsafe_parent_metadata(tmp_path):
+    tmp_path.chmod(0o755)
+    with pytest.raises(backup.BackupError, match="parent has unsafe metadata"):
+        backup.create_verified_backup(
+            tmp_path / "backup.dump",
+            expected_database="test_db",
+            config_class=TestConfig,
+        )
+
+
+def test_backup_refuses_symlinked_parent(tmp_path):
+    real_parent = tmp_path / "real"
+    real_parent.mkdir(mode=0o750)
+    linked_parent = tmp_path / "linked"
+    linked_parent.symlink_to(real_parent, target_is_directory=True)
+
+    with pytest.raises(backup.BackupError, match="existing real directory"):
+        backup.create_verified_backup(
+            linked_parent / "backup.dump",
+            expected_database="test_db",
+            config_class=TestConfig,
+        )
+
+
+def test_backup_fsyncs_archive_and_parent_directory(monkeypatch, tmp_path):
+    tmp_path.chmod(0o750)
+    fsynced_modes = []
+    real_fsync = os.fsync
+
+    def recording_fsync(descriptor):
+        fsynced_modes.append(os.fstat(descriptor).st_mode)
+        real_fsync(descriptor)
+
+    def fake_run(argv, **_kwargs):
+        if argv[0] == "pg_dump":
+            output = Path(
+                next(item.split("=", 1)[1] for item in argv if item.startswith("--file="))
+            )
+            output.write_bytes(b"PGDMP durable archive")
+
+    monkeypatch.setattr(backup.os, "fsync", recording_fsync)
+    monkeypatch.setattr(backup.subprocess, "run", fake_run)
+
+    backup.create_verified_backup(
+        tmp_path / "durable.dump",
+        expected_database="test_db",
+        config_class=TestConfig,
+    )
+
+    assert any(backup.stat.S_ISREG(mode) for mode in fsynced_modes)
+    assert any(backup.stat.S_ISDIR(mode) for mode in fsynced_modes)
+
+
 def test_backup_does_not_inherit_conflicting_libpq_connection_settings(monkeypatch, tmp_path):
+    tmp_path.chmod(0o750)
     captured_environments = []
 
     def fake_run(argv, **kwargs):

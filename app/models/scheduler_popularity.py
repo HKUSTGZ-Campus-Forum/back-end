@@ -82,9 +82,11 @@ class SchedulerPopularityEvent(db.Model):
 class SchedulerPopularitySnapshotRun(db.Model):
     """A successfully completed popularity sample.
 
-    Facts are intentionally sparse: if a completed run has no fact for an
-    entity, that entity had zero contributors.  If the run itself is absent,
-    the sample is missing and consumers must render a gap instead of a zero.
+    ``bucket_at`` is the scheduled slot while ``observed_at`` is when the
+    database state was actually observed.  Facts are intentionally sparse,
+    but an absent fact means zero only because every run records the exact
+    immutable course/section/meeting universe it covered.  If the run itself
+    is absent, the sample is missing and consumers must render a gap.
     """
 
     __tablename__ = "scheduler_popularity_snapshot_runs"
@@ -92,6 +94,11 @@ class SchedulerPopularitySnapshotRun(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     semester_id = db.Column(db.String(16), nullable=False)
     bucket_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    observed_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    universe_sha256 = db.Column(db.String(64), nullable=False)
+    universe_course_count = db.Column(db.Integer, nullable=False)
+    universe_section_count = db.Column(db.Integer, nullable=False)
+    universe_meeting_count = db.Column(db.Integer, nullable=False)
     completed_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
 
     __table_args__ = (
@@ -104,6 +111,15 @@ class SchedulerPopularitySnapshotRun(db.Model):
             "idx_scheduler_popularity_snapshot_runs_semester_bucket",
             "semester_id",
             "bucket_at",
+        ),
+        db.CheckConstraint(
+            "length(universe_sha256) = 64",
+            name="valid_scheduler_popularity_universe_sha256",
+        ),
+        db.CheckConstraint(
+            "universe_course_count >= 0 AND universe_section_count >= 0 "
+            "AND universe_meeting_count >= 0",
+            name="valid_scheduler_popularity_universe_counts",
         ),
     )
 

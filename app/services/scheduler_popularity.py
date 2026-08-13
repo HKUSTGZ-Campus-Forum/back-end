@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
+import json
 from math import ceil
 import time
-from typing import Iterable
+from typing import Iterable, NamedTuple
 
-from sqlalchemy import and_, func, or_, text
+from sqlalchemy import Integer, and_, cast, func, or_, text
 
 from app.extensions import db
 from app.models.course import Course
 from app.models.course_domain import (
     CourseOffering,
+    CourseMeeting,
     CourseSection,
     UserOfferingCart,
     UserSectionSelection,
@@ -33,11 +36,38 @@ from app.services.institutional_email import (
 POPULARITY_STATES = {"looking", "scheduling"}
 POPULARITY_HISTORY_SEMESTER = "2610"
 POPULARITY_HISTORY_INTERVAL_SECONDS = 300
+POPULARITY_HISTORY_START_AT = datetime(2026, 7, 31, 16, 0, tzinfo=timezone.utc)
 POPULARITY_HISTORY_END_AT = datetime(2026, 9, 30, 15, 59, tzinfo=timezone.utc)
 POPULARITY_HISTORY_MAX_POINTS = 1000
 POPULARITY_HISTORY_MAX_RANGE_SECONDS = 62 * 24 * 60 * 60
+POPULARITY_HISTORY_FRESH_AFTER_SECONDS = 2 * POPULARITY_HISTORY_INTERVAL_SECONDS
+POPULARITY_HISTORY_EXPECTED_COURSE_COUNT = 383
+POPULARITY_HISTORY_EXPECTED_SECTION_COUNT = 801
+POPULARITY_HISTORY_EXPECTED_MEETING_COUNT = 820
+# Derived from the canonical identifiers and meeting fields in the reviewed
+# ``app/data/pending/scheduler_offerings/26-27fall.json`` package.  This is not
+# merely a file hash: the same deterministic digest is recomputed from the
+# database before every sample, so a swapped entity fails even if totals match.
+POPULARITY_HISTORY_EXPECTED_UNIVERSE_SHA256 = (
+    "16e8154a923197ef8a7f679c1f91a9ea5c71a4e6cdd479939b76d529acea2aa8"
+)
 _POPULARITY_HISTORY_ADVISORY_LOCK = 261030005
 _POPULARITY_HISTORY_LOCK_RETRY_SECONDS = 1.0
+
+
+class PopularityHistoryUniverse(NamedTuple):
+    sha256: str
+    course_count: int
+    section_count: int
+    meeting_count: int
+
+
+POPULARITY_HISTORY_EXPECTED_UNIVERSE = PopularityHistoryUniverse(
+    POPULARITY_HISTORY_EXPECTED_UNIVERSE_SHA256,
+    POPULARITY_HISTORY_EXPECTED_COURSE_COUNT,
+    POPULARITY_HISTORY_EXPECTED_SECTION_COUNT,
+    POPULARITY_HISTORY_EXPECTED_MEETING_COUNT,
+)
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -57,6 +87,110 @@ def popularity_history_bucket(now: datetime) -> datetime:
     instant = _as_utc(now)
     minute = instant.minute - instant.minute % 5
     return instant.replace(minute=minute, second=0, microsecond=0)
+
+
+def _popularity_history_universe(
+    semester_id: str,
+) -> tuple[PopularityHistoryUniverse, list[tuple[CourseOffering, Course]]]:
+    """Return the deterministic offered universe and the rows used to sample it."""
+    offerings = (
+        db.session.query(CourseOffering, Course)
+        .join(Course, Course.id == CourseOffering.course_id)
+        .filter(
+            CourseOffering.semester_id == semester_id,
+            CourseOffering.status == "offered",
+            Course.is_deleted.is_(False),
+        )
+        .order_by(CourseOffering.id)
+        .all()
+    )
+    offering_ids = [offering.id for offering, _course in offerings]
+    course_identifiers: list[list[str]] = []
+    normalized_by_offering: dict[int, str] = {}
+    for offering, course in offerings:
+        code = normalize_course_code(course.code)
+        if not code:
+            raise RuntimeError(f"offering {offering.id} has no canonical course code")
+        if code in normalized_by_offering.values():
+            raise RuntimeError(f"reviewed semester contains duplicate offered course {code}")
+        normalized_by_offering[offering.id] = code
+        course_identifiers.append([code])
+
+    sections = (
+        CourseSection.query
+        .filter(CourseSection.offering_id.in_(offering_ids))
+        .order_by(CourseSection.offering_id, CourseSection.source_section_id)
+        .all()
+        if offering_ids else []
+    )
+    section_identifiers: list[list[str]] = []
+    section_scope_by_id: dict[int, tuple[str, str]] = {}
+    for section in sections:
+        code = normalized_by_offering[section.offering_id]
+        source_section_id = str(section.source_section_id or "").strip()
+        if not source_section_id:
+            raise RuntimeError(f"section {section.id} has no canonical source identifier")
+        section_scope_by_id[section.id] = (code, source_section_id)
+        section_identifiers.append([code, source_section_id])
+
+    section_ids = list(section_scope_by_id)
+    meetings = (
+        CourseMeeting.query
+        .filter(CourseMeeting.section_id.in_(section_ids))
+        .order_by(
+            CourseMeeting.section_id,
+            CourseMeeting.day,
+            CourseMeeting.start_time,
+            CourseMeeting.end_time,
+            CourseMeeting.room,
+            CourseMeeting.instructor_text,
+        )
+        .all()
+        if section_ids else []
+    )
+    meeting_identifiers = [
+        [
+            *section_scope_by_id[meeting.section_id],
+            int(meeting.day),
+            int(meeting.start_time),
+            int(meeting.end_time),
+            str(meeting.room),
+            str(meeting.instructor_text),
+        ]
+        for meeting in meetings
+    ]
+    canonical_payload = {
+        "semester_id": semester_id,
+        "courses": sorted(course_identifiers),
+        "sections": sorted(section_identifiers),
+        "meetings": sorted(meeting_identifiers),
+    }
+    digest = hashlib.sha256(json.dumps(
+        canonical_payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")).hexdigest()
+    return PopularityHistoryUniverse(
+        digest,
+        len(course_identifiers),
+        len(section_identifiers),
+        len(meeting_identifiers),
+    ), offerings
+
+
+def _assert_popularity_history_universe(
+    actual: PopularityHistoryUniverse,
+    expected: PopularityHistoryUniverse,
+) -> None:
+    if actual != expected:
+        raise RuntimeError(
+            "popularity sampler refused an unreviewed semester universe: "
+            f"expected sha256/counts={expected.sha256}/"
+            f"{expected.course_count}/{expected.section_count}/{expected.meeting_count}, "
+            f"observed sha256/counts={actual.sha256}/"
+            f"{actual.course_count}/{actual.section_count}/{actual.meeting_count}"
+        )
 
 
 def is_eligible_popularity_user(user: User | None) -> bool:
@@ -273,12 +407,15 @@ def collect_popularity_history_sample(
     lock_wait_seconds: float = 0,
     commit_deadline: datetime | None = None,
     statement_timeout_seconds: int = 180,
+    expected_universe: PopularityHistoryUniverse = POPULARITY_HISTORY_EXPECTED_UNIVERSE,
+    _observed_at: datetime | None = None,
 ) -> dict:
     """Persist one anonymous, idempotent popularity sample.
 
-    Only positive facts are stored.  The completed run row is the authoritative
-    record that sampling succeeded, so its absence means a gap while an absent
-    fact in an existing run means zero.
+    Only positive facts are stored.  The completed run row, including its exact
+    reviewed universe digest, is the authoritative record that sampling
+    succeeded.  ``expected_universe`` exists for explicit isolated tests; all
+    production callers use the reviewed 2610 constant.
     """
     if semester_id != POPULARITY_HISTORY_SEMESTER:
         raise ValueError(f"Popularity history is only enabled for semester {POPULARITY_HISTORY_SEMESTER}")
@@ -290,6 +427,8 @@ def collect_popularity_history_sample(
         commit_deadline = _as_utc(commit_deadline)
 
     requested_at = _as_utc(sampled_at or datetime.now(timezone.utc))
+    if requested_at < POPULARITY_HISTORY_START_AT:
+        raise ValueError("sample timestamp is before the popularity tracking campaign")
     if requested_at > POPULARITY_HISTORY_END_AT:
         return {
             "status": "after_cutoff",
@@ -344,6 +483,17 @@ def collect_popularity_history_sample(
             if commit_deadline is not None and datetime.now(timezone.utc) > commit_deadline:
                 raise ValueError("sample execution passed its permitted cutoff window")
 
+            if _observed_at is not None:
+                observed_at = _as_utc(_observed_at)
+            elif db.engine.dialect.name == "postgresql":
+                observed_at = _as_utc(db.session.execute(
+                    text("SELECT CURRENT_TIMESTAMP")
+                ).scalar_one())
+            else:
+                observed_at = datetime.now(timezone.utc)
+            universe, offerings = _popularity_history_universe(semester_id)
+            _assert_popularity_history_universe(universe, expected_universe)
+
             existing = SchedulerPopularitySnapshotRun.query.filter_by(
                 semester_id=semester_id,
                 bucket_at=bucket_at,
@@ -354,12 +504,24 @@ def collect_popularity_history_sample(
                 .order_by(SchedulerPopularitySnapshotRun.bucket_at)
                 .first()
             )
+            if first_run is not None:
+                first_universe = PopularityHistoryUniverse(
+                    first_run.universe_sha256,
+                    first_run.universe_course_count,
+                    first_run.universe_section_count,
+                    first_run.universe_meeting_count,
+                )
+                if first_universe != universe:
+                    raise RuntimeError(
+                        "popularity sampler universe changed after tracking started"
+                    )
             if baseline:
                 if first_run is not None:
                     return {
                         "status": "tracking_already_started",
                         "semester_id": semester_id,
                         "bucket_at": _iso_utc(first_run.bucket_at),
+                        "observed_at": _iso_utc(first_run.observed_at),
                         "course_facts": len(first_run.course_snapshots),
                         "section_facts": len(first_run.section_snapshots),
                     }
@@ -372,6 +534,7 @@ def collect_popularity_history_sample(
                     "status": "covered_by_baseline",
                     "semester_id": semester_id,
                     "bucket_at": _iso_utc(first_run.bucket_at),
+                    "observed_at": _iso_utc(first_run.observed_at),
                     "course_facts": len(first_run.course_snapshots),
                     "section_facts": len(first_run.section_snapshots),
                 }
@@ -380,21 +543,11 @@ def collect_popularity_history_sample(
                     "status": "already_completed",
                     "semester_id": semester_id,
                     "bucket_at": _iso_utc(bucket_at),
+                    "observed_at": _iso_utc(existing.observed_at),
                     "course_facts": len(existing.course_snapshots),
                     "section_facts": len(existing.section_snapshots),
                 }
 
-            offerings = (
-                db.session.query(CourseOffering, Course)
-                .join(Course, Course.id == CourseOffering.course_id)
-                .filter(
-                    CourseOffering.semester_id == semester_id,
-                    CourseOffering.status == "offered",
-                    Course.is_deleted.is_(False),
-                )
-                .order_by(CourseOffering.id)
-                .all()
-            )
             offering_ids = [offering.id for offering, _ in offerings]
             canonical_ids = _canonical_contributor_ids(offering_ids)
 
@@ -449,6 +602,11 @@ def collect_popularity_history_sample(
             run = SchedulerPopularitySnapshotRun(
                 semester_id=semester_id,
                 bucket_at=bucket_at,
+                observed_at=observed_at,
+                universe_sha256=universe.sha256,
+                universe_course_count=universe.course_count,
+                universe_section_count=universe.section_count,
+                universe_meeting_count=universe.meeting_count,
                 completed_at=datetime.now(timezone.utc),
             )
             db.session.add(run)
@@ -501,6 +659,7 @@ def collect_popularity_history_sample(
             "status": "completed",
             "semester_id": semester_id,
             "bucket_at": _iso_utc(bucket_at),
+            "observed_at": _iso_utc(observed_at),
             "course_facts": course_fact_count,
             "section_facts": section_fact_count,
         }
@@ -512,25 +671,35 @@ def collect_popularity_history_sample(
 def collect_terminal_popularity_history_sample(
     *,
     now: datetime | None = None,
-    tolerance_seconds: int = 120,
-    lock_wait_seconds: float = 110,
+    lock_wait_seconds: float = 0,
+    expected_universe: PopularityHistoryUniverse = POPULARITY_HISTORY_EXPECTED_UNIVERSE,
 ) -> dict:
-    """Capture the exact cutoff bucket only during its narrow execution window."""
-    if tolerance_seconds < 0:
-        raise ValueError("terminal tolerance must be non-negative")
+    """Attempt the cutoff once without backdating a later observation.
+
+    The one-shot timer may begin shortly after its scheduled wall-clock slot.
+    That actual time is persisted separately as ``observed_at``; it is never
+    represented as if the state had been observed at the cutoff. A miss outside
+    this launch window remains a visible terminal gap.
+    """
+    if lock_wait_seconds != 0:
+        raise ValueError("terminal lock wait must be zero to prevent backdating")
     actual_now = _as_utc(now or datetime.now(timezone.utc))
     if actual_now < POPULARITY_HISTORY_END_AT:
         raise ValueError("terminal sample cannot run before the tracking cutoff")
-    latest_allowed = POPULARITY_HISTORY_END_AT + timedelta(seconds=tolerance_seconds)
+    latest_allowed = POPULARITY_HISTORY_END_AT + timedelta(seconds=55)
     if actual_now > latest_allowed:
         raise ValueError("terminal sample execution is outside the allowed cutoff window")
 
     result = collect_popularity_history_sample(
         semester_id=POPULARITY_HISTORY_SEMESTER,
         sampled_at=POPULARITY_HISTORY_END_AT,
-        lock_wait_seconds=lock_wait_seconds,
+        lock_wait_seconds=0,
+        # The state is observed at transaction start, but the transaction must
+        # also commit inside the same narrow 23:59 wall-clock window. If it
+        # crosses that boundary, roll back and expose an honest terminal gap.
         commit_deadline=latest_allowed,
         statement_timeout_seconds=30,
+        expected_universe=expected_universe,
     )
     if result["status"] not in {"completed", "already_completed"}:
         return result
@@ -561,20 +730,134 @@ def popularity_history_sampling_status(
         .first()
     )
     latest_at = _as_utc(latest.bucket_at) if latest is not None else None
+    latest_observed_at = _as_utc(latest.observed_at) if latest is not None else None
+    terminal_present = popularity_history_terminal_sample_exists()
+    if latest is None:
+        sampling_state = "not_started"
+    elif checked_at > POPULARITY_HISTORY_END_AT:
+        sampling_state = "ended_complete" if terminal_present else "ended_incomplete"
+    elif latest_at is not None and (
+        checked_at - latest_at
+    ).total_seconds() <= POPULARITY_HISTORY_FRESH_AFTER_SECONDS:
+        sampling_state = "fresh"
+    else:
+        sampling_state = "stale"
     return {
         "semester_id": semester_id,
         "checked_at": _iso_utc(checked_at),
         "latest_bucket_at": _iso_utc(latest_at),
+        "latest_observed_at": _iso_utc(latest_observed_at),
         "age_seconds": max(0, int((freshness_target - latest_at).total_seconds())) if latest_at else None,
+        "sampling_state": sampling_state,
+        "terminal_present": terminal_present,
     }
 
 
 def _history_effective_interval(from_at: datetime, to_at: datetime) -> int:
     raw_points = max(1, int((to_at - from_at).total_seconds() // POPULARITY_HISTORY_INTERVAL_SECONDS) + 1)
     if raw_points <= POPULARITY_HISTORY_MAX_POINTS:
-        return POPULARITY_HISTORY_INTERVAL_SECONDS
-    multiplier = ceil(raw_points / POPULARITY_HISTORY_MAX_POINTS)
-    return multiplier * POPULARITY_HISTORY_INTERVAL_SECONDS
+        multiplier = 1
+    else:
+        multiplier = ceil(raw_points / POPULARITY_HISTORY_MAX_POINTS)
+
+    # Resolution buckets are aligned to the Unix epoch, not to ``from_at``.
+    # An unaligned range can therefore intersect one more bucket than a simple
+    # duration calculation predicts. Increase the source-interval multiplier
+    # until the aligned cardinality itself satisfies the public hard limit.
+    while True:
+        effective_interval = multiplier * POPULARITY_HISTORY_INTERVAL_SECONDS
+        first_bucket = int(from_at.timestamp()) // effective_interval
+        last_bucket = int(to_at.timestamp()) // effective_interval
+        if last_bucket - first_bucket + 1 <= POPULARITY_HISTORY_MAX_POINTS:
+            return effective_interval
+        multiplier += 1
+
+
+def _history_response_metadata(
+    *,
+    semester_id: str,
+    requested_coverage_end: datetime,
+    generated_at: datetime,
+) -> dict:
+    status = popularity_history_sampling_status(
+        semester_id=semester_id,
+        now=generated_at,
+    )
+    return {
+        "latest_scheduled_sample_at": status["latest_bucket_at"],
+        "latest_observed_sample_at": status["latest_observed_at"],
+        "requested_coverage_end_at": _iso_utc(requested_coverage_end),
+        "sampling_state": status["sampling_state"],
+        "terminal_present": status["terminal_present"],
+    }
+
+
+def _history_coverage_buckets(
+    *,
+    from_at: datetime,
+    to_at: datetime,
+    effective_interval: int,
+    observed_counts: dict[int, int],
+    tracking_started_at: datetime | None,
+) -> list[dict]:
+    """Describe expected/observed source samples for each returned resolution bucket."""
+    if from_at > to_at:
+        return []
+    first_number = int(from_at.timestamp()) // effective_interval
+    last_number = int(to_at.timestamp()) // effective_interval
+    coverage = []
+    for bucket_number in range(first_number, last_number + 1):
+        bucket_start = datetime.fromtimestamp(
+            bucket_number * effective_interval,
+            tz=timezone.utc,
+        )
+        intersection_start = max(from_at, bucket_start)
+        intersection_end = min(to_at, bucket_start + timedelta(seconds=effective_interval - 1))
+        first_expected = popularity_history_bucket(intersection_start)
+        if first_expected < intersection_start:
+            first_expected += timedelta(seconds=POPULARITY_HISTORY_INTERVAL_SECONDS)
+        expected = 0
+        if first_expected <= intersection_end:
+            expected = int(
+                (intersection_end - first_expected).total_seconds()
+                // POPULARITY_HISTORY_INTERVAL_SECONDS
+            ) + 1
+        if (
+            tracking_started_at is not None
+            and tracking_started_at != POPULARITY_HISTORY_END_AT
+            and tracking_started_at != popularity_history_bucket(tracking_started_at)
+            and intersection_start <= tracking_started_at <= intersection_end
+        ):
+            # Tracking begins with one truthful deployment baseline, which may
+            # fall between regular five-minute source slots. It is additional
+            # to those slots and cannot compensate for one that is missing.
+            expected += 1
+        if POPULARITY_HISTORY_END_AT >= intersection_start and POPULARITY_HISTORY_END_AT <= intersection_end:
+            # The fixed 23:59 terminal slot is additional to normal :00/:05 slots.
+            if POPULARITY_HISTORY_END_AT != popularity_history_bucket(POPULARITY_HISTORY_END_AT):
+                expected += 1
+        observed = observed_counts.get(bucket_number, 0)
+        coverage.append({
+            "bucket_at": _iso_utc(bucket_start),
+            "expected_samples": expected,
+            "observed_samples": observed,
+            "partial": observed < expected,
+        })
+    if len(coverage) > POPULARITY_HISTORY_MAX_POINTS:
+        raise RuntimeError("history resolution exceeded the hard point limit")
+    return coverage
+
+
+def _history_resolution_bucket_expression(column, effective_interval: int):
+    """Return a portable positive-epoch bucket expression for SQL grouping."""
+    if db.engine.dialect.name == "postgresql":
+        epoch_seconds = func.extract("epoch", column)
+        return cast(func.floor(epoch_seconds / effective_interval), Integer)
+    else:
+        # Tests and local development use SQLite. All campaign timestamps are
+        # positive Unix epochs, so integer truncation is equivalent to floor.
+        epoch_seconds = cast(func.strftime("%s", column), Integer)
+        return cast(epoch_seconds / effective_interval, Integer)
 
 
 def build_popularity_history(
@@ -630,8 +913,15 @@ def build_popularity_history(
         .filter(SchedulerPopularitySnapshotRun.semester_id == semester_id)
         .scalar()
     )
+    generated_at = datetime.now(timezone.utc)
+    requested_coverage_end = min(_as_utc(to_at), POPULARITY_HISTORY_END_AT)
     from_at = _as_utc(from_at)
-    to_at = min(_as_utc(to_at), POPULARITY_HISTORY_END_AT)
+    to_at = requested_coverage_end
+    response_metadata = _history_response_metadata(
+        semester_id=semester_id,
+        requested_coverage_end=requested_coverage_end,
+        generated_at=generated_at,
+    )
     if started_at is None:
         return {
             "semester_id": semester_id,
@@ -641,27 +931,69 @@ def build_popularity_history(
             "tracking_ends_at": _iso_utc(POPULARITY_HISTORY_END_AT),
             "source_interval_seconds": POPULARITY_HISTORY_INTERVAL_SECONDS,
             "effective_interval_seconds": POPULARITY_HISTORY_INTERVAL_SECONDS,
-            "generated_at": _iso_utc(datetime.now(timezone.utc)),
+            "generated_at": _iso_utc(generated_at),
+            **response_metadata,
+            "coverage_buckets": [],
             "points": [],
         }
     from_at = max(from_at, _as_utc(started_at))
     if from_at > to_at:
         effective_interval = POPULARITY_HISTORY_INTERVAL_SECONDS
-        runs = []
+        selected_runs = []
+        observed_counts: dict[int, int] = {}
     else:
         if (to_at - from_at).total_seconds() > POPULARITY_HISTORY_MAX_RANGE_SECONDS:
             raise ValueError("history range is too large")
         effective_interval = _history_effective_interval(from_at, to_at)
-        runs = (
-            SchedulerPopularitySnapshotRun.query
+        resolution_bucket = _history_resolution_bucket_expression(
+            SchedulerPopularitySnapshotRun.bucket_at,
+            effective_interval,
+        ).label("resolution_bucket")
+        source_runs = (
+            db.session.query(
+                SchedulerPopularitySnapshotRun.id.label("run_id"),
+                SchedulerPopularitySnapshotRun.bucket_at.label("bucket_at"),
+                SchedulerPopularitySnapshotRun.observed_at.label("observed_at"),
+                resolution_bucket,
+            )
             .filter(
                 SchedulerPopularitySnapshotRun.semester_id == semester_id,
                 SchedulerPopularitySnapshotRun.bucket_at >= from_at,
                 SchedulerPopularitySnapshotRun.bucket_at <= to_at,
             )
-            .order_by(SchedulerPopularitySnapshotRun.bucket_at)
+            .subquery()
+        )
+        ranked_runs = db.session.query(
+            source_runs.c.run_id,
+            source_runs.c.bucket_at,
+            source_runs.c.observed_at,
+            source_runs.c.resolution_bucket,
+            func.count().over(
+                partition_by=source_runs.c.resolution_bucket,
+            ).label("observed_samples"),
+            func.row_number().over(
+                partition_by=source_runs.c.resolution_bucket,
+                order_by=(source_runs.c.bucket_at.desc(), source_runs.c.run_id.desc()),
+            ).label("resolution_rank"),
+        ).subquery()
+        selected_runs = (
+            db.session.query(
+                ranked_runs.c.run_id,
+                ranked_runs.c.bucket_at,
+                ranked_runs.c.observed_at,
+                ranked_runs.c.resolution_bucket,
+                ranked_runs.c.observed_samples,
+            )
+            .filter(ranked_runs.c.resolution_rank == 1)
+            .order_by(ranked_runs.c.resolution_bucket)
             .all()
         )
+        if len(selected_runs) > POPULARITY_HISTORY_MAX_POINTS:
+            raise RuntimeError("history query exceeded the hard point limit")
+        observed_counts = {
+            int(run.resolution_bucket): int(run.observed_samples)
+            for run in selected_runs
+        }
 
     if canonical_section_id is None:
         fact_model = SchedulerPopularityCourseSnapshot
@@ -675,25 +1007,18 @@ def build_popularity_history(
     facts = {
         fact.run_id: fact
         for fact in fact_model.query.filter(
-            fact_model.run_id.in_([run.id for run in runs]),
+            fact_model.run_id.in_([run.run_id for run in selected_runs]),
             *fact_filter,
         ).all()
-    } if runs else {}
+    } if selected_runs else {}
 
-    # Resolution auto uses last-value sampling in deterministic wall-clock
-    # buckets. Completed source runs remain the only source of points; empty
-    # buckets are omitted so clients can display gaps.
-    selected_runs = []
-    by_resolution_bucket: dict[int, SchedulerPopularitySnapshotRun] = {}
-    for run in runs:
-        timestamp = _as_utc(run.bucket_at)
-        bucket_number = int(timestamp.timestamp()) // effective_interval
-        by_resolution_bucket[bucket_number] = run
-    selected_runs.extend(by_resolution_bucket[key] for key in sorted(by_resolution_bucket))
-    if len(selected_runs) > POPULARITY_HISTORY_MAX_POINTS:
-        # Epoch-aligned buckets can intersect one more bucket than a duration
-        # estimate for unaligned endpoints. Preserve the newest bounded window.
-        selected_runs = selected_runs[-POPULARITY_HISTORY_MAX_POINTS:]
+    coverage_buckets = _history_coverage_buckets(
+        from_at=from_at,
+        to_at=min(to_at, generated_at),
+        effective_interval=effective_interval,
+        observed_counts=observed_counts,
+        tracking_started_at=_as_utc(started_at),
+    )
 
     return {
         "semester_id": semester_id,
@@ -703,12 +1028,15 @@ def build_popularity_history(
         "tracking_ends_at": _iso_utc(POPULARITY_HISTORY_END_AT),
         "source_interval_seconds": POPULARITY_HISTORY_INTERVAL_SECONDS,
         "effective_interval_seconds": effective_interval,
-        "generated_at": _iso_utc(datetime.now(timezone.utc)),
+        "generated_at": _iso_utc(generated_at),
+        **response_metadata,
+        "coverage_buckets": coverage_buckets,
         "points": [
             {
                 "sampled_at": _iso_utc(run.bucket_at),
-                "looking_count": facts[run.id].looking_count if run.id in facts else 0,
-                "scheduling_count": facts[run.id].scheduling_count if run.id in facts else 0,
+                "observed_at": _iso_utc(run.observed_at),
+                "looking_count": facts[run.run_id].looking_count if run.run_id in facts else 0,
+                "scheduling_count": facts[run.run_id].scheduling_count if run.run_id in facts else 0,
             }
             for run in selected_runs
         ],
