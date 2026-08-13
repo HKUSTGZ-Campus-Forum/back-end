@@ -55,6 +55,94 @@ def _normalize_rule(value: Any) -> dict:
     return normalized
 
 
+def curriculum_persisted_projection(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return the package fields owned by the curriculum synchronizer.
+
+    The projection deliberately mirrors the normalizers used by
+    ``sync_curriculum_requirements_from_payload`` and omits database identities
+    and timestamps.  Backend operations use it to verify that a reviewed
+    package's complete persisted postcondition is present before treating a
+    retry as already applied.
+    """
+    programs = payload.get("programs") if isinstance(payload.get("programs"), list) else []
+    projection: list[dict[str, Any]] = []
+
+    for item in programs:
+        if not isinstance(item, dict):
+            continue
+
+        code = _program_code(item.get("code"))
+        name_en = _clean_text(item.get("name_en"))
+        cohorts = (
+            [
+                _clean_text(cohort)
+                for cohort in item.get("cohorts", [])
+                if _clean_text(cohort)
+            ]
+            if isinstance(item.get("cohorts"), list)
+            else []
+        )
+        cohort = _clean_text(item.get("cohort"))
+        if cohort:
+            cohorts = [cohort]
+        if not code or not cohorts or not name_en:
+            continue
+
+        groups: list[dict[str, Any]] = []
+        raw_groups = (
+            item.get("requirement_groups")
+            if isinstance(item.get("requirement_groups"), list)
+            else []
+        )
+        for group_item in raw_groups:
+            if not isinstance(group_item, dict):
+                continue
+            key = _clean_text(group_item.get("key"))
+            name = _clean_text(group_item.get("name_en"))
+            category = _clean_text(group_item.get("category")) or "major"
+            if not key or not name:
+                continue
+            groups.append(
+                {
+                    "key": key,
+                    "name_en": name,
+                    "name_zh": _clean_text(group_item.get("name_zh")) or None,
+                    "category": category,
+                    "min_credits": _integer(group_item.get("min_credits")),
+                    "min_courses": _integer(group_item.get("min_courses")),
+                    "rule": _normalize_rule(group_item.get("rule")),
+                    "sort_order": _integer(group_item.get("sort_order"), 0) or 0,
+                }
+            )
+
+        groups.sort(key=lambda group: group["key"])
+        for expanded_cohort in cohorts:
+            projection.append(
+                {
+                    "code": code,
+                    "cohort": expanded_cohort,
+                    "name_en": name_en,
+                    "name_zh": _clean_text(item.get("name_zh")) or None,
+                    "total_min_credits": _integer(item.get("total_min_credits"), 120)
+                    or 120,
+                    "common_core_min_credits": _integer(
+                        item.get("common_core_min_credits"), 30
+                    )
+                    or 30,
+                    "major_min_credits": _integer(item.get("major_min_credits")),
+                    "home_areas": (
+                        item.get("home_areas")
+                        if isinstance(item.get("home_areas"), list)
+                        else []
+                    ),
+                    "is_active": bool(item.get("is_active", True)),
+                    "requirement_groups": groups,
+                }
+            )
+
+    return sorted(projection, key=lambda program: (program["code"], program["cohort"]))
+
+
 def sync_curriculum_requirements_from_payload(payload: dict[str, Any]) -> dict[str, int]:
     programs = payload.get("programs") if isinstance(payload.get("programs"), list) else []
     result = {"programs_upserted": 0, "groups_upserted": 0, "groups_removed": 0, "programs_skipped": 0}

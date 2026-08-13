@@ -21,7 +21,13 @@ oss2
 alibabacloud_green20220302==2.22.0
 alibabacloud-tea-openapi==0.4.1
 openai
-dashvector
+dashvector==1.0.23
+
+# Security floors for transitive runtime dependencies.
+aiohttp>=3.14.3,<4
+Mako>=1.3.12
+PyJWT>=2.13,<3
+urllib3>=2.7,<3
 
 APScheduler
 

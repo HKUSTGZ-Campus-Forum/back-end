@@ -15,9 +15,20 @@ from app.models.course_domain import (
     UserOfferingCart,
     UserSectionSelection,
 )
-from app.models.scheduler_popularity import SchedulerPopularityEvent
+from app.models.scheduler_popularity import (
+    SchedulerPopularityCourseSnapshot,
+    SchedulerPopularityEvent,
+    SchedulerPopularitySectionSnapshot,
+    SchedulerPopularitySnapshotRun,
+)
 from app.models.user import User
 from app.models.user_role import UserRole
+from app.services.scheduler_popularity import (
+    POPULARITY_HISTORY_END_AT,
+    collect_terminal_popularity_history_sample,
+    collect_popularity_history_sample,
+    popularity_history_sampling_status,
+)
 
 
 @compiles(JSONB, "sqlite")
@@ -295,6 +306,272 @@ def test_popularity_empty_filter_limit_and_archived_cart_scope(client, app):
         headers=viewer_headers,
     )
     assert limited.status_code == 400
+
+
+def test_history_sampler_is_sparse_idempotent_and_counts_only_canonical_users(app):
+    sampled_at = datetime(2026, 8, 12, 4, 2, tzinfo=timezone.utc)
+    with app.app_context():
+        _, offering, sections = create_offering(semester="2610")
+        looking = create_user("history_looking", "history_looking@hkust-gz.edu.cn")
+        scheduling = create_user("history_scheduling", "history_scheduling@connect.hkust-gz.edu.cn")
+        canonical = create_user(
+            "history_canonical",
+            "history_duplicate@hkust-gz.edu.cn",
+            created_at=sampled_at - timedelta(days=2),
+        )
+        duplicate = create_user("history_duplicate", " HISTORY_DUPLICATE@HKUST-GZ.EDU.CN ")
+        unverified = create_user(
+            "history_unverified",
+            "history_unverified@hkust-gz.edu.cn",
+            verified=False,
+        )
+        add_cart(looking, offering, sections, enabled=False, selected=(True, False))
+        add_cart(scheduling, offering, sections, enabled=True, selected=(True, True))
+        add_cart(canonical, offering, sections, enabled=False, selected=(True, True))
+        add_cart(duplicate, offering, sections, enabled=True, selected=(True, True))
+        add_cart(unverified, offering, sections, enabled=True, selected=(True, True))
+        db.session.commit()
+
+        created = collect_popularity_history_sample(sampled_at=sampled_at)
+        repeated = collect_popularity_history_sample(
+            sampled_at=sampled_at + timedelta(minutes=2),
+        )
+
+        assert created == {
+            "status": "completed",
+            "semester_id": "2610",
+            "bucket_at": "2026-08-12T04:00:00Z",
+            "course_facts": 1,
+            "section_facts": 2,
+        }
+        assert repeated["status"] == "already_completed"
+        assert SchedulerPopularitySnapshotRun.query.count() == 1
+        course_fact = SchedulerPopularityCourseSnapshot.query.one()
+        assert (course_fact.looking_count, course_fact.scheduling_count) == (2, 1)
+        section_facts = {
+            row.section_source_id: (row.looking_count, row.scheduling_count)
+            for row in SchedulerPopularitySectionSnapshot.query.all()
+        }
+        assert section_facts == {
+            "POP1001-L01": (2, 1),
+            "POP1001-T01": (1, 1),
+        }
+        for model in (SchedulerPopularitySnapshotRun, SchedulerPopularityCourseSnapshot,
+                      SchedulerPopularitySectionSnapshot):
+            assert "user_id" not in model.__table__.columns
+
+
+def test_history_api_is_verified_cart_scoped_anonymous_and_preserves_gaps_and_zeros(client, app):
+    with app.app_context():
+        _, offering, sections = create_offering(semester="2610")
+        viewer = create_user("history_viewer", "history_viewer@hkust-gz.edu.cn")
+        outsider = create_user("history_outsider", "history_outsider@hkust-gz.edu.cn")
+        unverified = create_user(
+            "history_unverified_viewer",
+            "history_unverified_viewer@hkust-gz.edu.cn",
+            verified=False,
+        )
+        add_cart(viewer, offering, sections, selected=(False, False))
+        runs = [
+            SchedulerPopularitySnapshotRun(
+                semester_id="2610",
+                bucket_at=datetime(2026, 8, 12, 4, minute, tzinfo=timezone.utc),
+            )
+            for minute in (0, 10)
+        ]
+        db.session.add_all(runs)
+        db.session.commit()
+        viewer_headers = headers_for(viewer)
+        outsider_headers = headers_for(outsider)
+        unverified_headers = headers_for(unverified)
+
+    query = (
+        "course_code=pop%201001&section_id=POP1001-L01"
+        "&from=2026-08-12T12:00:00%2B08:00"
+        "&to=2026-08-12T12:10:00%2B08:00&resolution=auto"
+    )
+    assert client.get(f"/scheduler/popularity/2610/history?{query}").status_code == 401
+    assert client.get(
+        f"/scheduler/popularity/2610/history?{query}",
+        headers=unverified_headers,
+    ).status_code == 403
+    assert client.get(
+        f"/scheduler/popularity/2610/history?{query}",
+        headers=outsider_headers,
+    ).status_code == 404
+
+    response = client.get(
+        f"/scheduler/popularity/2610/history?{query}",
+        headers=viewer_headers,
+    )
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    assert response.headers["Vary"] == "Authorization"
+    payload = response.get_json()
+    assert payload["semester_id"] == "2610"
+    assert payload["course_code"] == "POP1001"
+    assert payload["section_id"] == "POP1001-L01"
+    assert payload["tracking_started_at"] == "2026-08-12T04:00:00Z"
+    assert payload["tracking_ends_at"] == "2026-09-30T15:59:00Z"
+    assert payload["source_interval_seconds"] == 300
+    assert payload["effective_interval_seconds"] == 300
+    assert payload["points"] == [
+        {
+            "sampled_at": "2026-08-12T04:00:00Z",
+            "looking_count": 0,
+            "scheduling_count": 0,
+        },
+        {
+            "sampled_at": "2026-08-12T04:10:00Z",
+            "looking_count": 0,
+            "scheduling_count": 0,
+        },
+    ]
+    serialized = str(payload).lower()
+    for private_key in ("user_id", "username", "email", "offering_id"):
+        assert private_key not in serialized
+
+
+def test_history_api_validates_time_range_resolution_and_scope(client, app):
+    with app.app_context():
+        _, offering, sections = create_offering(semester="2610")
+        viewer = create_user("history_validation", "history_validation@hkust-gz.edu.cn")
+        add_cart(viewer, offering, sections)
+        db.session.commit()
+        auth_headers = headers_for(viewer)
+
+    base = "/scheduler/popularity/2610/history?course_code=POP1001"
+    assert client.get(base, headers=auth_headers).status_code == 400
+    assert client.get(
+        f"{base}&from=2026-08-12T00:00:00&to=2026-08-13T00:00:00Z",
+        headers=auth_headers,
+    ).status_code == 400
+    assert client.get(
+        f"{base}&from=2026-08-13T00:00:00Z&to=2026-08-12T00:00:00Z",
+        headers=auth_headers,
+    ).status_code == 400
+    assert client.get(
+        f"{base}&from=2026-08-12T00:00:00Z&to=2026-08-13T00:00:00Z&resolution=hour",
+        headers=auth_headers,
+    ).status_code == 400
+    assert client.get(
+        f"{base}&section_id=missing&from=2026-08-12T00:00:00Z&to=2026-08-13T00:00:00Z",
+        headers=auth_headers,
+    ).status_code == 404
+    assert client.get(
+        "/scheduler/popularity/2530/history?course_code=POP1001"
+        "&from=2026-08-12T00:00:00Z&to=2026-08-13T00:00:00Z",
+        headers=auth_headers,
+    ).status_code == 404
+
+
+def test_history_sampler_has_hard_cutoff_and_exact_terminal_sample(app):
+    with app.app_context():
+        with pytest.raises(ValueError, match="before"):
+            collect_terminal_popularity_history_sample(
+                now=POPULARITY_HISTORY_END_AT - timedelta(microseconds=1),
+            )
+        terminal = collect_terminal_popularity_history_sample(now=POPULARITY_HISTORY_END_AT)
+        with pytest.raises(ValueError, match="outside"):
+            collect_terminal_popularity_history_sample(
+                now=POPULARITY_HISTORY_END_AT + timedelta(seconds=121),
+            )
+        after = collect_popularity_history_sample(
+            sampled_at=POPULARITY_HISTORY_END_AT + timedelta(seconds=1),
+        )
+        assert terminal["status"] == "completed"
+        assert terminal["bucket_at"] == "2026-09-30T15:59:00Z"
+        assert after["status"] == "after_cutoff"
+        assert SchedulerPopularitySnapshotRun.query.count() == 1
+
+
+def test_history_baseline_uses_exact_deployment_time_only_once(app):
+    deployed_at = datetime(2026, 8, 12, 4, 2, 17, 123456, tzinfo=timezone.utc)
+    with app.app_context():
+        baseline = collect_popularity_history_sample(
+            sampled_at=deployed_at,
+            baseline=True,
+        )
+        same_bucket = collect_popularity_history_sample(sampled_at=deployed_at)
+        redeploy = collect_popularity_history_sample(
+            sampled_at=deployed_at + timedelta(days=1),
+            baseline=True,
+        )
+
+        assert baseline["status"] == "completed"
+        assert baseline["bucket_at"] == "2026-08-12T04:02:17.123456Z"
+        assert same_bucket["status"] == "covered_by_baseline"
+        assert same_bucket["bucket_at"] == baseline["bucket_at"]
+        assert redeploy["status"] == "tracking_already_started"
+        assert redeploy["bucket_at"] == baseline["bucket_at"]
+        assert SchedulerPopularitySnapshotRun.query.count() == 1
+
+
+def test_history_freshness_is_measured_against_cutoff_after_tracking_ends(app):
+    with app.app_context():
+        db.session.add(SchedulerPopularitySnapshotRun(
+            semester_id="2610",
+            bucket_at=POPULARITY_HISTORY_END_AT,
+        ))
+        db.session.commit()
+
+        status = popularity_history_sampling_status(
+            now=POPULARITY_HISTORY_END_AT + timedelta(days=30),
+        )
+        assert status["latest_bucket_at"] == "2026-09-30T15:59:00Z"
+        assert status["age_seconds"] == 0
+
+
+def test_history_api_auto_downsamples_long_ranges_to_bounded_points(client, app):
+    started_at = datetime(2026, 8, 12, 0, 0, tzinfo=timezone.utc)
+    with app.app_context():
+        _, offering, sections = create_offering(semester="2610")
+        viewer = create_user("history_long_range", "history_long_range@hkust-gz.edu.cn")
+        add_cart(viewer, offering, sections)
+        db.session.add_all([
+            SchedulerPopularitySnapshotRun(
+                semester_id="2610",
+                bucket_at=started_at + timedelta(minutes=5 * index),
+            )
+            for index in range(1201)
+        ])
+        db.session.commit()
+        auth_headers = headers_for(viewer)
+
+    response = client.get(
+        "/scheduler/popularity/2610/history?course_code=POP1001"
+        "&from=2026-08-12T00:00:00Z&to=2026-08-16T04:00:00Z&resolution=auto",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["effective_interval_seconds"] == 600
+    assert len(payload["points"]) <= 1000
+
+
+def test_history_api_unaligned_range_never_exceeds_hard_point_cap(client, app):
+    started_at = datetime(2026, 8, 12, 0, 0, tzinfo=timezone.utc)
+    with app.app_context():
+        _, offering, sections = create_offering(semester="2610")
+        viewer = create_user("history_unaligned", "history_unaligned@hkust-gz.edu.cn")
+        add_cart(viewer, offering, sections)
+        db.session.add_all([
+            SchedulerPopularitySnapshotRun(
+                semester_id="2610",
+                bucket_at=started_at + timedelta(minutes=5 * index),
+            )
+            for index in range(2001)
+        ])
+        db.session.commit()
+        auth_headers = headers_for(viewer)
+
+    response = client.get(
+        "/scheduler/popularity/2610/history?course_code=POP1001"
+        "&from=2026-08-12T00:00:01Z&to=2026-08-18T22:40:01Z&resolution=auto",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert len(response.get_json()["points"]) <= 1000
 
 
 def test_cart_mutations_log_only_actual_anonymous_transitions(client, app):

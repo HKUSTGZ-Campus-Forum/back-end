@@ -12,7 +12,10 @@ from sqlalchemy.dialects import postgresql
 revision = "20260529_academic_map"
 down_revision = None
 branch_labels = None
-depends_on = None
+# This remains a separate deployed branch/head.  Its first revision has
+# foreign keys to ``users`` and ``courses``, so pristine databases must first
+# reach the core revision which creates both tables.
+depends_on = "7ddb3557965d"
 
 
 def _json_type():

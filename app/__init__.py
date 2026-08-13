@@ -5,12 +5,30 @@ from flask import Flask
 from flask import current_app
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
+from werkzeug.middleware.proxy_fix import ProxyFix
 from .config import Config
 from .extensions import db, jwt, migrate, cache#, limiter
 from .routes import register_blueprints
 from app.tasks.sts_pool import init_pool_maintenance
 
 logger = logging.getLogger(__name__)
+
+_PRODUCTION_ENVIRONMENTS = frozenset({'prod', 'production'})
+_WEAK_SECRET_VALUES = frozenset({
+    '',
+    'your_default_secret_key',
+    'your_jwt_secret_key',
+})
+_WEAK_SECRET_PREFIXES = (
+    'change-me',
+    'change_me',
+    'changeme',
+    'example_',
+    'replace-',
+    'replace_',
+    'replace with',
+)
+_MIN_PRODUCTION_SECRET_LENGTH = 32
 
 
 @compiles(JSONB, "sqlite")
@@ -21,6 +39,8 @@ def _compile_jsonb_for_sqlite(type_, compiler, **kw):
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
+    _validate_production_secrets(app)
+    _configure_proxy_fix(app)
     _normalize_sqlite_engine_options(app)
 
     # Initialize extensions
@@ -59,12 +79,72 @@ def create_app(config_class=Config):
             _ensure_mount_admin_role()
             _seed_dev_feedback()
 
-    # 25-26 春课表补丁：推迟到「首次 HTTP 请求」再跑，避免进程启动时数据库尚未就绪导致
-    # 静默失败；幂等，多 worker 各执行一次可接受。
-    _register_deferred_course_offerings_adjustments(app)
-    _register_deferred_scheduler_offering_imports(app)
+        # 25-26 春课表补丁：推迟到「首次 HTTP 请求」再跑，避免进程启动时数据库尚未就绪导致
+        # 静默失败；幂等，多 worker 各执行一次可接受。
+        _register_deferred_course_offerings_adjustments(app)
+        _register_deferred_scheduler_offering_imports(app)
 
     return app
+
+
+def _validate_production_secrets(app):
+    """Fail closed when production would otherwise use placeholder secrets."""
+    environment = str(
+        app.config.get('APP_ENV')
+        or app.config.get('ENVIRONMENT')
+        or app.config.get('FLASK_ENV')
+        or 'development'
+    ).strip().lower()
+    if environment not in _PRODUCTION_ENVIRONMENTS:
+        return
+
+    invalid_keys = []
+    for config_key in ('SECRET_KEY', 'JWT_SECRET_KEY'):
+        value = str(app.config.get(config_key) or '').strip()
+        normalized_value = value.casefold()
+        if (
+            value in _WEAK_SECRET_VALUES
+            or normalized_value.startswith(_WEAK_SECRET_PREFIXES)
+            or len(value) < _MIN_PRODUCTION_SECRET_LENGTH
+            or len(set(value)) < 8
+        ):
+            invalid_keys.append(config_key)
+    if invalid_keys:
+        names = ', '.join(invalid_keys)
+        raise RuntimeError(
+            'Refusing to start in production: '
+            f'{names} must use sufficiently varied, non-default values of at least '
+            f'{_MIN_PRODUCTION_SECRET_LENGTH} characters.'
+        )
+
+
+def _configure_proxy_fix(app):
+    """Trust only the client IP and scheme from the configured proxy hops."""
+    try:
+        legacy_hops = int(app.config.get('TRUSTED_PROXY_HOPS', 0))
+        trusted_for_hops = int(
+            app.config.get('TRUSTED_PROXY_FOR_HOPS', legacy_hops)
+        )
+        trusted_proto_hops = int(
+            app.config.get('TRUSTED_PROXY_PROTO_HOPS', legacy_hops)
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            'trusted proxy hop counts must be non-negative integers'
+        ) from exc
+    if min(legacy_hops, trusted_for_hops, trusted_proto_hops) < 0:
+        raise ValueError('trusted proxy hop counts must be non-negative integers')
+    if trusted_for_hops == 0 and trusted_proto_hops == 0:
+        return
+
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_for=trusted_for_hops,
+        x_proto=trusted_proto_hops,
+        x_host=0,
+        x_port=0,
+        x_prefix=0,
+    )
 
 
 def _normalize_sqlite_engine_options(app):
@@ -225,7 +305,12 @@ def _auto_init_course_domain_support():
         UserSectionSelection,
         CoursePostOfferingTarget,
     )
-    from app.models.scheduler_popularity import SchedulerPopularityEvent
+    from app.models.scheduler_popularity import (
+        SchedulerPopularityCourseSnapshot,
+        SchedulerPopularityEvent,
+        SchedulerPopularitySectionSnapshot,
+        SchedulerPopularitySnapshotRun,
+    )
 
     db.metadata.create_all(bind=db.engine, tables=[Course.__table__], checkfirst=True)
 
@@ -261,6 +346,9 @@ def _auto_init_course_domain_support():
             UserSectionSelection.__table__,
             CoursePostOfferingTarget.__table__,
             SchedulerPopularityEvent.__table__,
+            SchedulerPopularitySnapshotRun.__table__,
+            SchedulerPopularityCourseSnapshot.__table__,
+            SchedulerPopularitySectionSnapshot.__table__,
         ],
         checkfirst=True,
     )
