@@ -111,6 +111,8 @@ jobs:
           readonly verify_service="unikorn-scheduler-popularity-verify.service"
           readonly sample_end_epoch="$(date -d '2026-09-30 23:55:00 Asia/Shanghai' +%s)"
           readonly terminal_cutoff_epoch="$(date -d '2026-09-30 23:59:00 Asia/Shanghai' +%s)"
+          # The protected window begins 45 minutes before cutoff, exceeding the
+          # SSH action's 35-minute hard timeout by ten minutes.
           readonly protected_start_epoch="$((terminal_cutoff_epoch - 45 * 60))"
           readonly protected_end_epoch="$((terminal_cutoff_epoch + 130))"
 
@@ -121,10 +123,13 @@ jobs:
           sample_timer_was_loaded=false
           final_timer_was_loaded=false
           sampling_state_captured=false
+          sampler_units_mutated=false
+          regular_sampler_quiesced=false
           deployment_succeeded=false
           sampler_validated=false
           final_timer_touched=false
           unit_stage=""
+          unit_backup_stage=""
           sampler_release_stage=""
           api_response=""
           public_api_response=""
@@ -164,6 +169,10 @@ jobs:
             expected_enabled="$3"
             expected_active="$4"
             if [[ "${expected_loaded}" == "false" ]] && ! unit_loaded "${timer_name}"; then
+              if unit_enabled "${timer_name}"; then
+                echo "${timer_name} remained enabled without its pre-deployment unit." >&2
+                return 1
+              fi
               return 0
             fi
             if ! unit_loaded "${timer_name}"; then
@@ -183,20 +192,99 @@ jobs:
             fi
           }
 
+          restore_sampler_unit_files() {
+            unit_restore_failed=false
+            [[ "${sampler_units_mutated}" == "true" ]] || return 0
+            echo "Restoring the exact pre-deployment sampler unit files." >&2
+            for unit_name in \
+              "${baseline_service}" "${sample_service}" "${verify_service}" \
+              "${sample_timer}"; do
+              marker_path="${unit_backup_stage}/${unit_name}.present"
+              backup_path="${unit_backup_stage}/${unit_name}"
+              target_path="/etc/systemd/system/${unit_name}"
+              if [[ -f "${marker_path}" ]]; then
+                sudo -n /usr/bin/install -m 0644 \
+                  "${backup_path}" "${target_path}" || unit_restore_failed=true
+                if [[ "${unit_restore_failed}" == "false" && \
+                      "$(sha256sum "${target_path}" | awk '{print $1}')" != "$(<"${marker_path}")" ]]; then
+                  echo "Restored unit checksum mismatch: ${target_path}" >&2
+                  unit_restore_failed=true
+                fi
+              else
+                if [[ -e "${target_path}" || -L "${target_path}" ]]; then
+                  sudo -n /usr/bin/rm -- "${target_path}" || unit_restore_failed=true
+                fi
+                if [[ -e "${target_path}" || -L "${target_path}" ]]; then
+                  echo "New sampler unit override remained after rollback: ${target_path}" >&2
+                  unit_restore_failed=true
+                fi
+              fi
+            done
+            sudo -n /usr/bin/systemctl daemon-reload || unit_restore_failed=true
+            for unit_name in \
+              "${baseline_service}" "${sample_service}" "${verify_service}" \
+              "${sample_timer}"; do
+              expected_load_state="$(<"${unit_backup_stage}/${unit_name}.load-state")"
+              expected_fragment_path="$(<"${unit_backup_stage}/${unit_name}.fragment-path")"
+              actual_load_state="$(/usr/bin/systemctl show -p LoadState --value "${unit_name}")"
+              actual_fragment_path="$(/usr/bin/systemctl show -p FragmentPath --value "${unit_name}")"
+              effective_fragment_matches=false
+              if [[ "${expected_fragment_path}" == "/etc/systemd/system/${unit_name}" ]]; then
+                [[ "${actual_fragment_path}" == "${expected_fragment_path}" ]] && \
+                  effective_fragment_matches=true
+              elif [[ -n "${expected_fragment_path}" && \
+                      "${actual_fragment_path}" == "${expected_fragment_path}" ]]; then
+                effective_fragment_matches=true
+              elif [[ -z "${expected_fragment_path}" && \
+                      ( "${actual_load_state}" == "not-found" || "${actual_load_state}" == "masked" ) ]]; then
+                effective_fragment_matches=true
+              fi
+              if [[ "${actual_load_state}" != "${expected_load_state}" || \
+                    "${effective_fragment_matches}" != "true" ]]; then
+                echo "Sampler unit rollback mismatch for ${unit_name}: expected load=${expected_load_state}, fragment=${expected_fragment_path}; got load=${actual_load_state}, fragment=${actual_fragment_path}." >&2
+                unit_restore_failed=true
+              fi
+            done
+            if [[ "${unit_restore_failed}" == "false" ]]; then
+              sampler_units_mutated=false
+            fi
+            [[ "${unit_restore_failed}" == "false" ]]
+          }
+
           restore_sampling_state() {
             deploy_status="$1"
             cleanup_failed=false
+            sampler_fragments_restored=true
             echo "Deployment failed (${deploy_status}); restoring prior sampling timer state." >&2
             if [[ "${sampling_state_captured}" == "true" ]]; then
-              for unit_name in \
-                "${sample_timer}" "${sample_service}" \
-                "${baseline_service}" "${verify_service}"; do
+              if unit_loaded "${sample_timer}"; then
+                sudo -n /usr/bin/systemctl stop "${sample_timer}" || cleanup_failed=true
+              fi
+              # Remove candidate enablement links while its fragment is still
+              # loaded; prior enablement is recreated only after restoration.
+              if unit_enabled "${sample_timer}"; then
+                sudo -n /usr/bin/systemctl disable "${sample_timer}" || cleanup_failed=true
+              fi
+              if unit_loaded "${sample_service}"; then
+                sudo -n /usr/bin/systemctl stop "${sample_service}" || cleanup_failed=true
+              fi
+              for unit_name in "${baseline_service}" "${verify_service}"; do
                 if unit_loaded "${unit_name}"; then
                   sudo -n /usr/bin/systemctl stop "${unit_name}" || cleanup_failed=true
                 fi
               done
 
-              if unit_loaded "${sample_timer}"; then
+              if [[ "${sampler_units_mutated}" == "true" ]]; then
+                if ! restore_sampler_unit_files; then
+                  sampler_fragments_restored=false
+                  cleanup_failed=true
+                  echo "CRITICAL: sampler unit files were not restored; leaving the regular timer stopped." >&2
+                fi
+              elif [[ "${regular_sampler_quiesced}" == "true" ]]; then
+                echo "No sampler unit files changed; restoring the timer state after quiescing." >&2
+              fi
+
+              if [[ "${sampler_fragments_restored}" == "true" ]] && unit_loaded "${sample_timer}"; then
                 if [[ "${sample_timer_was_enabled}" == "true" ]]; then
                   sudo -n /usr/bin/systemctl enable "${sample_timer}" || cleanup_failed=true
                 else
@@ -205,9 +293,11 @@ jobs:
                 [[ "${sample_timer_was_active}" == "false" ]] || \
                   sudo -n /usr/bin/systemctl start "${sample_timer}" || cleanup_failed=true
               fi
-              verify_timer_state \
-                "${sample_timer}" "${sample_timer_was_loaded}" \
-                "${sample_timer_was_enabled}" "${sample_timer_was_active}" || cleanup_failed=true
+              if [[ "${sampler_fragments_restored}" == "true" ]]; then
+                verify_timer_state \
+                  "${sample_timer}" "${sample_timer_was_loaded}" \
+                  "${sample_timer_was_enabled}" "${sample_timer_was_active}" || cleanup_failed=true
+              fi
               [[ "${cleanup_failed}" == "false" ]] || echo "WARNING: prior timer state could not be fully restored." >&2
             fi
           }
@@ -252,6 +342,14 @@ jobs:
             [[ -z "${api_response}" ]] || rm -f -- "${api_response}"
             [[ -z "${public_api_response}" ]] || rm -f -- "${public_api_response}"
             [[ -z "${unit_stage}" ]] || rm -rf -- "${unit_stage}"
+            if [[ -n "${unit_backup_stage}" ]]; then
+              if [[ "${sampler_units_mutated}" == "true" ]]; then
+                echo "CRITICAL: preserving sampler unit rollback evidence at ${unit_backup_stage}." >&2
+                cleanup_failed=true
+              else
+                rm -rf -- "${unit_backup_stage}"
+              fi
+            fi
             [[ -z "${sampler_release_stage}" ]] || rm -rf -- "${sampler_release_stage}"
             [[ "${cleanup_failed}" == "false" ]] || echo "CRITICAL: terminal popularity timer verification failed during cleanup." >&2
             exit "${deploy_status}"
@@ -282,6 +380,7 @@ jobs:
           flock -n 9
           echo "Preflighting non-interactive production service permissions..."
           unit_stage="$(mktemp -d /tmp/unikorn-popularity-units.XXXXXX)"
+          unit_backup_stage="$(mktemp -d /tmp/unikorn-popularity-unit-backup.XXXXXX)"
           for unit_name in "${sample_timer}" "${final_timer}" "${sample_service}" "${baseline_service}" "${final_service}" "${verify_service}"; do
             require_sudo_permission /usr/bin/systemctl stop "${unit_name}"
             require_sudo_permission /usr/bin/systemctl start "${unit_name}"
@@ -302,6 +401,13 @@ jobs:
             require_sudo_permission /usr/bin/install -m 0644 \
               "${unit_stage}/${unit_name}" "/etc/systemd/system/${unit_name}"
           done
+          for unit_name in \
+            "${baseline_service}" "${sample_service}" "${verify_service}" \
+            "${sample_timer}"; do
+            require_sudo_permission /usr/bin/install -m 0644 \
+              "${unit_backup_stage}/${unit_name}" "/etc/systemd/system/${unit_name}"
+            require_sudo_permission /usr/bin/rm -- "/etc/systemd/system/${unit_name}"
+          done
           echo "Required sudo permissions are available."
 
           unit_loaded "${sample_timer}" && sample_timer_was_loaded=true
@@ -310,6 +416,34 @@ jobs:
           unit_active "${final_timer}" && final_timer_was_active=true
           unit_enabled "${sample_timer}" && sample_timer_was_enabled=true
           unit_enabled "${final_timer}" && final_timer_was_enabled=true
+          for unit_name in \
+            "${baseline_service}" "${sample_service}" "${verify_service}" \
+            "${sample_timer}"; do
+            unit_path="/etc/systemd/system/${unit_name}"
+            /usr/bin/systemctl show -p LoadState --value "${unit_name}" > \
+              "${unit_backup_stage}/${unit_name}.load-state"
+            /usr/bin/systemctl show -p FragmentPath --value "${unit_name}" > \
+              "${unit_backup_stage}/${unit_name}.fragment-path"
+            if [[ -e "${unit_path}" || -L "${unit_path}" ]]; then
+              if [[ ! -f "${unit_path}" || -L "${unit_path}" ]]; then
+                echo "Refusing to replace non-regular sampler unit path: ${unit_path}" >&2
+                exit 1
+              fi
+              if [[ "$(stat -c '%u:%g:%a' "${unit_path}")" != "0:0:644" ]]; then
+                echo "Refusing unexpected sampler unit ownership or mode: ${unit_path}" >&2
+                exit 1
+              fi
+              /usr/bin/install -m 0600 \
+                "${unit_path}" "${unit_backup_stage}/${unit_name}"
+              sha256sum "${unit_backup_stage}/${unit_name}" | awk '{print $1}' > \
+                "${unit_backup_stage}/${unit_name}.present"
+              if [[ "$(sha256sum "${unit_path}" | awk '{print $1}')" != \
+                    "$(<"${unit_backup_stage}/${unit_name}.present")" ]]; then
+                echo "Sampler unit changed while it was being snapshotted: ${unit_path}" >&2
+                exit 1
+              fi
+            fi
+          done
           sampling_state_captured=true
 
           echo "Existing SHA-pinned popularity samplers remain available during release mutations."
@@ -453,9 +587,19 @@ jobs:
             /usr/bin/systemd-analyze verify "${unit_stage}"/*.service "${unit_stage}"/*.timer
           fi
 
+          regular_sampler_quiesced=true
+          if unit_loaded "${sample_timer}"; then
+            sudo -n /usr/bin/systemctl stop "${sample_timer}"
+          fi
+          if unit_loaded "${sample_service}"; then
+            sudo -n /usr/bin/systemctl stop "${sample_service}"
+          fi
+          assert_unit_inactive "${sample_timer}"
+          assert_unit_inactive "${sample_service}"
           for unit_name in \
             "${baseline_service}" "${sample_service}" "${verify_service}" \
             "${sample_timer}"; do
+            sampler_units_mutated=true
             sudo -n /usr/bin/install -m 0644 \
               "${unit_stage}/${unit_name}" "/etc/systemd/system/${unit_name}"
           done
@@ -586,9 +730,13 @@ jobs:
             sudo -n /usr/bin/systemctl start "${verify_service}"
             test "$(/usr/bin/systemctl show -p Result --value "${verify_service}")" = "success"
           fi
+          deployment_succeeded=true
+          sampler_units_mutated=false
+          regular_sampler_quiesced=false
           rm -rf "${unit_stage}"
           unit_stage=""
-          deployment_succeeded=true
+          rm -rf "${unit_backup_stage}"
+          unit_backup_stage=""
           echo "Scheduler popularity sampling timers activated for ${service_user}:${service_group}."
 
           echo "Production deployment completed at ${deployed_sha}."
