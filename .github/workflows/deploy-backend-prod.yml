@@ -169,6 +169,10 @@ jobs:
             expected_enabled="$3"
             expected_active="$4"
             if [[ "${expected_loaded}" == "false" ]] && ! unit_loaded "${timer_name}"; then
+              if unit_enabled "${timer_name}"; then
+                echo "${timer_name} remained enabled without its pre-deployment unit." >&2
+                return 1
+              fi
               return 0
             fi
             if ! unit_loaded "${timer_name}"; then
@@ -256,6 +260,11 @@ jobs:
               if unit_loaded "${sample_timer}"; then
                 sudo -n /usr/bin/systemctl stop "${sample_timer}" || cleanup_failed=true
               fi
+              # Remove candidate enablement links while its fragment is still
+              # loaded; prior enablement is recreated only after restoration.
+              if unit_enabled "${sample_timer}"; then
+                sudo -n /usr/bin/systemctl disable "${sample_timer}" || cleanup_failed=true
+              fi
               if unit_loaded "${sample_service}"; then
                 sudo -n /usr/bin/systemctl stop "${sample_service}" || cleanup_failed=true
               fi
@@ -333,7 +342,14 @@ jobs:
             [[ -z "${api_response}" ]] || rm -f -- "${api_response}"
             [[ -z "${public_api_response}" ]] || rm -f -- "${public_api_response}"
             [[ -z "${unit_stage}" ]] || rm -rf -- "${unit_stage}"
-            [[ -z "${unit_backup_stage}" ]] || rm -rf -- "${unit_backup_stage}"
+            if [[ -n "${unit_backup_stage}" ]]; then
+              if [[ "${sampler_units_mutated}" == "true" ]]; then
+                echo "CRITICAL: preserving sampler unit rollback evidence at ${unit_backup_stage}." >&2
+                cleanup_failed=true
+              else
+                rm -rf -- "${unit_backup_stage}"
+              fi
+            fi
             [[ -z "${sampler_release_stage}" ]] || rm -rf -- "${sampler_release_stage}"
             [[ "${cleanup_failed}" == "false" ]] || echo "CRITICAL: terminal popularity timer verification failed during cleanup." >&2
             exit "${deploy_status}"
@@ -389,7 +405,7 @@ jobs:
             "${baseline_service}" "${sample_service}" "${verify_service}" \
             "${sample_timer}"; do
             require_sudo_permission /usr/bin/install -m 0644 \
-              "/etc/systemd/system/${unit_name}" "${unit_backup_stage}/${unit_name}"
+              "${unit_backup_stage}/${unit_name}" "/etc/systemd/system/${unit_name}"
             require_sudo_permission /usr/bin/rm -- "/etc/systemd/system/${unit_name}"
           done
           echo "Required sudo permissions are available."

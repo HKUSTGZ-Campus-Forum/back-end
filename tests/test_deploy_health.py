@@ -524,6 +524,7 @@ def test_production_failure_restores_exact_predeployment_sampler_units_before_ti
     assert 'effective_fragment_matches=false' in deploy_workflow
     assert 'sampler_fragments_restored=true' in deploy_workflow
     assert 'leaving the regular timer stopped' in deploy_workflow
+    assert 'preserving sampler unit rollback evidence at ${unit_backup_stage}' in deploy_workflow
     assert deploy_workflow.index(
         "systemctl daemon-reload || unit_restore_failed=true", restore_function_at
     ) < timer_rearm_at
@@ -563,9 +564,34 @@ def test_production_sampler_unit_rollback_permissions_are_preflighted():
     ]
 
     assert (
+        'require_sudo_permission /usr/bin/install -m 0644 \\\n'
+        '              "${unit_backup_stage}/${unit_name}" "/etc/systemd/system/${unit_name}"'
+        in preflight
+    )
+    assert (
         'require_sudo_permission /usr/bin/rm -- "/etc/systemd/system/${unit_name}"'
         in preflight
     )
+
+
+def test_first_install_rollback_removes_candidate_timer_enablement_before_fragment():
+    deploy_workflow = (
+        ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
+    ).read_text(encoding="utf-8")
+    restore = deploy_workflow[
+        deploy_workflow.index("restore_sampling_state()"):
+        deploy_workflow.index("verify_terminal_timer_untouched()")
+    ]
+
+    disable_at = restore.index('systemctl disable "${sample_timer}"')
+    fragment_restore_at = restore.index("if ! restore_sampler_unit_files; then")
+    assert disable_at < fragment_restore_at
+    verify = deploy_workflow[
+        deploy_workflow.index("verify_timer_state()"):
+        deploy_workflow.index("restore_sampler_unit_files()")
+    ]
+    assert 'if unit_enabled "${timer_name}"; then' in verify
+    assert "remained enabled without its pre-deployment unit" in verify
 
 
 def test_production_quiesces_regular_sampler_immediately_before_unit_replacement():
