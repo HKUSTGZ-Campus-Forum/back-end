@@ -170,6 +170,9 @@ def test_release_requires_the_exact_pinned_production_venv_symlink(
     finally:
         release.chmod(0o755)
         scripts_dir.chmod(0o755)
+        launcher.chmod(0o644)
+        sampler.chmod(0o644)
+        (release / ".unikorn-commit").chmod(0o644)
 
 
 def test_release_runtime_rejects_owner_writable_immutable_content(
@@ -208,6 +211,9 @@ def test_release_runtime_rejects_owner_writable_immutable_content(
     finally:
         release.chmod(0o755)
         scripts_dir.chmod(0o755)
+        launcher.chmod(0o644)
+        sampler.chmod(0o644)
+        commit.chmod(0o644)
 
 
 def test_mutation_lock_path_is_pinned_to_shared_production_lock():
