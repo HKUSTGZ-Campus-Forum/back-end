@@ -65,6 +65,12 @@ def _checkout(tmp_path: Path, monkeypatch):
     quarantine_root = tmp_path / "quarantine" / "legacy-migrations"
     monkeypatch.setattr(reconciliation, "APP_DIR", repository)
     monkeypatch.setattr(reconciliation, "QUARANTINE_ROOT", quarantine_root)
+    monkeypatch.setattr(
+        reconciliation,
+        "LOCK_PATH",
+        tmp_path / "backend-mutations-dev.lock",
+    )
+    monkeypatch.setattr(reconciliation, "TARGET_NAME", "dev")
     monkeypatch.setattr(reconciliation, "ALLOWLIST", allowlist)
     monkeypatch.setattr(reconciliation, "ALLOWLIST_SET", frozenset(allowlist))
     monkeypatch.setattr(
@@ -101,6 +107,8 @@ def test_audit_is_deterministic_and_parses_metadata_without_execution(tmp_path, 
     assert first["files"][0]["sha256"] == hashlib.sha256(
         payloads["migrations/versions/legacy-a.py"]
     ).hexdigest()
+    assert first["files"][0]["uid"] == os.geteuid()
+    assert first["files"][0]["gid"] == os.getegid()
 
 
 @pytest.mark.parametrize("dirty_kind", ["tracked", "extra", "missing"])
@@ -530,10 +538,12 @@ def test_production_target_is_fixed_to_the_single_observed_collision(monkeypatch
     assert reconciliation.TARGET_NAME == "production"
     assert reconciliation.APP_DIR == Path("/data/prod_unikorn/back-end")
     assert reconciliation.QUARANTINE_ROOT == Path(
-        "/data/prod_unikorn/quarantine/legacy-migrations"
+        "/data/prod_unikorn/back-end/.git/unikorn-operations/"
+        "quarantine/legacy-migrations"
     )
     assert reconciliation.LOCK_PATH == Path(
-        "/data/prod_unikorn/backend-mutations-production.lock"
+        "/data/prod_unikorn/back-end/.git/unikorn-operations/"
+        "backend-mutations.lock"
     )
     assert reconciliation.EXPECTED_BRANCH == "production"
     assert reconciliation.EXPECTED_DATABASE == "prod_unikorn"
@@ -545,6 +555,167 @@ def test_production_target_is_fixed_to_the_single_observed_collision(monkeypatch
     )
 
     reconciliation.configure_target("dev")
+
+
+def _configure_production_transaction_fixture(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    committed: bool = True,
+):
+    repository = tmp_path / "back-end"
+    repository.mkdir()
+    _git(repository, "init", "--quiet", "--initial-branch=production")
+    _git(repository, "config", "user.name", "Transaction Guard Test")
+    _git(repository, "config", "user.email", "guard@example.test")
+    versions = repository / "migrations" / "versions"
+    versions.mkdir(parents=True)
+    (versions / "committed.py").write_bytes(_migration("committed_head", None))
+    _git(repository, "add", "migrations/versions/committed.py")
+    _git(repository, "commit", "--quiet", "-m", "initial")
+
+    operations = repository / ".git" / "unikorn-operations"
+    quarantine_root = operations / "quarantine" / "legacy-migrations"
+    transaction = quarantine_root / "run-12345"
+    files_dir = transaction / "files"
+    files_dir.mkdir(parents=True, mode=0o700)
+    os.chmod(operations, 0o700)
+    os.chmod(operations / "quarantine", 0o700)
+    os.chmod(quarantine_root, 0o700)
+    os.chmod(transaction, 0o700)
+    os.chmod(files_dir, 0o700)
+    payload = _migration("legacy_oauth", None)
+    source = reconciliation.PRODUCTION_ALLOWLIST[0]
+    archived = files_dir / Path(source).name
+    archived.write_bytes(payload)
+    os.chmod(archived, 0o400)
+    digest = hashlib.sha256(payload).hexdigest()
+    prepared = {
+        "schema_version": 1,
+        "target": "production",
+        "repository": str(repository),
+        "workflow_run_id": "12345",
+        "quarantine": str(transaction),
+        "aggregate_sha256": "a" * 64,
+        "state": "PREPARED",
+        "files": [
+            {
+                "path": source,
+                "size": len(payload),
+                "mode": 0o400,
+                "uid": os.geteuid(),
+                "gid": os.getegid(),
+                "sha256": digest,
+                "revision": "legacy_oauth",
+                "down_revision": None,
+            }
+        ],
+        "mappings": [
+            {
+                "source": source,
+                "destination": f"files/{archived.name}",
+                "sha256": digest,
+                "size": len(payload),
+                "source_device": archived.stat().st_dev,
+                "source_inode": archived.stat().st_ino,
+            }
+        ],
+    }
+    prepared_payload = (
+        json.dumps(prepared, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+    ).encode()
+    (transaction / "PREPARED.json").write_bytes(prepared_payload)
+    os.chmod(transaction / "PREPARED.json", 0o400)
+    if committed:
+        committed_payload = (
+            json.dumps(
+                {
+                    "state": "COMMITTED",
+                    "prepared_sha256": hashlib.sha256(prepared_payload).hexdigest(),
+                    "aggregate_sha256": "a" * 64,
+                    "file_count": 1,
+                    "git_clean": True,
+                },
+                ensure_ascii=True,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode()
+        (transaction / "COMMITTED.json").write_bytes(committed_payload)
+        os.chmod(transaction / "COMMITTED.json", 0o400)
+
+    monkeypatch.setattr(reconciliation, "TARGET_NAME", "production")
+    monkeypatch.setattr(reconciliation, "APP_DIR", repository)
+    monkeypatch.setattr(reconciliation, "QUARANTINE_ROOT", quarantine_root)
+    monkeypatch.setattr(
+        reconciliation,
+        "LOCK_PATH",
+        operations / "backend-mutations.lock",
+    )
+    return transaction, archived
+
+
+def test_production_transaction_guard_accepts_only_authenticated_commit(
+    tmp_path, monkeypatch
+):
+    transaction, _archived = _configure_production_transaction_fixture(
+        tmp_path, monkeypatch
+    )
+
+    result = reconciliation.verify_production_transactions()
+
+    assert result == {
+        "status": "clean",
+        "transactions": [
+            {"run_id": "12345", "aggregate_sha256": "a" * 64, "file_count": 1}
+        ],
+    }
+    assert (transaction / "COMMITTED.json").is_file()
+
+
+def test_production_transaction_guard_blocks_incomplete_crash_journal(
+    tmp_path, monkeypatch
+):
+    _configure_production_transaction_fixture(tmp_path, monkeypatch, committed=False)
+
+    with pytest.raises(reconciliation.ReconciliationBlocked, match="incomplete"):
+        reconciliation.verify_production_transactions()
+
+
+def test_production_audit_rejects_group_or_world_writable_allowlisted_file(
+    tmp_path, monkeypatch
+):
+    repository, _quarantine, _payloads = _checkout(tmp_path, monkeypatch)
+    monkeypatch.setattr(reconciliation, "TARGET_NAME", "production")
+    unsafe = repository / reconciliation.ALLOWLIST[0]
+    os.chmod(unsafe, 0o666)
+
+    with pytest.raises(reconciliation.ReconciliationBlocked, match="mode=0666"):
+        reconciliation.audit(repository)
+
+
+@pytest.mark.parametrize("tamper", ["prepared", "payload", "extra", "symlink"])
+def test_production_transaction_guard_blocks_tampering(tmp_path, monkeypatch, tamper):
+    transaction, archived = _configure_production_transaction_fixture(
+        tmp_path, monkeypatch
+    )
+    if tamper == "prepared":
+        os.chmod(transaction / "PREPARED.json", 0o600)
+        (transaction / "PREPARED.json").write_text("{}", encoding="utf-8")
+        os.chmod(transaction / "PREPARED.json", 0o400)
+    elif tamper == "payload":
+        os.chmod(archived, 0o600)
+        archived.write_bytes(b"tampered")
+        os.chmod(archived, 0o400)
+    elif tamper == "extra":
+        (transaction / "unexpected").write_text("x", encoding="utf-8")
+    else:
+        (transaction / "COMMITTED.json").unlink()
+        (transaction / "COMMITTED.json").symlink_to(transaction / "PREPARED.json")
+
+    with pytest.raises(reconciliation.ReconciliationBlocked):
+        reconciliation.verify_production_transactions()
 
 
 def test_helper_lock_rejects_symlink_and_contended_regular_file(tmp_path, monkeypatch):
@@ -568,6 +739,50 @@ def test_helper_lock_rejects_symlink_and_contended_regular_file(tmp_path, monkey
     finally:
         fcntl.flock(first_descriptor, fcntl.LOCK_UN)
         os.close(first_descriptor)
+
+
+def test_lock_exec_uses_hardened_lock_and_exports_exact_identity(monkeypatch):
+    import tempfile
+
+    lock = tempfile.TemporaryFile()
+    lock_fd = lock.fileno()
+    monkeypatch.setattr(reconciliation, "TARGET_NAME", "production")
+    monkeypatch.setattr(reconciliation, "_acquire_lock", lambda: lock.fileno())
+    captured = {}
+
+    def fake_exec(file, command, environment):
+        captured.update(file=file, command=command, environment=environment)
+        raise OSError("stop before exec")
+
+    monkeypatch.setattr(reconciliation.os, "execvpe", fake_exec)
+    details = os.fstat(lock_fd)
+    with pytest.raises(reconciliation.ReconciliationBlocked, match="cannot execute"):
+        reconciliation.lock_and_exec_production(["/bin/true", "arg"])
+    assert captured["file"] == "/bin/true"
+    assert captured["command"] == ["/bin/true", "arg"]
+    assert captured["environment"]["UNIKORN_BACKEND_MUTATION_LOCK_FD"] == str(
+        lock_fd
+    )
+    assert captured["environment"]["UNIKORN_BACKEND_MUTATION_LOCK_DEV_INO"] == (
+        f"{details.st_dev}:{details.st_ino}"
+    )
+
+
+def test_inherited_lock_is_reused_by_nested_acquisition(monkeypatch):
+    import tempfile
+
+    with tempfile.NamedTemporaryFile() as lock:
+        os.chmod(lock.name, 0o600)
+        descriptor = lock.fileno()
+        details = os.fstat(descriptor)
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        monkeypatch.setenv("UNIKORN_BACKEND_MUTATION_LOCK_FD", str(descriptor))
+        monkeypatch.setenv(
+            "UNIKORN_BACKEND_MUTATION_LOCK_DEV_INO",
+            f"{details.st_dev}:{details.st_ino}",
+        )
+
+        assert reconciliation._acquire_lock() == descriptor
 
 
 def test_fixed_parent_accepts_root_or_current_user_but_rejects_writable_owner(

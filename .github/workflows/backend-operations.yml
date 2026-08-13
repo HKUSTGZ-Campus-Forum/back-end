@@ -280,6 +280,21 @@ jobs:
       group: backend-mutations-production
       cancel-in-progress: false
     steps:
+      - name: Checkout production verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Encode production transaction verifier
+        id: verifier
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sha256="$(sha256sum tools/reconcile_dev_migration_checkout.py | cut -d ' ' -f 1)"
+          gzip -n -9 -c tools/reconcile_dev_migration_checkout.py > /tmp/production-transaction-verifier.py.gz
+          payload="$(base64 -w 0 /tmp/production-transaction-verifier.py.gz)"
+          rm -f /tmp/production-transaction-verifier.py.gz
+          printf 'sha256=%s\n' "${sha256}" >> "${GITHUB_OUTPUT}"
+          printf 'payload=%s\n' "${payload}" >> "${GITHUB_OUTPUT}"
+
       - name: Run allowlisted production operation
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
@@ -299,24 +314,71 @@ jobs:
           OPS_ACTOR: ${{ github.actor }}
           OPS_WORKFLOW_RUN_ID: ${{ github.run_id }}
           OPS_WORKFLOW_RUN_ATTEMPT: ${{ github.run_attempt }}
+          PROD_RECONCILE_HELPER_GZIP_B64: ${{ steps.verifier.outputs.payload }}
+          PROD_RECONCILE_HELPER_SHA256: ${{ steps.verifier.outputs.sha256 }}
         with:
           host: ${{ secrets.PROD_SSH_HOST }}
           username: ${{ secrets.PROD_SSH_USER }}
           key: ${{ secrets.PROD_SSH_KEY }}
           command_timeout: 45m
-          envs: OPS_TARGET,OPS_OPERATION,OPS_MODE,OPS_PACKAGE_ID,OPS_REQUEST_ID,OPS_APPROVED_DRY_RUN_ID,OPS_EXPECTED_DATABASE,OPS_EXPECTED_PLAN_SHA256,OPS_EXPECTED_PAIRS,OPS_EXPECTED_RECORDS,OPS_EXPECTED_TAGS,OPS_CONFIRMATION,OPS_RELEASE_SHA,OPS_ACTOR,OPS_WORKFLOW_RUN_ID,OPS_WORKFLOW_RUN_ATTEMPT
+          envs: OPS_TARGET,OPS_OPERATION,OPS_MODE,OPS_PACKAGE_ID,OPS_REQUEST_ID,OPS_APPROVED_DRY_RUN_ID,OPS_EXPECTED_DATABASE,OPS_EXPECTED_PLAN_SHA256,OPS_EXPECTED_PAIRS,OPS_EXPECTED_RECORDS,OPS_EXPECTED_TAGS,OPS_CONFIRMATION,OPS_RELEASE_SHA,OPS_ACTOR,OPS_WORKFLOW_RUN_ID,OPS_WORKFLOW_RUN_ATTEMPT,PROD_RECONCILE_HELPER_GZIP_B64,PROD_RECONCILE_HELPER_SHA256
           script: |
             set -Eeuo pipefail
-            umask 027
             cd /data/prod_unikorn/back-end
+            readonly production_git_dir="/data/prod_unikorn/back-end/.git"
+            readonly production_ops_dir="${production_git_dir}/unikorn-operations"
+            readonly production_lock_path="${production_ops_dir}/backend-mutations.lock"
+            if [[ "$(git rev-parse --absolute-git-dir)" != "${production_git_dir}" || \
+                  "$(git rev-parse --path-format=absolute --git-common-dir)" != "${production_git_dir}" || \
+                  -L "${production_git_dir}" || ! -d "${production_git_dir}" ]]; then
+              echo "Production Git directory is not the fixed real directory." >&2
+              exit 1
+            fi
+            git_owner="$(stat -c '%u' "${production_git_dir}")"
+            git_mode="$(stat -c '%a' "${production_git_dir}")"
+            if [[ "${git_owner}" != "$(id -u)" || $((8#${git_mode} & 022)) -ne 0 ]]; then
+              echo "Production Git directory has unsafe metadata." >&2
+              exit 1
+            fi
+            umask 077
+            if [[ ! -e "${production_ops_dir}" ]]; then
+              mkdir -- "${production_ops_dir}"
+            fi
+            if [[ -L "${production_ops_dir}" || ! -d "${production_ops_dir}" || \
+                  "$(stat -c '%u:%a' "${production_ops_dir}")" != "$(id -u):700" || \
+                  "$(stat -c '%d' "${production_ops_dir}")" != "$(stat -c '%d' "${production_git_dir}")" || \
+                  "$(stat -c '%d' "${production_ops_dir}")" != "$(stat -c '%d' migrations/versions)" ]]; then
+              echo "Production Git ops root has unsafe metadata." >&2
+              exit 1
+            fi
+            exec 9<>"${production_lock_path}"
+            umask 027
+            lock_fd_metadata="$(stat -Lc '%d:%i:%u:%g:%a:%h:%s' "/proc/$$/fd/9")"
+            lock_path_metadata="$(stat -Lc '%d:%i:%u:%g:%a:%h:%s' "${production_lock_path}")"
+            if [[ -L "${production_lock_path}" || ! -e "/proc/$$/fd/9" || \
+                  "${lock_fd_metadata}" != "${lock_path_metadata}" || \
+                  "$(stat -Lc '%u:%a:%h:%s' "/proc/$$/fd/9")" != "$(id -u):600:1:0" ]]; then
+              echo "Production mutation lock has unsafe metadata or identity." >&2
+              exit 1
+            fi
+            flock -n 9
+            verifier="$(mktemp)"
+            trap 'rm -f -- "${verifier}"' EXIT
+            printf '%s' "${PROD_RECONCILE_HELPER_GZIP_B64}" | base64 --decode | gzip -d > "${verifier}"
+            test "$(sha256sum "${verifier}" | cut -d ' ' -f 1)" = "${PROD_RECONCILE_HELPER_SHA256}"
+            chmod 0500 "${verifier}"
+            export UNIKORN_BACKEND_MUTATION_LOCK_FD=9
+            export UNIKORN_BACKEND_MUTATION_LOCK_DEV_INO="$(stat -Lc '%d:%i' "/proc/$$/fd/9")"
+            python3 -I "${verifier}" --target production --mode verify-transactions
+            rm -f -- "${verifier}"
+            trap - EXIT
+            unset UNIKORN_BACKEND_MUTATION_LOCK_FD UNIKORN_BACKEND_MUTATION_LOCK_DEV_INO
             test "$(git branch --show-current)" = "production"
             test -z "$(git status --porcelain)"
             test "$(git rev-parse HEAD)" = "$OPS_RELEASE_SHA"
             source venv/bin/activate
             export BACKEND_OPERATION_REPORT_DIR=/data/prod_unikorn/operation-reports
             mkdir -p "$BACKEND_OPERATION_REPORT_DIR" /data/prod_unikorn/backups
-            exec 9>/tmp/unikorn-backend-mutation-production.lock
-            flock -n 9
             backup_sha256=""
             if [ "$OPS_MODE" = "apply" ]; then
               report_file="${BACKEND_OPERATION_REPORT_DIR}/${OPS_REQUEST_ID}.json"
