@@ -486,6 +486,133 @@ def test_production_first_install_loads_every_reset_unit_before_resetting_failur
     )
 
 
+def test_production_failure_restores_exact_predeployment_sampler_units_before_timer_state():
+    deploy_workflow = (
+        ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
+    ).read_text(encoding="utf-8")
+
+    capture_at = deploy_workflow.index(
+        'unit_path="/etc/systemd/system/${unit_name}"'
+    )
+    mutation_at = deploy_workflow.index("sampler_units_mutated=true")
+    smoke_at = deploy_workflow.index('systemctl start "${baseline_service}"')
+    restore_function_at = deploy_workflow.index("restore_sampler_unit_files()")
+    restore_call_at = deploy_workflow.index("if ! restore_sampler_unit_files; then")
+    timer_rearm_at = deploy_workflow.index(
+        'systemctl start "${sample_timer}"', restore_call_at
+    )
+
+    assert capture_at < mutation_at < smoke_at
+    assert restore_function_at < restore_call_at < timer_rearm_at
+    assert 'marker_path="${unit_backup_stage}/${unit_name}.present"' in deploy_workflow
+    assert '/usr/bin/install -m 0600' in deploy_workflow
+    assert 'sha256sum "${unit_backup_stage}/${unit_name}"' in deploy_workflow
+    assert 'Sampler unit changed while it was being snapshotted' in deploy_workflow
+    assert (
+        '"${backup_path}" "${target_path}" || unit_restore_failed=true'
+        in deploy_workflow
+    )
+    assert (
+        'sudo -n /usr/bin/rm -- "${target_path}" || unit_restore_failed=true'
+        in deploy_workflow
+    )
+    assert '"$(sha256sum "${target_path}" | awk' in deploy_workflow
+    assert 'New sampler unit override remained after rollback' in deploy_workflow
+    assert '"${unit_backup_stage}/${unit_name}.load-state"' in deploy_workflow
+    assert '"${unit_backup_stage}/${unit_name}.fragment-path"' in deploy_workflow
+    assert 'Sampler unit rollback mismatch for ${unit_name}' in deploy_workflow
+    assert 'effective_fragment_matches=false' in deploy_workflow
+    assert 'sampler_fragments_restored=true' in deploy_workflow
+    assert 'leaving the regular timer stopped' in deploy_workflow
+    assert deploy_workflow.index(
+        "systemctl daemon-reload || unit_restore_failed=true", restore_function_at
+    ) < timer_rearm_at
+    assert (
+        'if [[ ! -f "${unit_path}" || -L "${unit_path}" ]]; then'
+        in deploy_workflow
+    )
+
+    restored_units = deploy_workflow[
+        restore_function_at:deploy_workflow.index(
+            "restore_sampling_state()", restore_function_at
+        )
+    ]
+    capture_loop_at = deploy_workflow.rindex("for unit_name in \\", 0, capture_at)
+    captured_units = deploy_workflow[
+        capture_loop_at:deploy_workflow.index(
+            "sampling_state_captured=true", capture_at
+        )
+    ]
+    for unit_variable in (
+        "baseline_service",
+        "sample_service",
+        "verify_service",
+        "sample_timer",
+    ):
+        assert f'"${{{unit_variable}}}"' in restored_units
+        assert f'"${{{unit_variable}}}"' in captured_units
+
+
+def test_production_sampler_unit_rollback_permissions_are_preflighted():
+    deploy_workflow = (
+        ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
+    ).read_text(encoding="utf-8")
+    preflight = deploy_workflow[
+        deploy_workflow.index("Preflighting non-interactive"):
+        deploy_workflow.index("Required sudo permissions are available")
+    ]
+
+    assert (
+        'require_sudo_permission /usr/bin/rm -- "/etc/systemd/system/${unit_name}"'
+        in preflight
+    )
+
+
+def test_production_quiesces_regular_sampler_immediately_before_unit_replacement():
+    deploy_workflow = (
+        ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
+    ).read_text(encoding="utf-8")
+    staging_at = deploy_workflow.index("Staging scheduler popularity sampling units...")
+    install_at = deploy_workflow.index(
+        '"${unit_stage}/${unit_name}" "/etc/systemd/system/${unit_name}"',
+        staging_at,
+    )
+    install_loop_at = deploy_workflow.rindex("for unit_name in \\", staging_at, install_at)
+    quiesce_start = deploy_workflow.rindex(
+        "regular_sampler_quiesced=true", staging_at, install_loop_at
+    )
+    quiesce = deploy_workflow[quiesce_start:install_at]
+
+    assert quiesce.index("regular_sampler_quiesced=true") < quiesce.index(
+        'systemctl stop "${sample_timer}"'
+    )
+    assert 'systemctl stop "${sample_timer}"' in quiesce
+    assert 'systemctl stop "${sample_service}"' in quiesce
+    assert 'assert_unit_inactive "${sample_timer}"' in quiesce
+    assert 'assert_unit_inactive "${sample_service}"' in quiesce
+    assert "regular_sampler_quiesced=true" in quiesce
+    restore = deploy_workflow[
+        deploy_workflow.index("restore_sampling_state()"):
+        deploy_workflow.index("verify_terminal_timer_untouched()")
+    ]
+    assert 'elif [[ "${regular_sampler_quiesced}" == "true" ]]' in restore
+    rearm_at = restore.index('systemctl start "${sample_timer}"')
+    assert restore.rindex(
+        'if [[ "${sampler_fragments_restored}" == "true" ]]', 0, rearm_at
+    ) < rearm_at
+
+
+def test_production_protected_window_exceeds_remote_command_timeout_margin():
+    deploy_workflow = (
+        ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "command_timeout: 35m" in deploy_workflow
+    assert "terminal_cutoff_epoch - 45 * 60" in deploy_workflow
+    assert "exceeding the" in deploy_workflow
+    assert "35-minute hard timeout by ten minutes" in deploy_workflow
+
+
 def test_popularity_sampler_disables_app_startup_side_effects_before_import():
     sampler = (ROOT / "scripts" / "sample_scheduler_popularity.py").read_text(
         encoding="utf-8"
