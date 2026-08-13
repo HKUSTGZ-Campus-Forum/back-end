@@ -318,6 +318,8 @@ def test_production_migration_checkout_reconciliation_is_two_phase_and_fixed_sco
     assert "expected_lock_safety" in deploy_workflow
     assert '[[ -L "${production_lock_path}"' in deploy_workflow
     assert '-L "${production_git_dir}"' in deploy_workflow
+    assert "owner_uid=%s, effective_uid=%s, group_gid=%s, effective_gid=%s" in deploy_workflow
+    assert "forbidden_write_bits=0022" in deploy_workflow
     assert '-L "${production_ops_dir}"' in deploy_workflow
     assert "verify-transactions" in deploy_workflow
     assert "UNIKORN_BACKEND_MUTATION_LOCK_FD=9" in deploy_workflow

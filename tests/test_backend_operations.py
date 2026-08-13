@@ -903,6 +903,8 @@ def test_operation_workflow_is_a_hardened_dispatch_api():
     assert "test \"$(git rev-parse HEAD)\" = \"$OPS_RELEASE_SHA\"" in workflow
     assert "flock -n 9" in workflow
     assert 'readonly production_ops_dir="${production_git_dir}/unikorn-operations"' in workflow
+    assert "owner_uid=%s, effective_uid=%s, group_gid=%s, effective_gid=%s" in workflow
+    assert "forbidden_write_bits=0022" in workflow
     assert 'readonly production_lock_path="${production_ops_dir}/backend-mutations.lock"' in workflow
     assert "git rev-parse --absolute-git-dir" in workflow
     assert "/tmp/unikorn-backend-mutation-production.lock" not in workflow
