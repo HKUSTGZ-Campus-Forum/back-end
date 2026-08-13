@@ -1,0 +1,67 @@
+name: Audit Production Storage
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-mutations-production
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Audit fixed production storage hierarchy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - name: Require a fixed production request from main
+        run: test "$GITHUB_REF" = "refs/heads/main"
+
+      - name: Checkout reviewed helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Encode reviewed helper
+        id: helper
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sha256="$(sha256sum tools/audit_prod_storage.py | cut -d ' ' -f 1)"
+          gzip -n -9 -c tools/audit_prod_storage.py > /tmp/audit-prod-storage.py.gz
+          payload="$(base64 -w 0 /tmp/audit-prod-storage.py.gz)"
+          rm -f /tmp/audit-prod-storage.py.gz
+          printf 'sha256=%s\n' "$sha256" >> "$GITHUB_OUTPUT"
+          printf 'payload=%s\n' "$payload" >> "$GITHUB_OUTPUT"
+
+      - name: Audit exact production storage hierarchy
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        env:
+          AUDIT_HELPER_SHA256: ${{ steps.helper.outputs.sha256 }}
+          AUDIT_HELPER_GZIP_B64: ${{ steps.helper.outputs.payload }}
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          command_timeout: 5m
+          envs: AUDIT_HELPER_SHA256,AUDIT_HELPER_GZIP_B64
+          script: |
+            set -Eeuo pipefail
+            helper="$(mktemp)"
+            trap 'rm -f "$helper"' EXIT
+            printf '%s' "$AUDIT_HELPER_GZIP_B64" | base64 --decode | gzip -d >"$helper"
+            test "$(sha256sum "$helper" | cut -d ' ' -f 1)" = "$AUDIT_HELPER_SHA256"
+            chmod 0500 "$helper"
+            python3 -I "$helper"
+            effective_identity="$(id -u):$(id -g)"
+            for request in \
+              "/usr/bin/chmod 1777 -- /data" \
+              "/usr/bin/chown ${effective_identity} -- /data/prod_unikorn" \
+              "/usr/bin/chmod 0755 -- /data/prod_unikorn"; do
+              if /usr/bin/sudo -n -l ${request} >/dev/null 2>&1; then
+                printf 'sudo_permission=allowed command=%s\n' "$request"
+              else
+                printf 'sudo_permission=denied command=%s\n' "$request"
+              fi
+            done
