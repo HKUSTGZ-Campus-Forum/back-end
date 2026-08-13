@@ -109,8 +109,15 @@ jobs:
           readonly sample_timer="unikorn-scheduler-popularity-sample.timer"
           readonly final_timer="unikorn-scheduler-popularity-final.timer"
           readonly verify_service="unikorn-scheduler-popularity-verify.service"
-          readonly sample_end_epoch="$(date -d '2026-09-30 23:55:00 Asia/Shanghai' +%s)"
-          readonly terminal_cutoff_epoch="$(date -d '2026-09-30 23:59:00 Asia/Shanghai' +%s)"
+          # Fixed UTC epochs for 2026-09-30 23:55 and 23:59 Asia/Shanghai.
+          # Keeping these as literals makes date parsing fail-closed and the
+          # corresponding test derives them independently with zoneinfo.
+          readonly sample_end_epoch=1790783700
+          readonly terminal_cutoff_epoch=1790783940
+          if (( sample_end_epoch <= 0 || terminal_cutoff_epoch <= sample_end_epoch )); then
+            echo "Invalid scheduler popularity sampling boundary." >&2
+            exit 1
+          fi
           # The protected window begins 45 minutes before cutoff, exceeding the
           # SSH action's 35-minute hard timeout by ten minutes.
           readonly protected_start_epoch="$((terminal_cutoff_epoch - 45 * 60))"
@@ -154,6 +161,25 @@ jobs:
               echo "${unit_name} did not quiesce (load=${load_state}, active=${active_state})." >&2
               return 1
             fi
+          }
+
+          timer_next_epoch() {
+            timer_name="$1"
+            next_elapse="$(
+              LC_ALL=C TZ=UTC0 /usr/bin/systemctl show \
+                -p NextElapseUSecRealtime --value "${timer_name}"
+            )"
+            if [[ -z "${next_elapse}" || "${next_elapse}" == "n/a" ]]; then
+              echo "${timer_name} has no next realtime elapse." >&2
+              return 1
+            fi
+            if ! next_epoch="$(
+              LC_ALL=C TZ=UTC0 /usr/bin/date --date="${next_elapse}" +%s
+            )" || [[ ! "${next_epoch}" =~ ^[0-9]+$ ]]; then
+              echo "Cannot parse ${timer_name} next elapse as UTC: ${next_elapse}" >&2
+              return 1
+            fi
+            printf '%s\n' "${next_epoch}"
           }
 
           require_sudo_permission() {
@@ -308,8 +334,8 @@ jobs:
                 echo "CRITICAL: untouched terminal timer lost its armed state." >&2
                 return 1
               fi
-              next_elapse="$(/usr/bin/systemctl show -p NextElapseUSecRealtime --value "${final_timer}")"
-              if [[ -z "${next_elapse}" || "${next_elapse}" == "n/a" || "$(date -d "${next_elapse}" +%s)" -ne "${terminal_cutoff_epoch}" ]]; then
+              if ! next_epoch="$(timer_next_epoch "${final_timer}")" || \
+                  (( next_epoch != terminal_cutoff_epoch )); then
                 echo "CRITICAL: untouched terminal timer no longer targets the exact cutoff." >&2
                 return 1
               fi
@@ -323,8 +349,8 @@ jobs:
               sudo -n /usr/bin/systemctl restart "${final_timer}"
               unit_enabled "${final_timer}"
               unit_active "${final_timer}"
-              next_elapse="$(/usr/bin/systemctl show -p NextElapseUSecRealtime --value "${final_timer}")"
-              test "$(date -d "${next_elapse}" +%s)" -eq "${terminal_cutoff_epoch}"
+              next_epoch="$(timer_next_epoch "${final_timer}")"
+              test "${next_epoch}" -eq "${terminal_cutoff_epoch}"
             fi
           }
 
@@ -376,7 +402,31 @@ jobs:
 
           echo "Starting production deployment for ${DEPLOY_SHA}..."
           cd "${app_dir}"
-          exec 9>/tmp/unikorn-backend-mutation-production.lock
+          readonly production_data_dir="/data/prod_unikorn"
+          readonly production_lock_path="${production_data_dir}/backend-mutations-production.lock"
+          data_owner="$(stat -c '%u' "${production_data_dir}")"
+          data_mode="$(stat -c '%a' "${production_data_dir}")"
+          if [[ -L "${production_data_dir}" || ! -d "${production_data_dir}" || \
+                ( "${data_owner}" != "0" && "${data_owner}" != "$(id -u)" ) || \
+                $((8#${data_mode} & 022)) -ne 0 ]]; then
+            echo "Production data directory has unsafe metadata." >&2
+            exit 1
+          fi
+          umask 077
+          # Read/write opening avoids truncating an existing path before its
+          # descriptor identity and metadata are validated below.
+          exec 9<>"${production_lock_path}"
+          umask 022
+          lock_fd_metadata="$(stat -Lc '%d:%i:%u:%g:%a:%h:%s' "/proc/$$/fd/9")"
+          lock_path_metadata="$(stat -Lc '%d:%i:%u:%g:%a:%h:%s' "${production_lock_path}")"
+          expected_lock_safety="$(id -u):600:1:0"
+          lock_safety="$(stat -Lc '%u:%a:%h:%s' "/proc/$$/fd/9")"
+          if [[ -L "${production_lock_path}" || ! -e "/proc/$$/fd/9" || \
+                "${lock_fd_metadata}" != "${lock_path_metadata}" || \
+                "${lock_safety}" != "${expected_lock_safety}" ]]; then
+            echo "Production mutation lock has unsafe metadata or identity." >&2
+            exit 1
+          fi
           flock -n 9
           echo "Preflighting non-interactive production service permissions..."
           unit_stage="$(mktemp -d /tmp/unikorn-popularity-units.XXXXXX)"
@@ -670,21 +720,21 @@ jobs:
 
           activate_timer() {
             timer_name="$1"
+            expected_epoch="${2:-}"
             sudo -n /usr/bin/systemctl enable "${timer_name}"
             sudo -n /usr/bin/systemctl restart "${timer_name}"
             unit_enabled "${timer_name}"
             unit_active "${timer_name}"
-            next_elapse="$(/usr/bin/systemctl show -p NextElapseUSecRealtime --value "${timer_name}")"
-            if [[ -z "${next_elapse}" || "${next_elapse}" == "n/a" ]]; then
-              echo "${timer_name} has no next realtime elapse." >&2
-              return 1
-            fi
-            next_epoch="$(date -d "${next_elapse}" +%s)"
+            next_epoch="$(timer_next_epoch "${timer_name}")"
             if (( next_epoch <= $(date +%s) )); then
-              echo "${timer_name} next elapse is not in the future: ${next_elapse}" >&2
+              echo "${timer_name} next elapse is not in the future: ${next_epoch}" >&2
               return 1
             fi
-            echo "${timer_name} next elapse: ${next_elapse}"
+            if [[ -n "${expected_epoch}" ]] && (( next_epoch != expected_epoch )); then
+              echo "${timer_name} targets ${next_epoch}, expected ${expected_epoch}." >&2
+              return 1
+            fi
+            echo "${timer_name} next elapse epoch: ${next_epoch}"
           }
 
           deactivate_timer() {
@@ -710,7 +760,7 @@ jobs:
             # reset-failed requires the just-installed service to be loaded on a first rollout.
             sudo -n /usr/bin/systemctl reset-failed "${final_service}"
             activate_timer "${sample_timer}"
-            activate_timer "${final_timer}"
+            activate_timer "${final_timer}" "${terminal_cutoff_epoch}"
           elif (( deploy_epoch < terminal_cutoff_epoch )); then
             echo "Regular sampling is complete; preserving only the terminal timer."
             final_timer_touched=true
@@ -722,7 +772,7 @@ jobs:
             # reset-failed requires the just-installed service to be loaded on a first rollout.
             sudo -n /usr/bin/systemctl reset-failed "${final_service}"
             deactivate_timer "${sample_timer}"
-            activate_timer "${final_timer}"
+            activate_timer "${final_timer}" "${terminal_cutoff_epoch}"
           else
             echo "Popularity sampling campaign is complete; disabling timers and verifying the terminal sample."
             deactivate_timer "${sample_timer}"
