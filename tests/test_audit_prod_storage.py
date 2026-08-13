@@ -192,6 +192,8 @@ def test_workflow_is_read_only_fixed_and_serialized():
     assert "secrets.PROD_SSH_USER" in workflow
     assert "secrets.PROD_SSH_KEY" in workflow
     assert "secrets.PROD_SSH_FINGERPRINT" in workflow
+    assert "ssh-keyscan -T 10 -t rsa,ecdsa,ed25519" in workflow
+    assert "ssh-keygen -lf \"$keys\" -E sha256" in workflow
     assert "chmod 0500" in workflow
     assert "/usr/bin/sudo -n -l" in workflow
     assert "sudo_policy=matched_authentication_unknown" in workflow
