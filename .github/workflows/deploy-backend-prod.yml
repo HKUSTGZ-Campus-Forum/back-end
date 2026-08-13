@@ -108,6 +108,7 @@ jobs:
         host: ${{ secrets.PROD_SSH_HOST }}
         username: ${{ secrets.PROD_SSH_USER }}
         key: ${{ secrets.PROD_SSH_KEY }}
+        fingerprint: ${{ secrets.PROD_SSH_FINGERPRINT }}
         envs: DEPLOY_SHA,CONFIGURED_PROD_API_URL,PROD_RECONCILE_HELPER_GZIP_B64,PROD_RECONCILE_HELPER_SHA256
         command_timeout: 35m
         script: |

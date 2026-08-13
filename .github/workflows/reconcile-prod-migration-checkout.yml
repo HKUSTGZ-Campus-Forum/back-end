@@ -82,6 +82,7 @@ jobs:
           host: ${{ secrets.PROD_SSH_HOST }}
           username: ${{ secrets.PROD_SSH_USER }}
           key: ${{ secrets.PROD_SSH_KEY }}
+          fingerprint: ${{ secrets.PROD_SSH_FINGERPRINT }}
           command_timeout: 5m
           envs: RECONCILE_MODE,RECONCILE_EXPECTED_AGGREGATE_SHA256,RECONCILE_CONFIRMATION,RECONCILE_RUN_ID,RECONCILE_HELPER_SHA256,RECONCILE_HELPER_GZIP_B64
           script: |
