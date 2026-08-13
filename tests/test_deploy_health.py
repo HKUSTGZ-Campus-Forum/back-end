@@ -1,7 +1,9 @@
 import ast
+from datetime import datetime
 import hashlib
 from pathlib import Path
 import re
+from zoneinfo import ZoneInfo
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -220,6 +222,7 @@ def test_dev_migration_checkout_reconciliation_is_two_phase_and_fixed_scope():
         "exec 9>/data/dev_unikorn/backend-mutations-dev.lock"
     )
     assert "refs/heads/main" in workflow
+    assert "--target dev" in workflow
     assert "secrets.DEV_HOST" in workflow
     assert "secrets.DEV_USER" in workflow
     assert "secrets.DEV_SSH_KEY" in workflow
@@ -248,13 +251,71 @@ def test_dev_migration_checkout_reconciliation_is_two_phase_and_fixed_scope():
     assert "helper_sha256" in helper
     assert "committed_revisions" in helper
     assert "committed_heads" in helper
+    assert "committed_allowlisted_revision_duplicates" in helper
     assert "committed_allowlisted_revision_references" in helper
     assert '"depends_on"' in helper
     assert "os.link" in helper
     assert "SELECT version_num FROM alembic_version" in helper
     assert "dev_unikorn" in helper
+    assert '"production"' in helper
+    assert "/data/prod_unikorn/back-end" in helper
+    assert "000000000000_create_oauth_tables.py" in helper
     assert "git clean" not in helper
     assert "rmtree" not in helper
+
+
+def test_production_migration_checkout_reconciliation_is_two_phase_and_fixed_scope():
+    deploy_workflow = (
+        ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
+    ).read_text(encoding="utf-8")
+    workflow = (
+        ROOT / ".github" / "workflows" / "reconcile-prod-migration-checkout.yml"
+    ).read_text(encoding="utf-8")
+    helper = (
+        ROOT / "tools" / "reconcile_dev_migration_checkout.py"
+    ).read_text(encoding="utf-8")
+
+    assert "workflow_dispatch:" in workflow
+    assert "group: backend-mutations-production" in workflow
+    assert "cancel-in-progress: false" in workflow
+    assert "refs/heads/main" in workflow
+    assert "secrets.PROD_SSH_HOST" in workflow
+    assert "secrets.PROD_SSH_USER" in workflow
+    assert "secrets.PROD_SSH_KEY" in workflow
+    assert "environment: production" in workflow
+    assert "--target production" in workflow
+    assert "QUARANTINE_PRODUCTION_LEGACY_OAUTH_MIGRATION" in workflow
+    assert "expected_aggregate_sha256" in workflow
+    assert "git clean" not in workflow
+    assert "rm -rf" not in workflow
+    assert "/data/prod_unikorn/back-end" in helper
+    assert "/data/prod_unikorn/quarantine/legacy-migrations" in helper
+    assert "000000000000_create_oauth_tables.py" in helper
+    assert "ast.literal_eval" in helper
+    assert "PREPARED.json" in helper
+    assert "COMMITTED.json" in helper
+    assert "SELECT version_num FROM alembic_version" in helper
+    assert "prod_unikorn" in helper
+    assert "git clean" not in helper
+    assert "rmtree" not in helper
+    lock_path = "/data/prod_unikorn/backend-mutations-production.lock"
+    assert lock_path in helper
+    assert 'readonly production_data_dir="/data/prod_unikorn"' in deploy_workflow
+    assert (
+        'readonly production_lock_path="${production_data_dir}/backend-mutations-production.lock"'
+        in deploy_workflow
+    )
+    assert deploy_workflow.index("umask 077") < deploy_workflow.index(
+        'exec 9<>"${production_lock_path}"'
+    )
+    assert deploy_workflow.index('exec 9<>"${production_lock_path}"') < (
+        deploy_workflow.index("umask 022")
+    )
+    assert "lock_fd_metadata" in deploy_workflow
+    assert "lock_path_metadata" in deploy_workflow
+    assert "expected_lock_safety" in deploy_workflow
+    assert '[[ -L "${production_lock_path}"' in deploy_workflow
+    assert '[[ -L "${production_data_dir}"' in deploy_workflow
 
 
 def test_dev_data_parent_hardening_is_exact_two_phase_and_non_recursive():
@@ -409,6 +470,39 @@ def test_production_deploy_activates_bounded_popularity_sampling():
     assert "OnCalendar=2026-08-* *:0/5:00 Asia/Shanghai" in sample_timer
     assert "OnCalendar=2026-09-* *:0/5:00 Asia/Shanghai" in sample_timer
     assert "OnCalendar=2026-09-30 23:59:00 Asia/Shanghai" in final_timer
+
+
+def test_production_sampling_cutoff_epochs_are_exact_and_parse_fail_closed():
+    deploy_workflow = (
+        ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
+    ).read_text(encoding="utf-8")
+
+    sample_match = re.search(r"readonly sample_end_epoch=(\d+)", deploy_workflow)
+    terminal_match = re.search(
+        r"readonly terminal_cutoff_epoch=(\d+)", deploy_workflow
+    )
+    assert sample_match is not None
+    assert terminal_match is not None
+
+    zone = ZoneInfo("Asia/Shanghai")
+    expected_sample = int(datetime(2026, 9, 30, 23, 55, tzinfo=zone).timestamp())
+    expected_terminal = int(datetime(2026, 9, 30, 23, 59, tzinfo=zone).timestamp())
+    assert int(sample_match.group(1)) == expected_sample
+    assert int(terminal_match.group(1)) == expected_terminal
+    assert expected_terminal - expected_sample == 4 * 60
+    assert "terminal_cutoff_epoch <= sample_end_epoch" in deploy_workflow
+    assert "timer_next_epoch()" in deploy_workflow
+    assert "LC_ALL=C TZ=UTC0 /usr/bin/systemctl show" in deploy_workflow
+    assert (
+        'LC_ALL=C TZ=UTC0 /usr/bin/date --date="${next_elapse}" +%s'
+        in deploy_workflow
+    )
+    assert "date -d" not in deploy_workflow
+    assert 'activate_timer "${final_timer}" "${terminal_cutoff_epoch}"' in deploy_workflow
+    assert "readonly sample_end_epoch=\"$(date" not in deploy_workflow
+    assert "readonly terminal_cutoff_epoch=\"$(date" not in deploy_workflow
+    assert "backend-mutations-production.lock" in deploy_workflow
+    assert "/tmp/unikorn-backend-mutation-production.lock" not in deploy_workflow
 
 
 def test_production_first_install_loads_every_reset_unit_before_resetting_failures():

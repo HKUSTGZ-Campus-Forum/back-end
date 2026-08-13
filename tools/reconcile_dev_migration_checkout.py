@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Audit and recoverably quarantine one known dev-checkout migration set.
+"""Audit and recoverably quarantine one known deployment migration set.
 
 This helper is intentionally stdlib-only so a reviewed copy can be streamed to
-the dev host without importing or executing any migration module.
+the target host without importing or executing any migration module.
 """
 
 from __future__ import annotations
@@ -27,11 +27,12 @@ LOCK_PATH = Path("/data/dev_unikorn/backend-mutations-dev.lock")
 EXPECTED_BRANCH = "main"
 EXPECTED_DATABASE = "dev_unikorn"
 APPLY_CONFIRMATION = "QUARANTINE_DEV_LEGACY_MIGRATIONS"
+TARGET_NAME = "dev"
 MAX_FILE_BYTES = 1_048_576
 SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 RUN_ID_RE = re.compile(r"[1-9][0-9]{0,19}\Z")
 
-ALLOWLIST = (
+DEV_ALLOWLIST = (
     "migrations/versions/0e18af78068e_.py",
     "migrations/versions/1effc88ae61e_.py",
     "migrations/versions/6734a89a7bb7_.py",
@@ -45,8 +46,54 @@ ALLOWLIST = (
     "migrations/versions/d79de51fc5f3_.py",
     "migrations/versions/da5f7cad7d38_.py",
 )
+PRODUCTION_ALLOWLIST = (
+    "migrations/versions/000000000000_create_oauth_tables.py",
+)
+TARGETS = {
+    "dev": {
+        "app_dir": Path("/data/dev_unikorn/back-end"),
+        "quarantine_root": Path("/data/dev_unikorn/quarantine/legacy-migrations"),
+        "lock_path": Path("/data/dev_unikorn/backend-mutations-dev.lock"),
+        "branch": "main",
+        "database": "dev_unikorn",
+        "confirmation": "QUARANTINE_DEV_LEGACY_MIGRATIONS",
+        "allowlist": DEV_ALLOWLIST,
+    },
+    "production": {
+        "app_dir": Path("/data/prod_unikorn/back-end"),
+        "quarantine_root": Path("/data/prod_unikorn/quarantine/legacy-migrations"),
+        "lock_path": Path("/data/prod_unikorn/backend-mutations-production.lock"),
+        "branch": "production",
+        "database": "prod_unikorn",
+        "confirmation": "QUARANTINE_PRODUCTION_LEGACY_OAUTH_MIGRATION",
+        "allowlist": PRODUCTION_ALLOWLIST,
+    },
+}
+ALLOWLIST = DEV_ALLOWLIST
 ALLOWLIST_SET = frozenset(ALLOWLIST)
 FAILURE_INJECTOR = None
+
+
+def configure_target(target: str) -> None:
+    """Select one reviewed target before opening any host path or database."""
+
+    global APP_DIR, QUARANTINE_ROOT, LOCK_PATH
+    global EXPECTED_BRANCH, EXPECTED_DATABASE, APPLY_CONFIRMATION, TARGET_NAME
+    global ALLOWLIST, ALLOWLIST_SET
+
+    try:
+        config = TARGETS[target]
+    except KeyError as error:
+        raise ReconciliationBlocked("unknown reconciliation target") from error
+    TARGET_NAME = target
+    APP_DIR = config["app_dir"]
+    QUARANTINE_ROOT = config["quarantine_root"]
+    LOCK_PATH = config["lock_path"]
+    EXPECTED_BRANCH = config["branch"]
+    EXPECTED_DATABASE = config["database"]
+    APPLY_CONFIRMATION = config["confirmation"]
+    ALLOWLIST = config["allowlist"]
+    ALLOWLIST_SET = frozenset(ALLOWLIST)
 
 
 class ReconciliationBlocked(RuntimeError):
@@ -104,7 +151,7 @@ def _acquire_lock() -> int:
         )
     except OSError as error:
         os.close(parent_fd)
-        raise ReconciliationBlocked("cannot safely open the fixed dev mutation lock") from error
+        raise ReconciliationBlocked("cannot safely open the fixed mutation lock") from error
     _fsync_directory(parent_fd)
     os.close(parent_fd)
     details = os.fstat(descriptor)
@@ -115,12 +162,12 @@ def _acquire_lock() -> int:
         or stat.S_IMODE(details.st_mode) != 0o600
     ):
         os.close(descriptor)
-        raise ReconciliationBlocked("fixed dev mutation lock has unsafe metadata")
+        raise ReconciliationBlocked("fixed mutation lock has unsafe metadata")
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError as error:
         os.close(descriptor)
-        raise ReconciliationBlocked("another dev backend mutation holds the lock") from error
+        raise ReconciliationBlocked("another backend mutation holds the lock") from error
     return descriptor
 
 
@@ -373,16 +420,16 @@ def committed_graph(repo: Path, allowlisted_revisions: set[str]) -> dict[str, An
 
 
 def _live_database_revisions(repo: Path) -> list[str]:
-    probe = """
+    probe = f"""
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from app.config import Config
 url = make_url(Config.SQLALCHEMY_DATABASE_URI)
-if url.get_backend_name() != 'postgresql' or url.database != 'dev_unikorn':
+if url.get_backend_name() != 'postgresql' or url.database != {EXPECTED_DATABASE!r}:
     raise SystemExit(23)
 engine = create_engine(Config.SQLALCHEMY_DATABASE_URI, **Config.SQLALCHEMY_ENGINE_OPTIONS)
 with engine.connect() as connection:
-    if connection.execute(text('SELECT current_database()')).scalar_one() != 'dev_unikorn':
+    if connection.execute(text('SELECT current_database()')).scalar_one() != {EXPECTED_DATABASE!r}:
         raise SystemExit(24)
     revisions = connection.execute(
         text('SELECT version_num FROM alembic_version ORDER BY version_num')
@@ -411,24 +458,26 @@ for revision in revisions:
         timeout=30,
     )
     if result.returncode:
-        raise ReconciliationBlocked("read-only dev Alembic revision probe failed")
+        raise ReconciliationBlocked("read-only Alembic revision probe failed")
     revisions = result.stdout.splitlines()
     if not revisions:
-        raise ReconciliationBlocked("dev Alembic version table returned no current revisions")
+        raise ReconciliationBlocked("Alembic version table returned no current revisions")
     for revision in revisions:
-        _validate_revision(revision, "dev alembic_version")
+        _validate_revision(revision, f"{TARGET_NAME} alembic_version")
     return sorted(set(revisions))
 
 
 def audit(repo: Path, *, live_revisions: list[str] | None = None) -> dict[str, Any]:
     if repo != APP_DIR or repo.is_symlink() or repo.resolve() != APP_DIR:
-        raise ReconciliationBlocked("repository path is not the fixed dev checkout")
+        raise ReconciliationBlocked("repository path is not the fixed target checkout")
     if not (repo / ".git").exists():
-        raise ReconciliationBlocked("fixed dev checkout is not a git worktree")
+        raise ReconciliationBlocked("fixed target checkout is not a git worktree")
     if _git(repo, "rev-parse", "--show-toplevel") != str(repo.resolve()):
-        raise ReconciliationBlocked("git toplevel does not match the fixed dev checkout")
+        raise ReconciliationBlocked("git toplevel does not match the fixed target checkout")
     if _git(repo, "symbolic-ref", "--short", "HEAD") != EXPECTED_BRANCH:
-        raise ReconciliationBlocked("fixed dev checkout is not on main")
+        raise ReconciliationBlocked(
+            f"fixed target checkout is not on {EXPECTED_BRANCH}"
+        )
     _exact_untracked_allowlist(repo)
     files = [_inspect_file(repo / path, path) for path in ALLOWLIST]
     revisions = [entry["revision"] for entry in files]
@@ -440,14 +489,15 @@ def audit(repo: Path, *, live_revisions: list[str] | None = None) -> dict[str, A
     )
     current_revisions = sorted(set(current_revisions))
     for revision in current_revisions:
-        _validate_revision(revision, "dev alembic_version")
+        _validate_revision(revision, f"{TARGET_NAME} alembic_version")
     current_allowlisted = sorted(set(revisions) & set(current_revisions))
+    committed_duplicates = sorted(set(revisions) & set(graph["revisions"]))
     current_unknown = sorted(
         set(current_revisions) - set(graph["revisions"]) - set(revisions)
     )
     context = {
         "schema_version": 1,
-        "target": "dev",
+        "target": TARGET_NAME,
         "repository": str(APP_DIR),
         "branch": EXPECTED_BRANCH,
         "repository_sha": _git(repo, "rev-parse", "HEAD"),
@@ -457,6 +507,7 @@ def audit(repo: Path, *, live_revisions: list[str] | None = None) -> dict[str, A
         "live_current_unknown_revisions": current_unknown,
         "committed_revisions": graph["revisions"],
         "committed_heads": graph["heads"],
+        "committed_allowlisted_revision_duplicates": committed_duplicates,
         "committed_allowlisted_revision_references": graph[
             "allowlisted_revision_references"
         ],
@@ -663,9 +714,13 @@ def apply(
     before = audit(repo)
     if before["aggregate_sha256"] != expected_digest:
         raise ReconciliationBlocked("current aggregate digest does not match the reviewed audit")
+    if before["committed_allowlisted_revision_duplicates"]:
+        raise ReconciliationBlocked(
+            "an allowlisted file duplicates a committed migration revision"
+        )
     if before["live_current_allowlisted_revisions"]:
         raise ReconciliationBlocked(
-            "live dev database still identifies an allowlisted migration as current"
+            f"live {TARGET_NAME} database still identifies an allowlisted migration as current"
         )
     if before["committed_allowlisted_revision_referenced"]:
         raise ReconciliationBlocked(
@@ -673,7 +728,7 @@ def apply(
         )
     if before["live_current_unknown_revisions"]:
         raise ReconciliationBlocked(
-            "live dev database has a current revision outside the committed and allowlisted graphs"
+            f"live {TARGET_NAME} database has a current revision outside the committed and allowlisted graphs"
         )
 
     destination = _validate_quarantine_target(
@@ -918,6 +973,7 @@ def apply(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--target", required=True, choices=tuple(TARGETS))
     parser.add_argument("--mode", required=True, choices=("audit", "apply"))
     parser.add_argument("--expected-aggregate-sha256", default="")
     parser.add_argument("--confirmation", default="")
@@ -929,6 +985,7 @@ def main() -> int:
     arguments = build_parser().parse_args()
     lock_descriptor: int | None = None
     try:
+        configure_target(arguments.target)
         lock_descriptor = _acquire_lock()
         if arguments.mode == "audit":
             if any(

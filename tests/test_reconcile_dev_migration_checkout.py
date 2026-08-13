@@ -92,6 +92,7 @@ def test_audit_is_deterministic_and_parses_metadata_without_execution(tmp_path, 
     assert first["live_current_allowlisted_revisions"] == []
     assert first["committed_revisions"] == ["committed_head"]
     assert first["committed_heads"] == ["committed_head"]
+    assert first["committed_allowlisted_revision_duplicates"] == []
     assert first["helper_sha256"] == hashlib.sha256(
         Path(reconciliation.__file__).read_bytes()
     ).hexdigest()
@@ -226,6 +227,26 @@ def test_apply_blocks_if_committed_graph_references_allowlisted_revision(
             audited["aggregate_sha256"],
             reconciliation.APPLY_CONFIRMATION,
             "123",
+        )
+    assert not quarantine.exists()
+
+
+def test_apply_blocks_if_allowlisted_file_duplicates_committed_revision(
+    tmp_path, monkeypatch
+):
+    repository, quarantine, _payloads = _checkout(tmp_path, monkeypatch)
+    (repository / reconciliation.ALLOWLIST[0]).write_bytes(
+        _migration("committed_head", None)
+    )
+    audited = reconciliation.audit(repository)
+    assert audited["committed_allowlisted_revision_duplicates"] == ["committed_head"]
+
+    with pytest.raises(reconciliation.ReconciliationBlocked, match="duplicates"):
+        reconciliation.apply(
+            repository,
+            audited["aggregate_sha256"],
+            reconciliation.APPLY_CONFIRMATION,
+            "124",
         )
     assert not quarantine.exists()
 
@@ -488,7 +509,7 @@ def test_source_reappearance_at_restore_syscall_never_replaces_conflict(
 
 
 def test_allowlist_is_exactly_the_twelve_observed_dev_paths():
-    assert reconciliation.ALLOWLIST == (
+    assert reconciliation.DEV_ALLOWLIST == (
         "migrations/versions/0e18af78068e_.py",
         "migrations/versions/1effc88ae61e_.py",
         "migrations/versions/6734a89a7bb7_.py",
@@ -502,6 +523,28 @@ def test_allowlist_is_exactly_the_twelve_observed_dev_paths():
         "migrations/versions/d79de51fc5f3_.py",
         "migrations/versions/da5f7cad7d38_.py",
     )
+
+
+def test_production_target_is_fixed_to_the_single_observed_collision(monkeypatch):
+    reconciliation.configure_target("production")
+    assert reconciliation.TARGET_NAME == "production"
+    assert reconciliation.APP_DIR == Path("/data/prod_unikorn/back-end")
+    assert reconciliation.QUARANTINE_ROOT == Path(
+        "/data/prod_unikorn/quarantine/legacy-migrations"
+    )
+    assert reconciliation.LOCK_PATH == Path(
+        "/data/prod_unikorn/backend-mutations-production.lock"
+    )
+    assert reconciliation.EXPECTED_BRANCH == "production"
+    assert reconciliation.EXPECTED_DATABASE == "prod_unikorn"
+    assert reconciliation.APPLY_CONFIRMATION == (
+        "QUARANTINE_PRODUCTION_LEGACY_OAUTH_MIGRATION"
+    )
+    assert reconciliation.ALLOWLIST == (
+        "migrations/versions/000000000000_create_oauth_tables.py",
+    )
+
+    reconciliation.configure_target("dev")
 
 
 def test_helper_lock_rejects_symlink_and_contended_regular_file(tmp_path, monkeypatch):
