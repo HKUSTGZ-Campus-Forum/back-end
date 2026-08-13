@@ -31,6 +31,8 @@ TARGET_NAME = "dev"
 MAX_FILE_BYTES = 1_048_576
 SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 RUN_ID_RE = re.compile(r"[1-9][0-9]{0,19}\Z")
+RUN_DIRECTORY_RE = re.compile(r"run-([1-9][0-9]{0,19})\Z")
+MANIFEST_MAX_BYTES = 1_048_576
 
 DEV_ALLOWLIST = (
     "migrations/versions/0e18af78068e_.py",
@@ -61,8 +63,14 @@ TARGETS = {
     },
     "production": {
         "app_dir": Path("/data/prod_unikorn/back-end"),
-        "quarantine_root": Path("/data/prod_unikorn/quarantine/legacy-migrations"),
-        "lock_path": Path("/data/prod_unikorn/backend-mutations-production.lock"),
+        "quarantine_root": Path(
+            "/data/prod_unikorn/back-end/.git/unikorn-operations/"
+            "quarantine/legacy-migrations"
+        ),
+        "lock_path": Path(
+            "/data/prod_unikorn/back-end/.git/unikorn-operations/"
+            "backend-mutations.lock"
+        ),
         "branch": "production",
         "database": "prod_unikorn",
         "confirmation": "QUARANTINE_PRODUCTION_LEGACY_OAUTH_MIGRATION",
@@ -133,15 +141,110 @@ def _validate_fixed_parent_descriptor(descriptor: int, label: str) -> tuple[int,
     return details.st_dev, details.st_ino
 
 
-def _acquire_lock() -> int:
-    if LOCK_PATH.parent != APP_DIR.parent:
-        raise ReconciliationBlocked("lock path is outside the fixed private data directory")
-    parent_fd = _open_directory(APP_DIR.parent)
+def _open_lock_parent() -> int:
+    if TARGET_NAME == "dev":
+        if LOCK_PATH.parent != APP_DIR.parent:
+            raise ReconciliationBlocked(
+                "dev lock path is outside the fixed private data directory"
+            )
+        parent_fd = _open_directory(APP_DIR.parent)
+        try:
+            _validate_fixed_parent_descriptor(parent_fd, str(APP_DIR.parent))
+        except Exception:
+            os.close(parent_fd)
+            raise
+        return parent_fd
+
+    expected_operations_root = APP_DIR / ".git" / "unikorn-operations"
+    if LOCK_PATH.parent != expected_operations_root:
+        raise ReconciliationBlocked("production lock path is outside the fixed Git ops root")
+    if _git(APP_DIR, "rev-parse", "--absolute-git-dir") != str(APP_DIR / ".git"):
+        raise ReconciliationBlocked("production checkout does not use the fixed real Git directory")
+    if (
+        _git(APP_DIR, "rev-parse", "--path-format=absolute", "--git-common-dir")
+        != str(APP_DIR / ".git")
+    ):
+        raise ReconciliationBlocked("production checkout uses an alternate Git common directory")
+    app_fd = _open_directory(APP_DIR)
     try:
-        _validate_fixed_parent_descriptor(parent_fd, str(APP_DIR.parent))
+        git_fd = os.open(
+            ".git",
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=app_fd,
+        )
+    except OSError as error:
+        os.close(app_fd)
+        raise ReconciliationBlocked("cannot safely open the production Git directory") from error
+    os.close(app_fd)
+    git_details = os.fstat(git_fd)
+    if (
+        not stat.S_ISDIR(git_details.st_mode)
+        or git_details.st_uid != os.geteuid()
+        or git_details.st_mode & 0o022
+    ):
+        os.close(git_fd)
+        raise ReconciliationBlocked("production Git directory has unsafe metadata")
+    source_parent_fd, _source_parent_identity = _open_source_parent(APP_DIR)
+    source_parent_details = os.fstat(source_parent_fd)
+    os.close(source_parent_fd)
+    if source_parent_details.st_dev != git_details.st_dev:
+        os.close(git_fd)
+        raise ReconciliationBlocked(
+            "production Git directory and migrations must share a filesystem"
+        )
+    try:
+        operations_fd = _ensure_owned_directory(git_fd, "unikorn-operations", 0o700)
     except Exception:
-        os.close(parent_fd)
+        os.close(git_fd)
         raise
+    os.close(git_fd)
+    operations_details = os.fstat(operations_fd)
+    if (
+        operations_details.st_dev != git_details.st_dev
+        or stat.S_IMODE(operations_details.st_mode) != 0o700
+    ):
+        os.close(operations_fd)
+        raise ReconciliationBlocked(
+            "production Git ops root must share the Git filesystem and have mode 0700"
+        )
+    return operations_fd
+
+
+def _validated_inherited_lock() -> int | None:
+    raw_descriptor = os.environ.get("UNIKORN_BACKEND_MUTATION_LOCK_FD", "")
+    if not raw_descriptor:
+        return None
+    if not raw_descriptor.isdecimal():
+        raise ReconciliationBlocked("inherited mutation lock descriptor is invalid")
+    descriptor = int(raw_descriptor)
+    try:
+        details = os.fstat(descriptor)
+    except OSError as error:
+        raise ReconciliationBlocked("inherited mutation lock is not open") from error
+    if (
+        not stat.S_ISREG(details.st_mode)
+        or details.st_uid != os.geteuid()
+        or details.st_nlink != 1
+        or stat.S_IMODE(details.st_mode) != 0o600
+        or details.st_size != 0
+        or os.environ.get("UNIKORN_BACKEND_MUTATION_LOCK_DEV_INO")
+        != f"{details.st_dev}:{details.st_ino}"
+    ):
+        raise ReconciliationBlocked("inherited mutation lock has unsafe metadata")
+    return descriptor
+
+
+def _acquire_lock() -> int:
+    inherited = _validated_inherited_lock()
+    if inherited is not None:
+        try:
+            fcntl.flock(inherited, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise ReconciliationBlocked(
+                "another backend mutation holds the inherited lock"
+            ) from error
+        return inherited
+    parent_fd = _open_lock_parent()
     try:
         descriptor = os.open(
             LOCK_PATH.name,
@@ -153,13 +256,21 @@ def _acquire_lock() -> int:
         os.close(parent_fd)
         raise ReconciliationBlocked("cannot safely open the fixed mutation lock") from error
     _fsync_directory(parent_fd)
-    os.close(parent_fd)
     details = os.fstat(descriptor)
+    try:
+        bound = os.stat(LOCK_PATH.name, dir_fd=parent_fd, follow_symlinks=False)
+    except OSError as error:
+        os.close(descriptor)
+        os.close(parent_fd)
+        raise ReconciliationBlocked("cannot revalidate fixed mutation lock") from error
+    os.close(parent_fd)
     if (
         not stat.S_ISREG(details.st_mode)
         or details.st_uid != os.geteuid()
         or details.st_nlink != 1
         or stat.S_IMODE(details.st_mode) != 0o600
+        or not stat.S_ISREG(bound.st_mode)
+        or (bound.st_dev, bound.st_ino) != (details.st_dev, details.st_ino)
     ):
         os.close(descriptor)
         raise ReconciliationBlocked("fixed mutation lock has unsafe metadata")
@@ -273,6 +384,12 @@ def _read_bound_file(
             raise ReconciliationBlocked(
                 f"allowlisted path is not a regular file: {relative_path}"
             )
+        if TARGET_NAME == "production" and before.st_mode & 0o022:
+            raise ReconciliationBlocked(
+                "production allowlisted file has unsafe metadata: "
+                f"{relative_path} (uid={before.st_uid}, gid={before.st_gid}, "
+                f"mode={stat.S_IMODE(before.st_mode):04o})"
+            )
         if before.st_nlink not in allowed_link_counts:
             raise ReconciliationBlocked(
                 f"allowlisted file has an unexpected hard-link count: {relative_path}"
@@ -297,6 +414,9 @@ def _read_bound_file(
     result = {
         "path": relative_path,
         "size": before.st_size,
+        "mode": stat.S_IMODE(before.st_mode),
+        "uid": before.st_uid,
+        "gid": before.st_gid,
         "sha256": hashlib.sha256(payload).hexdigest(),
         "revision": _validate_revision(
             _literal_assignment(tree, "revision", relative_path), relative_path
@@ -545,11 +665,15 @@ def _ensure_owned_directory(parent_fd: int, name: str, mode: int) -> int:
     details = os.fstat(descriptor)
     if (
         details.st_uid != os.geteuid()
-        or details.st_mode & 0o022
+        or (
+            stat.S_IMODE(details.st_mode) != mode
+            if TARGET_NAME == "production"
+            else bool(details.st_mode & 0o022)
+        )
         or not stat.S_ISDIR(details.st_mode)
     ):
         os.close(descriptor)
-        raise ReconciliationBlocked(f"unsafe quarantine directory: {name}")
+        raise ReconciliationBlocked(f"unsafe private directory: {name}")
     return descriptor
 
 
@@ -587,6 +711,317 @@ def _write_durable_file(directory_fd: int, name: str, payload: bytes, mode: int)
                 pass
     _fsync_directory(directory_fd)
     return hashlib.sha256(payload).hexdigest()
+
+
+def _read_private_file(
+    parent_fd: int,
+    name: str,
+    mode: int,
+    *,
+    max_bytes: int = MANIFEST_MAX_BYTES,
+    expected_uid: int | None = None,
+    expected_gid: int | None = None,
+) -> bytes:
+    try:
+        descriptor = os.open(
+            name,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=parent_fd,
+        )
+    except (OSError, ValueError) as error:
+        raise ReconciliationBlocked(f"cannot safely open transaction file: {name}") from error
+    try:
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != (os.geteuid() if expected_uid is None else expected_uid)
+            or (
+                expected_gid is not None
+                and before.st_gid != expected_gid
+            )
+            or before.st_nlink != 1
+            or stat.S_IMODE(before.st_mode) != mode
+            or before.st_size > max_bytes
+        ):
+            raise ReconciliationBlocked(f"unsafe transaction file metadata: {name}")
+        with os.fdopen(descriptor, "rb", closefd=False) as source:
+            payload = source.read(max_bytes + 1)
+        after = os.fstat(descriptor)
+        if (
+            len(payload) != before.st_size
+            or (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+            != (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+        ):
+            raise ReconciliationBlocked(f"transaction file changed while reading: {name}")
+        return payload
+    finally:
+        os.close(descriptor)
+
+
+def _manifest_json(payload: bytes, name: str) -> dict[str, Any]:
+    try:
+        value = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ReconciliationBlocked(f"invalid transaction manifest: {name}") from error
+    if not isinstance(value, dict):
+        raise ReconciliationBlocked(f"transaction manifest is not an object: {name}")
+    return value
+
+
+def _validate_committed_transaction(
+    quarantine_root_fd: int,
+    transaction_name: str,
+) -> dict[str, Any]:
+    match = RUN_DIRECTORY_RE.fullmatch(transaction_name)
+    if match is None:
+        raise ReconciliationBlocked(
+            f"unexpected production quarantine entry: {transaction_name}"
+        )
+    run_id = match.group(1)
+    try:
+        transaction_fd = os.open(
+            transaction_name,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+            dir_fd=quarantine_root_fd,
+        )
+    except OSError as error:
+        raise ReconciliationBlocked(
+            f"cannot safely open transaction directory: {transaction_name}"
+        ) from error
+    try:
+        transaction_details = os.fstat(transaction_fd)
+        if (
+            transaction_details.st_uid != os.geteuid()
+            or stat.S_IMODE(transaction_details.st_mode) != 0o700
+        ):
+            raise ReconciliationBlocked(
+                f"unsafe transaction directory metadata: {transaction_name}"
+            )
+        try:
+            entries = sorted(os.listdir(transaction_fd))
+        except OSError as error:
+            raise ReconciliationBlocked(
+                f"cannot enumerate transaction directory: {transaction_name}"
+            ) from error
+        if entries != ["COMMITTED.json", "PREPARED.json", "files"]:
+            raise ReconciliationBlocked(
+                f"incomplete or unexpected transaction contents: {transaction_name}"
+            )
+        prepared_payload = _read_private_file(transaction_fd, "PREPARED.json", 0o400)
+        committed_payload = _read_private_file(transaction_fd, "COMMITTED.json", 0o400)
+        prepared = _manifest_json(prepared_payload, "PREPARED.json")
+        committed = _manifest_json(committed_payload, "COMMITTED.json")
+        required_committed = {
+            "state",
+            "prepared_sha256",
+            "aggregate_sha256",
+            "file_count",
+            "git_clean",
+        }
+        if set(committed) != required_committed:
+            raise ReconciliationBlocked("committed manifest fields are not exact")
+        mappings = prepared.get("mappings")
+        files = prepared.get("files")
+        if (
+            prepared.get("state") != "PREPARED"
+            or prepared.get("target") != "production"
+            or prepared.get("repository") != str(APP_DIR)
+            or prepared.get("workflow_run_id") != run_id
+            or prepared.get("quarantine")
+            != str(QUARANTINE_ROOT / transaction_name)
+            or not SHA256_RE.fullmatch(str(prepared.get("aggregate_sha256", "")))
+            or not isinstance(mappings, list)
+            or not isinstance(files, list)
+            or not mappings
+            or len(mappings) != len(files)
+            or committed.get("state") != "COMMITTED"
+            or committed.get("prepared_sha256")
+            != hashlib.sha256(prepared_payload).hexdigest()
+            or committed.get("aggregate_sha256") != prepared.get("aggregate_sha256")
+            or committed.get("file_count") != len(mappings)
+            or committed.get("git_clean") is not True
+        ):
+            raise ReconciliationBlocked(
+                f"transaction manifests do not authenticate completion: {transaction_name}"
+            )
+        try:
+            files_fd = os.open(
+                "files",
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=transaction_fd,
+            )
+        except OSError as error:
+            raise ReconciliationBlocked(
+                "cannot safely open transaction files directory"
+            ) from error
+        try:
+            files_details = os.fstat(files_fd)
+            if (
+                files_details.st_uid != os.geteuid()
+                or stat.S_IMODE(files_details.st_mode) != 0o700
+            ):
+                raise ReconciliationBlocked("unsafe transaction files directory")
+            file_records = {
+                item.get("path"): item
+                for item in files
+                if isinstance(item, dict) and isinstance(item.get("path"), str)
+            }
+            if len(file_records) != len(files):
+                raise ReconciliationBlocked("prepared file records are not exact")
+            expected_names = []
+            for mapping in mappings:
+                if not isinstance(mapping, dict) or set(mapping) != {
+                    "source",
+                    "destination",
+                    "sha256",
+                    "size",
+                    "source_device",
+                    "source_inode",
+                }:
+                    raise ReconciliationBlocked("transaction mapping fields are not exact")
+                if (
+                    not isinstance(mapping["source_device"], int)
+                    or isinstance(mapping["source_device"], bool)
+                    or mapping["source_device"] < 0
+                    or not isinstance(mapping["source_inode"], int)
+                    or isinstance(mapping["source_inode"], bool)
+                    or mapping["source_inode"] <= 0
+                ):
+                    raise ReconciliationBlocked("transaction source identity is invalid")
+                source = mapping["source"]
+                destination = mapping["destination"]
+                if source not in PRODUCTION_ALLOWLIST:
+                    raise ReconciliationBlocked("transaction source is outside the production allowlist")
+                expected_destination = f"files/{PurePosixPath(source).name}"
+                if destination != expected_destination:
+                    raise ReconciliationBlocked("transaction destination is not canonical")
+                name = PurePosixPath(destination).name
+                if not SHA256_RE.fullmatch(str(mapping["sha256"])) or not isinstance(
+                    mapping["size"], int
+                ) or isinstance(mapping["size"], bool) or mapping["size"] < 0:
+                    raise ReconciliationBlocked("transaction mapping digest or size is invalid")
+                expected_file = file_records.get(source)
+                if (
+                    expected_file is None
+                    or expected_file.get("sha256") != mapping["sha256"]
+                    or expected_file.get("size") != mapping["size"]
+                    or not isinstance(expected_file.get("mode"), int)
+                    or isinstance(expected_file.get("mode"), bool)
+                    or expected_file["mode"] & 0o022
+                    or not isinstance(expected_file.get("uid"), int)
+                    or isinstance(expected_file.get("uid"), bool)
+                    or expected_file["uid"] < 0
+                    or not isinstance(expected_file.get("gid"), int)
+                    or isinstance(expected_file.get("gid"), bool)
+                    or expected_file["gid"] < 0
+                ):
+                    raise ReconciliationBlocked("prepared file and mapping records disagree")
+                payload = _read_private_file(
+                    files_fd,
+                    name,
+                    expected_file["mode"],
+                    max_bytes=MAX_FILE_BYTES,
+                    expected_uid=expected_file["uid"],
+                    expected_gid=expected_file["gid"],
+                )
+                if len(payload) != mapping["size"] or hashlib.sha256(payload).hexdigest() != mapping["sha256"]:
+                    raise ReconciliationBlocked("quarantined file does not match its manifest")
+                expected_names.append(name)
+            try:
+                actual_names = sorted(os.listdir(files_fd))
+            except OSError as error:
+                raise ReconciliationBlocked(
+                    "cannot enumerate transaction files"
+                ) from error
+            if actual_names != sorted(expected_names):
+                raise ReconciliationBlocked("quarantined file set is not exact")
+        finally:
+            os.close(files_fd)
+        return {
+            "run_id": run_id,
+            "aggregate_sha256": committed["aggregate_sha256"],
+            "file_count": committed["file_count"],
+        }
+    finally:
+        os.close(transaction_fd)
+
+
+def verify_production_transactions() -> dict[str, Any]:
+    """Fail closed unless every retained production transaction is fully committed."""
+
+    if TARGET_NAME != "production":
+        raise ReconciliationBlocked("transaction verification is production-only")
+    operations_root_fd = _open_lock_parent()
+    try:
+        try:
+            quarantine_parent_fd = os.open(
+                "quarantine",
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                dir_fd=operations_root_fd,
+            )
+        except FileNotFoundError:
+            return {"status": "clean", "transactions": []}
+        try:
+            parent_details = os.fstat(quarantine_parent_fd)
+            if (
+                parent_details.st_uid != os.geteuid()
+                or stat.S_IMODE(parent_details.st_mode) != 0o700
+            ):
+                raise ReconciliationBlocked("unsafe production quarantine parent")
+            try:
+                quarantine_root_fd = os.open(
+                    "legacy-migrations",
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    dir_fd=quarantine_parent_fd,
+                )
+            except OSError as error:
+                raise ReconciliationBlocked(
+                    "cannot safely open production quarantine root"
+                ) from error
+        finally:
+            os.close(quarantine_parent_fd)
+        try:
+            root_details = os.fstat(quarantine_root_fd)
+            if (
+                root_details.st_uid != os.geteuid()
+                or stat.S_IMODE(root_details.st_mode) != 0o700
+            ):
+                raise ReconciliationBlocked("unsafe production quarantine root")
+            try:
+                transaction_names = sorted(os.listdir(quarantine_root_fd))
+            except OSError as error:
+                raise ReconciliationBlocked(
+                    "cannot enumerate production quarantine root"
+                ) from error
+            transactions = [
+                _validate_committed_transaction(quarantine_root_fd, name)
+                for name in transaction_names
+            ]
+        finally:
+            os.close(quarantine_root_fd)
+        return {"status": "clean", "transactions": transactions}
+    finally:
+        os.close(operations_root_fd)
+
+
+def lock_and_exec_production(command: list[str]) -> None:
+    """Acquire the hardened production lock, then replace this process."""
+
+    if TARGET_NAME != "production" or not command or any(not item for item in command):
+        raise ReconciliationBlocked("lock-exec requires a nonempty production command")
+    descriptor = _acquire_lock()
+    details = os.fstat(descriptor)
+    os.set_inheritable(descriptor, True)
+    environment = os.environ.copy()
+    environment["UNIKORN_BACKEND_MUTATION_LOCK_FD"] = str(descriptor)
+    environment["UNIKORN_BACKEND_MUTATION_LOCK_DEV_INO"] = (
+        f"{details.st_dev}:{details.st_ino}"
+    )
+    try:
+        os.execvpe(command[0], command, environment)
+    except OSError as error:
+        os.close(descriptor)
+        raise ReconciliationBlocked("cannot execute command under production lock") from error
 
 
 def _entry_destination(entry: dict[str, Any]) -> tuple[str, str]:
@@ -734,36 +1169,43 @@ def apply(
     destination = _validate_quarantine_target(
         QUARANTINE_ROOT / f"run-{run_id}", run_id
     )
-    if repo == QUARANTINE_ROOT or repo in QUARANTINE_ROOT.parents or QUARANTINE_ROOT in repo.parents:
-        raise ReconciliationBlocked("quarantine root must be outside the repository")
-    fixed_data_parent = APP_DIR.parent
-    fixed_data_parent_fd = _open_directory(fixed_data_parent)
-    try:
-        _validate_fixed_parent_descriptor(fixed_data_parent_fd, str(fixed_data_parent))
-    except Exception:
-        os.close(fixed_data_parent_fd)
-        raise
+    if TARGET_NAME == "dev" and (
+        repo == QUARANTINE_ROOT
+        or repo in QUARANTINE_ROOT.parents
+        or QUARANTINE_ROOT in repo.parents
+    ):
+        raise ReconciliationBlocked("dev quarantine root must be outside the repository")
+    if TARGET_NAME == "production" and LOCK_PATH.parent not in QUARANTINE_ROOT.parents:
+        raise ReconciliationBlocked("production quarantine is outside the fixed Git ops root")
+    operations_root_fd = _open_lock_parent()
     quarantine_parent = QUARANTINE_ROOT.parent
-    if quarantine_parent.parent != fixed_data_parent or QUARANTINE_ROOT.parent != quarantine_parent:
-        os.close(fixed_data_parent_fd)
+    if (
+        quarantine_parent.parent != LOCK_PATH.parent
+        or QUARANTINE_ROOT.parent != quarantine_parent
+    ):
+        os.close(operations_root_fd)
         raise ReconciliationBlocked("quarantine hierarchy is not fixed")
     try:
         quarantine_parent_fd = _ensure_owned_directory(
-            fixed_data_parent_fd, quarantine_parent.name, 0o750
+            operations_root_fd,
+            quarantine_parent.name,
+            0o700 if TARGET_NAME == "production" else 0o750,
         )
     except Exception:
-        os.close(fixed_data_parent_fd)
+        os.close(operations_root_fd)
         raise
     try:
         quarantine_root_fd = _ensure_owned_directory(
-            quarantine_parent_fd, QUARANTINE_ROOT.name, 0o750
+            quarantine_parent_fd,
+            QUARANTINE_ROOT.name,
+            0o700 if TARGET_NAME == "production" else 0o750,
         )
     except Exception:
         os.close(quarantine_parent_fd)
-        os.close(fixed_data_parent_fd)
+        os.close(operations_root_fd)
         raise
     os.close(quarantine_parent_fd)
-    os.close(fixed_data_parent_fd)
+    os.close(operations_root_fd)
     transaction_name = destination.name
     os.mkdir(transaction_name, mode=0o700, dir_fd=quarantine_root_fd)
     _fsync_directory(quarantine_root_fd)
@@ -974,10 +1416,15 @@ def apply(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--target", required=True, choices=tuple(TARGETS))
-    parser.add_argument("--mode", required=True, choices=("audit", "apply"))
+    parser.add_argument(
+        "--mode",
+        required=True,
+        choices=("audit", "apply", "verify-transactions"),
+    )
     parser.add_argument("--expected-aggregate-sha256", default="")
     parser.add_argument("--confirmation", default="")
     parser.add_argument("--workflow-run-id", default="")
+    parser.add_argument("--lock-exec-command", nargs=argparse.REMAINDER)
     return parser
 
 
@@ -986,8 +1433,12 @@ def main() -> int:
     lock_descriptor: int | None = None
     try:
         configure_target(arguments.target)
+        if arguments.lock_exec_command:
+            if arguments.mode != "verify-transactions":
+                raise ReconciliationBlocked("lock-exec is only valid for transaction verification")
+            lock_and_exec_production(arguments.lock_exec_command)
         lock_descriptor = _acquire_lock()
-        if arguments.mode == "audit":
+        if arguments.mode in {"audit", "verify-transactions"}:
             if any(
                 (
                     arguments.expected_aggregate_sha256,
@@ -995,8 +1446,14 @@ def main() -> int:
                     arguments.workflow_run_id,
                 )
             ):
-                raise ReconciliationBlocked("audit does not accept apply controls")
-            result = audit(APP_DIR)
+                raise ReconciliationBlocked(
+                    f"{arguments.mode} does not accept apply controls"
+                )
+            result = (
+                audit(APP_DIR)
+                if arguments.mode == "audit"
+                else verify_production_transactions()
+            )
         else:
             result = apply(
                 APP_DIR,

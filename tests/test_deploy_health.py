@@ -289,7 +289,7 @@ def test_production_migration_checkout_reconciliation_is_two_phase_and_fixed_sco
     assert "git clean" not in workflow
     assert "rm -rf" not in workflow
     assert "/data/prod_unikorn/back-end" in helper
-    assert "/data/prod_unikorn/quarantine/legacy-migrations" in helper
+    assert "/data/prod_unikorn/back-end/.git/unikorn-operations/" in helper
     assert "000000000000_create_oauth_tables.py" in helper
     assert "ast.literal_eval" in helper
     assert "PREPARED.json" in helper
@@ -298,13 +298,15 @@ def test_production_migration_checkout_reconciliation_is_two_phase_and_fixed_sco
     assert "prod_unikorn" in helper
     assert "git clean" not in helper
     assert "rmtree" not in helper
-    lock_path = "/data/prod_unikorn/backend-mutations-production.lock"
-    assert lock_path in helper
-    assert 'readonly production_data_dir="/data/prod_unikorn"' in deploy_workflow
+    assert "/data/prod_unikorn/back-end/.git/unikorn-operations/" in helper
+    assert "backend-mutations.lock" in helper
+    assert 'readonly production_git_dir="${app_dir}/.git"' in deploy_workflow
     assert (
-        'readonly production_lock_path="${production_data_dir}/backend-mutations-production.lock"'
+        'readonly production_lock_path="${production_ops_dir}/backend-mutations.lock"'
         in deploy_workflow
     )
+    assert "git rev-parse --absolute-git-dir" in deploy_workflow
+    assert 'mkdir -- "${production_ops_dir}"' in deploy_workflow
     assert deploy_workflow.index("umask 077") < deploy_workflow.index(
         'exec 9<>"${production_lock_path}"'
     )
@@ -315,7 +317,14 @@ def test_production_migration_checkout_reconciliation_is_two_phase_and_fixed_sco
     assert "lock_path_metadata" in deploy_workflow
     assert "expected_lock_safety" in deploy_workflow
     assert '[[ -L "${production_lock_path}"' in deploy_workflow
-    assert '[[ -L "${production_data_dir}"' in deploy_workflow
+    assert '-L "${production_git_dir}"' in deploy_workflow
+    assert '-L "${production_ops_dir}"' in deploy_workflow
+    assert "verify-transactions" in deploy_workflow
+    assert "UNIKORN_BACKEND_MUTATION_LOCK_FD=9" in deploy_workflow
+    flock_at = deploy_workflow.index("flock -n 9")
+    verify_at = deploy_workflow.index("--mode verify-transactions")
+    sudo_preflight_at = deploy_workflow.index("Preflighting non-interactive")
+    assert flock_at < verify_at < sudo_preflight_at
 
 
 def test_dev_data_parent_hardening_is_exact_two_phase_and_non_recursive():
@@ -501,7 +510,7 @@ def test_production_sampling_cutoff_epochs_are_exact_and_parse_fail_closed():
     assert 'activate_timer "${final_timer}" "${terminal_cutoff_epoch}"' in deploy_workflow
     assert "readonly sample_end_epoch=\"$(date" not in deploy_workflow
     assert "readonly terminal_cutoff_epoch=\"$(date" not in deploy_workflow
-    assert "backend-mutations-production.lock" in deploy_workflow
+    assert "backend-mutations.lock" in deploy_workflow
     assert "/tmp/unikorn-backend-mutation-production.lock" not in deploy_workflow
 
 

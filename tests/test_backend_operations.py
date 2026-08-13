@@ -902,6 +902,16 @@ def test_operation_workflow_is_a_hardened_dispatch_api():
     assert "test -z \"$(git status --porcelain)\"" in workflow
     assert "test \"$(git rev-parse HEAD)\" = \"$OPS_RELEASE_SHA\"" in workflow
     assert "flock -n 9" in workflow
+    assert 'readonly production_ops_dir="${production_git_dir}/unikorn-operations"' in workflow
+    assert 'readonly production_lock_path="${production_ops_dir}/backend-mutations.lock"' in workflow
+    assert "git rev-parse --absolute-git-dir" in workflow
+    assert "/tmp/unikorn-backend-mutation-production.lock" not in workflow
+    production = workflow[workflow.index("operate-production:") :]
+    assert "--mode verify-transactions" in production
+    assert "UNIKORN_BACKEND_MUTATION_LOCK_FD=9" in production
+    assert production.index("flock -n 9") < production.index(
+        "--mode verify-transactions"
+    ) < production.index('test "$(git branch --show-current)" = "production"')
     assert "group: backend-mutations-production" in workflow
     assert "sudo /usr/bin/systemctl is-active" not in workflow
     assert '\"\"|APPLY_DEV|APPLY_PRODUCTION' in workflow

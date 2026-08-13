@@ -82,16 +82,33 @@ jobs:
     environment: production
 
     steps:
+    - name: Checkout the production verifier
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Encode production transaction verifier
+      id: verifier
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+        sha256="$(sha256sum tools/reconcile_dev_migration_checkout.py | cut -d ' ' -f 1)"
+        gzip -n -9 -c tools/reconcile_dev_migration_checkout.py > /tmp/production-transaction-verifier.py.gz
+        payload="$(base64 -w 0 /tmp/production-transaction-verifier.py.gz)"
+        rm -f /tmp/production-transaction-verifier.py.gz
+        printf 'sha256=%s\n' "${sha256}" >> "${GITHUB_OUTPUT}"
+        printf 'payload=%s\n' "${payload}" >> "${GITHUB_OUTPUT}"
+
     - name: Deploy exact commit via SSH
       uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
       env:
         DEPLOY_SHA: ${{ github.sha }}
         CONFIGURED_PROD_API_URL: ${{ vars.PROD_SCHEDULER_HEALTH_URL }}
+        PROD_RECONCILE_HELPER_GZIP_B64: ${{ steps.verifier.outputs.payload }}
+        PROD_RECONCILE_HELPER_SHA256: ${{ steps.verifier.outputs.sha256 }}
       with:
         host: ${{ secrets.PROD_SSH_HOST }}
         username: ${{ secrets.PROD_SSH_USER }}
         key: ${{ secrets.PROD_SSH_KEY }}
-        envs: DEPLOY_SHA,CONFIGURED_PROD_API_URL
+        envs: DEPLOY_SHA,CONFIGURED_PROD_API_URL,PROD_RECONCILE_HELPER_GZIP_B64,PROD_RECONCILE_HELPER_SHA256
         command_timeout: 35m
         script: |
           set -Eeuo pipefail
@@ -138,6 +155,7 @@ jobs:
           unit_stage=""
           unit_backup_stage=""
           sampler_release_stage=""
+          verifier=""
           api_response=""
           public_api_response=""
 
@@ -377,6 +395,7 @@ jobs:
               fi
             fi
             [[ -z "${sampler_release_stage}" ]] || rm -rf -- "${sampler_release_stage}"
+            [[ -z "${verifier}" ]] || rm -f -- "${verifier}"
             [[ "${cleanup_failed}" == "false" ]] || echo "CRITICAL: terminal popularity timer verification failed during cleanup." >&2
             exit "${deploy_status}"
           }
@@ -402,17 +421,32 @@ jobs:
 
           echo "Starting production deployment for ${DEPLOY_SHA}..."
           cd "${app_dir}"
-          readonly production_data_dir="/data/prod_unikorn"
-          readonly production_lock_path="${production_data_dir}/backend-mutations-production.lock"
-          data_owner="$(stat -c '%u' "${production_data_dir}")"
-          data_mode="$(stat -c '%a' "${production_data_dir}")"
-          if [[ -L "${production_data_dir}" || ! -d "${production_data_dir}" || \
-                ( "${data_owner}" != "0" && "${data_owner}" != "$(id -u)" ) || \
-                $((8#${data_mode} & 022)) -ne 0 ]]; then
-            echo "Production data directory has unsafe metadata." >&2
+          readonly production_git_dir="${app_dir}/.git"
+          readonly production_ops_dir="${production_git_dir}/unikorn-operations"
+          readonly production_lock_path="${production_ops_dir}/backend-mutations.lock"
+          if [[ "$(git rev-parse --absolute-git-dir)" != "${production_git_dir}" || \
+                "$(git rev-parse --path-format=absolute --git-common-dir)" != "${production_git_dir}" || \
+                -L "${production_git_dir}" || ! -d "${production_git_dir}" ]]; then
+            echo "Production Git directory is not the fixed real directory." >&2
+            exit 1
+          fi
+          git_owner="$(stat -c '%u' "${production_git_dir}")"
+          git_mode="$(stat -c '%a' "${production_git_dir}")"
+          if [[ "${git_owner}" != "$(id -u)" || $((8#${git_mode} & 022)) -ne 0 ]]; then
+            echo "Production Git directory has unsafe metadata." >&2
             exit 1
           fi
           umask 077
+          if [[ ! -e "${production_ops_dir}" ]]; then
+            mkdir -- "${production_ops_dir}"
+          fi
+          if [[ -L "${production_ops_dir}" || ! -d "${production_ops_dir}" || \
+                "$(stat -c '%u:%a' "${production_ops_dir}")" != "$(id -u):700" || \
+                "$(stat -c '%d' "${production_ops_dir}")" != "$(stat -c '%d' "${production_git_dir}")" || \
+                "$(stat -c '%d' "${production_ops_dir}")" != "$(stat -c '%d' "${app_dir}/migrations/versions")" ]]; then
+            echo "Production Git ops root has unsafe metadata." >&2
+            exit 1
+          fi
           # Read/write opening avoids truncating an existing path before its
           # descriptor identity and metadata are validated below.
           exec 9<>"${production_lock_path}"
@@ -428,6 +462,16 @@ jobs:
             exit 1
           fi
           flock -n 9
+          verifier="$(mktemp)"
+          printf '%s' "${PROD_RECONCILE_HELPER_GZIP_B64}" | base64 --decode | gzip -d > "${verifier}"
+          test "$(sha256sum "${verifier}" | cut -d ' ' -f 1)" = "${PROD_RECONCILE_HELPER_SHA256}"
+          chmod 0500 "${verifier}"
+          export UNIKORN_BACKEND_MUTATION_LOCK_FD=9
+          export UNIKORN_BACKEND_MUTATION_LOCK_DEV_INO="$(stat -Lc '%d:%i' "/proc/$$/fd/9")"
+          python3 -I "${verifier}" --target production --mode verify-transactions
+          rm -f -- "${verifier}"
+          verifier=""
+          unset UNIKORN_BACKEND_MUTATION_LOCK_FD UNIKORN_BACKEND_MUTATION_LOCK_DEV_INO
           echo "Preflighting non-interactive production service permissions..."
           unit_stage="$(mktemp -d /tmp/unikorn-popularity-units.XXXXXX)"
           unit_backup_stage="$(mktemp -d /tmp/unikorn-popularity-unit-backup.XXXXXX)"
