@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 import pytest
 
@@ -192,7 +193,34 @@ def test_workflow_is_read_only_fixed_and_serialized():
     assert "secrets.PROD_SSH_KEY" in workflow
     assert "chmod 0500" in workflow
     assert "/usr/bin/sudo -n -l" in workflow
+    assert "/usr/bin/chmod 0755 -- /data" in workflow
     assert "/usr/bin/chmod 1777 -- /data" in workflow
     assert "/usr/bin/chown ${effective_identity} -- /data/prod_unikorn" in workflow
+    assert (
+        "/usr/bin/chown --no-dereference --from=33:33 "
+        "${effective_identity} -- /data/prod_unikorn"
+        in workflow
+    )
+    assert 'printf \'identity_all_groups=%s\\n\' "$(id -G)"' in workflow
+    assert "getent group" in workflow
+    assert "getent passwd" in workflow
     assert "sudo -n /usr/bin/chmod" not in workflow
     assert "sudo -n /usr/bin/chown" not in workflow
+
+
+def test_audit_rejects_linux_posix_acl_xattrs(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(
+        os,
+        "listxattr",
+        lambda _descriptor: ["system.posix_acl_default"],
+        raising=False,
+    )
+    with pytest.raises(storage_audit.AuditBlocked, match="unexpected POSIX ACL"):
+        storage_audit._reject_posix_acl(123, "test directory")
+
+
+def test_audit_accepts_linux_objects_without_posix_acl(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(os, "listxattr", lambda _descriptor: [], raising=False)
+    storage_audit._reject_posix_acl(123, "test directory")

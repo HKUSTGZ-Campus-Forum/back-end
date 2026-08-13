@@ -40,6 +40,21 @@ class AuditBlocked(RuntimeError):
     """The fixed hierarchy could not be inspected without ambiguity."""
 
 
+def _reject_posix_acl(descriptor: int, description: str) -> None:
+    """Reject Linux access/default ACLs; mode bits are the reviewed authority."""
+    if not sys.platform.startswith("linux"):
+        return
+    try:
+        names = os.listxattr(descriptor)
+    except (AttributeError, OSError) as error:
+        raise AuditBlocked(
+            f"cannot attest POSIX ACLs for fixed {description}"
+        ) from error
+    forbidden = {"system.posix_acl_access", "system.posix_acl_default"}
+    if forbidden.intersection(names):
+        raise AuditBlocked(f"fixed {description} has an unexpected POSIX ACL")
+
+
 def _failure_point(name: str, context: dict[str, Any] | None = None) -> None:
     if FAILURE_INJECTOR is not None:
         FAILURE_INJECTOR(name, context or {})
@@ -62,23 +77,35 @@ def _metadata(details: os.stat_result, path: Path) -> dict[str, Any]:
 
 def _open_directory_path(path: Path, description: str) -> int:
     try:
-        return os.open(
+        descriptor = os.open(
             path,
             os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
         )
     except OSError as error:
         raise AuditBlocked(f"cannot safely open fixed {description}") from error
+    try:
+        _reject_posix_acl(descriptor, description)
+        return descriptor
+    except Exception:
+        os.close(descriptor)
+        raise
 
 
 def _open_child(parent_fd: int, name: str, description: str) -> int:
     try:
-        return os.open(
+        descriptor = os.open(
             name,
             os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
             dir_fd=parent_fd,
         )
     except OSError as error:
         raise AuditBlocked(f"cannot safely open fixed {description}") from error
+    try:
+        _reject_posix_acl(descriptor, description)
+        return descriptor
+    except Exception:
+        os.close(descriptor)
+        raise
 
 
 def _bound_stat(parent_fd: int, name: str, description: str) -> os.stat_result:
@@ -106,8 +133,13 @@ def _open_optional_child(
         return None, {"path": str(path), "status": "absent"}
     except OSError as error:
         raise AuditBlocked(f"cannot safely open optional fixed child {path}") from error
-    details = os.fstat(descriptor)
-    bound = _bound_stat(parent_fd, name, f"optional child {path}")
+    try:
+        details = os.fstat(descriptor)
+        _reject_posix_acl(descriptor, f"optional child {path}")
+        bound = _bound_stat(parent_fd, name, f"optional child {path}")
+    except Exception:
+        os.close(descriptor)
+        raise
     if _identity(details) != _identity(bound):
         os.close(descriptor)
         raise AuditBlocked(f"optional child identity changed: {path}")
@@ -130,6 +162,7 @@ def _open_bound_file(
     except OSError as error:
         raise AuditBlocked(f"cannot safely open fixed file {path}") from error
     try:
+        _reject_posix_acl(descriptor, f"file {path}")
         before = os.fstat(descriptor)
         if (
             not stat.S_ISREG(before.st_mode)
