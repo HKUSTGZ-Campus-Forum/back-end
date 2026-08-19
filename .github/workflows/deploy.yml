@@ -93,14 +93,26 @@ jobs:
             test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
             test -z "$(git status --porcelain=v1 --untracked-files=all)"
 
+            python3 tools/normalize_runtime_permissions.py \
+              --repository "$app_dir"
+
+            umask 022
             source venv/bin/activate
             python -m pip install --upgrade pip
             python -m pip install -r requirements.txt --timeout 600
+            python -m pip install --force-reinstall --no-deps \
+              'PyJWT>=2.13,<3' --timeout 600
             python -m pip check
             python - <<'PY'
             from alibabacloud_green20220302.client import Client  # noqa: F401
             from alibabacloud_tea_openapi import models  # noqa: F401
+            from flask_jwt_extended import JWTManager  # noqa: F401
+            from jwt import DecodeError  # noqa: F401
             PY
+            find venv -type d -exec chmod go+rx {} +
+            find venv -type f -exec chmod go+r {} +
+            find venv/bin -type f -exec chmod go+rx {} +
+            umask 077
 
             install -d -m 0750 "$backup_dir"
             timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -112,6 +124,15 @@ jobs:
 
             python -m flask db upgrade heads
             python -m app.scripts.init_db
+
+            diagnose_startup_failure() {
+              /usr/bin/systemctl status "$service_name" \
+                --no-pager --lines=40 || true
+              if [ -r /var/unikorn/dev_log/error.log ]; then
+                /usr/bin/tail -n 160 /var/unikorn/dev_log/error.log || true
+              fi
+            }
+            trap diagnose_startup_failure ERR
 
             sudo /usr/bin/systemctl restart "$service_name"
             /usr/bin/systemctl is-active --quiet "$service_name"
@@ -130,6 +151,7 @@ jobs:
               sleep 3
             done
             test "$api_ready" = "true"
+            trap - ERR
             python - "$api_response" <<'PY'
             import json
             import sys

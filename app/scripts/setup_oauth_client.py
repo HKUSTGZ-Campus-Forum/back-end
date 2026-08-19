@@ -9,6 +9,15 @@ from app.models.oauth_client import OAuthClient
 import secrets
 import string
 
+
+COURSEPLAN_REDIRECT_URIS = (
+    "https://scheduler.unikorn.axfff.com/api/auth/campus-forum/callback",
+    "https://unikorn.hkust-gz.edu.cn/api/auth/campus-forum/callback",
+    "http://localhost:3000/api/auth/campus-forum/callback",
+    "http://127.0.0.1:3000/api/auth/campus-forum/callback",
+)
+
+
 def generate_client_credentials():
     """Generate secure client ID and secret"""
     def generate_token(length=40):
@@ -27,12 +36,15 @@ def setup_courseplan_oauth_client():
     if existing_client:
         print(f"OAuth client already exists! Updating redirect URIs...")
         
-        # Update redirect URIs to correct URLs
-        redirect_uris = [
-            'https://scheduler.unikorn.axfff.com/api/auth/campus-forum/callback',  # Production
-            'http://localhost:3000/api/auth/campus-forum/callback',  # Development
-            'http://127.0.0.1:3000/api/auth/campus-forum/callback'  # Alternative dev
-        ]
+        # Preserve every registered callback and append any missing supported URL.
+        redirect_uris = list(
+            dict.fromkeys(
+                [
+                    *existing_client.get_redirect_uris(),
+                    *COURSEPLAN_REDIRECT_URIS,
+                ]
+            )
+        )
         existing_client.set_redirect_uris(redirect_uris)
         
         # Update scope to include courses
@@ -63,11 +75,7 @@ def setup_courseplan_oauth_client():
     )
     
     # Set allowed redirect URIs for CoursePlan.search
-    redirect_uris = [
-        'https://scheduler.unikorn.axfff.com/api/auth/campus-forum/callback',  # Production
-        'http://localhost:3000/api/auth/campus-forum/callback',  # Development
-        'http://127.0.0.1:3000/api/auth/campus-forum/callback'  # Alternative dev
-    ]
+    redirect_uris = list(COURSEPLAN_REDIRECT_URIS)
     client.set_redirect_uris(redirect_uris)
     
     # Save to database

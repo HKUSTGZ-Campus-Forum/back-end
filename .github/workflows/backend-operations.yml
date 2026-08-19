@@ -20,6 +20,7 @@ on:
           - curriculum-sync
           - course-duplicates
           - database-upgrade-heads
+          - oauth-redirect
       mode:
         description: "Run mode (verify is dry-run; database upgrade is apply)"
         required: true
@@ -130,12 +131,12 @@ jobs:
           esac
 
           case "$operation:$mode" in
-            verify-release:dry-run|scheduler-import:dry-run|scheduler-import:apply|curriculum-sync:dry-run|curriculum-sync:apply|course-duplicates:dry-run|course-duplicates:apply|database-upgrade-heads:apply) ;;
+            verify-release:dry-run|scheduler-import:dry-run|scheduler-import:apply|curriculum-sync:dry-run|curriculum-sync:apply|course-duplicates:dry-run|course-duplicates:apply|database-upgrade-heads:apply|oauth-redirect:dry-run|oauth-redirect:apply) ;;
             *) echo "Unsupported operation/mode pair" >&2; exit 2 ;;
           esac
 
           case "$operation:$package_id" in
-            scheduler-import:scheduler-2610-v1|curriculum-sync:curriculum-2026-v1|verify-release:|course-duplicates:|database-upgrade-heads:) ;;
+            scheduler-import:scheduler-2610-v1|curriculum-sync:curriculum-2026-v1|verify-release:|course-duplicates:|database-upgrade-heads:|oauth-redirect:) ;;
             *) echo "Operation/package pair is not allowlisted" >&2; exit 2 ;;
           esac
 
