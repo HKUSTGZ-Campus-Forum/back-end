@@ -8,6 +8,7 @@ CORS(application,
                     {"origins": [
                         "https://unikorn.axfff.com",
                         "https://www.unikorn.axfff.com",
+                        "https://unikorn.hkust-gz.edu.cn",
                     ]
                     }},
      supports_credentials=True)

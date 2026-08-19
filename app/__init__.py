@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from werkzeug.middleware.proxy_fix import ProxyFix
 from .config import Config
-from .extensions import db, jwt, migrate, cache#, limiter
+from .extensions import db, jwt, migrate, cache, oauth  # , limiter
 from .routes import register_blueprints
 from app.tasks.sts_pool import init_pool_maintenance
 
@@ -47,6 +47,10 @@ def create_app(config_class=Config):
     db.init_app(app)
     jwt.init_app(app)
     cache.init_app(app)  # Initialize cache
+    oauth.init_app(app)
+
+    from app.services.campus_oidc import register_campus_oidc_client
+    register_campus_oidc_client(app)
 
     # Register blueprints (routes)
     register_blueprints(app)

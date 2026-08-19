@@ -114,6 +114,65 @@ class Config:
     
     # Frontend URLs for email templates
     FRONTEND_BASE_URL = os.getenv('FRONTEND_BASE_URL', 'https://unikorn.axfff.com')
+
+    # HKUST(GZ) Campus SSO (OpenID Connect Authorization Code + PKCE).
+    # The public callback values must match the SSO registration exactly.
+    CAMPUS_SSO_CLIENT_ID = os.getenv('CAMPUS_SSO_CLIENT_ID', '').strip()
+    CAMPUS_SSO_CLIENT_SECRET = os.getenv('CAMPUS_SSO_CLIENT_SECRET', '').strip()
+    CAMPUS_SSO_ISSUER = os.getenv(
+        'CAMPUS_SSO_ISSUER',
+        'https://devsso.hkust-gz.edu.cn',
+    ).rstrip('/')
+    CAMPUS_SSO_METADATA_URL = os.getenv(
+        'CAMPUS_SSO_METADATA_URL',
+        f'{CAMPUS_SSO_ISSUER}/.well-known/openid-configuration',
+    )
+    CAMPUS_SSO_END_SESSION_ENDPOINT = os.getenv(
+        'CAMPUS_SSO_END_SESSION_ENDPOINT',
+        f'{CAMPUS_SSO_ISSUER}/connect/endsession',
+    )
+    CAMPUS_SSO_REDIRECT_URI = os.getenv(
+        'CAMPUS_SSO_REDIRECT_URI',
+        'https://unikorn.hkust-gz.edu.cn/api/auth/oidc/callback',
+    )
+    CAMPUS_SSO_POST_LOGOUT_REDIRECT_URI = os.getenv(
+        'CAMPUS_SSO_POST_LOGOUT_REDIRECT_URI',
+        'https://unikorn.hkust-gz.edu.cn/',
+    )
+    CAMPUS_SSO_SCOPES = os.getenv(
+        'CAMPUS_SSO_SCOPES',
+        'openid profile',
+    ).strip()
+    CAMPUS_SSO_ENABLED = get_env_bool(
+        'CAMPUS_SSO_ENABLED',
+        bool(CAMPUS_SSO_CLIENT_ID and CAMPUS_SSO_CLIENT_SECRET),
+    )
+    CAMPUS_SSO_LOGIN_TICKET_TTL_SECONDS = int(os.getenv(
+        'CAMPUS_SSO_LOGIN_TICKET_TTL_SECONDS',
+        '120',
+    ))
+    CAMPUS_SSO_ID_TOKEN_COOKIE_NAME = os.getenv(
+        'CAMPUS_SSO_ID_TOKEN_COOKIE_NAME',
+        'unikorn_oidc_id_token',
+    )
+    CAMPUS_SSO_COOKIE_PATH = os.getenv(
+        'CAMPUS_SSO_COOKIE_PATH',
+        '/api/auth',
+    )
+    CAMPUS_SSO_COOKIE_SECURE = get_env_bool(
+        'CAMPUS_SSO_COOKIE_SECURE',
+        APP_ENV in {'prod', 'production'},
+    )
+
+    # Authlib keeps short-lived OAuth state, nonce, and PKCE verifier values in
+    # the signed Flask session cookie. Keep that cookie inaccessible to scripts
+    # and scoped to same-site top-level redirects.
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    SESSION_COOKIE_SECURE = get_env_bool(
+        'SESSION_COOKIE_SECURE',
+        APP_ENV in {'prod', 'production'},
+    )
     
     # Redis Configuration for Caching
     REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')

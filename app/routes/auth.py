@@ -524,11 +524,19 @@ def login():
     refresh_token = create_refresh_token(identity=str(user.id))
     
     # Return both tokens and user information
-    return jsonify({
+    response = jsonify({
         "access_token": access_token,
         "refresh_token": refresh_token,
         "user": user.to_dict(include_contact=True)
-    }), 200
+    })
+    response.delete_cookie(
+        current_app.config.get(
+            "CAMPUS_SSO_ID_TOKEN_COOKIE_NAME",
+            "unikorn_oidc_id_token",
+        ),
+        path=current_app.config.get("CAMPUS_SSO_COOKIE_PATH", "/api/auth"),
+    )
+    return response, 200
 
 @bp.route('/refresh', methods=['POST'])
 @jwt_required(refresh=True)
@@ -571,7 +579,23 @@ def logout():
     db.session.add(token)
     db.session.commit()
     
-    return jsonify({"msg": "Successfully logged out"}), 200
+    from app.services.campus_oidc import build_oidc_logout_url
+
+    cookie_name = current_app.config.get(
+        "CAMPUS_SSO_ID_TOKEN_COOKIE_NAME",
+        "unikorn_oidc_id_token",
+    )
+    oidc_logout_url = build_oidc_logout_url(request.cookies.get(cookie_name, ""))
+    response = jsonify({
+        "msg": "Successfully logged out",
+        "oidc_logout_url": oidc_logout_url,
+    })
+    response.delete_cookie(
+        cookie_name,
+        path=current_app.config.get("CAMPUS_SSO_COOKIE_PATH", "/api/auth"),
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response, 200
 
 # @bp.route('/logout-all', methods=['POST'])
 # @jwt_required()

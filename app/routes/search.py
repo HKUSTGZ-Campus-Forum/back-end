@@ -313,7 +313,7 @@ def global_search():
             "courses": []
         }
         
-        # Search posts (top 5)
+        # Keep the dropdown preview compact so users and courses remain visible.
         posts_query = Post.query.filter(
             and_(
                 Post.is_deleted == False,
@@ -322,7 +322,7 @@ def global_search():
                     Post.content.ilike(f'%{query}%')
                 )
             )
-        ).order_by(desc(Post.created_at)).limit(5)
+        ).order_by(desc(Post.created_at)).limit(2)
         
         for post in posts_query.all():
             post_data = post.to_dict(include_content=False, include_tags=True, include_author=True)

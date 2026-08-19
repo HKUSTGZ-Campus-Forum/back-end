@@ -311,3 +311,92 @@ def test_review_listing_uses_offering_target_instead_of_tags(client):
     returned_ids = {post["id"] for post in response.get_json()["posts"]}
     assert correct_id in returned_ids
     assert spoofed_id not in returned_ids
+
+
+def test_course_reviews_aggregate_offerings_and_include_term_context(client):
+    with client.application.app_context():
+        course = _create_course()
+        fall_offering = _create_offering(course, "2510")
+        spring_offering = _create_offering(course, "2530")
+        fall_review = _create_post_with_tags(
+            "fall-review",
+            [course.code, "25-26Fall", SYSTEM_REVIEW_TAG],
+        )
+        spring_review = _create_post_with_tags(
+            "spring-review",
+            [course.code, "25-26Spring", SYSTEM_REVIEW_TAG],
+        )
+        db.session.add_all([
+            CoursePostOfferingTarget(
+                post_id=fall_review.id,
+                course_offering_id=fall_offering.id,
+            ),
+            CoursePostOfferingTarget(
+                post_id=spring_review.id,
+                course_offering_id=spring_offering.id,
+            ),
+        ])
+        db.session.commit()
+        course_id = course.id
+        fall_offering_id = fall_offering.id
+        fall_review_id = fall_review.id
+        spring_review_id = spring_review.id
+
+    response = client.get(
+        f"/courses/{course_id}/reviews",
+        query_string={"lang": "zh", "limit": 20},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["total_count"] == 2
+    assert payload["total_pages"] == 1
+    reviews_by_id = {review["id"]: review for review in payload["reviews"]}
+    assert reviews_by_id[fall_review_id]["offering"] == {
+        "id": fall_offering_id,
+        "semester_id": "2510",
+        "code": "2025fall",
+        "display_name": "25-26秋",
+        "year": "2025",
+        "season": "fall",
+        "season_display": "秋",
+        "offering_tag": "25-26Fall",
+    }
+    assert reviews_by_id[spring_review_id]["offering"]["display_name"] == "25-26春"
+
+
+def test_course_reviews_paginate_without_repeating_reviews(client):
+    with client.application.app_context():
+        course = _create_course()
+        offering = _create_offering(course, "2530")
+        post_ids = []
+        for index in range(3):
+            review = _create_post_with_tags(
+                f"review-{index}",
+                [course.code, "25-26Spring", SYSTEM_REVIEW_TAG],
+            )
+            db.session.add(CoursePostOfferingTarget(
+                post_id=review.id,
+                course_offering_id=offering.id,
+            ))
+            post_ids.append(review.id)
+        db.session.commit()
+        course_id = course.id
+
+    first = client.get(
+        f"/courses/{course_id}/reviews",
+        query_string={"page": 1, "limit": 2},
+    ).get_json()
+    second = client.get(
+        f"/courses/{course_id}/reviews",
+        query_string={"page": 2, "limit": 2},
+    ).get_json()
+
+    first_ids = {review["id"] for review in first["reviews"]}
+    second_ids = {review["id"] for review in second["reviews"]}
+    assert first["total_count"] == 3
+    assert first["total_pages"] == 2
+    assert first["has_next"] is True
+    assert second["has_next"] is False
+    assert first_ids.isdisjoint(second_ids)
+    assert first_ids | second_ids == set(post_ids)
