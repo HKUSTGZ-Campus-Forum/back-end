@@ -83,10 +83,7 @@ def test_alembic_revision_graph_is_acyclic_and_has_expected_heads():
         )
         if parent is not None
     }
-    assert set(revisions) - parents == {
-        "20260813_pop_history_truth",
-        "20260813_feedback_schema",
-    }
+    assert set(revisions) - parents == {"20260819_campus_oidc"}
 
 
 def test_cross_branch_dependencies_order_pristine_database_revisions():
@@ -513,7 +510,7 @@ def test_production_api_deploy_is_journaled_backup_first_and_forward_recoverable
     )
     retry_remove_at = remote_script.index('rm -- "${database_backup}"')
     assert backup_root_guard_at < backup_started_at < retry_remove_at
-    assert "20260813_feedback_schema\\n20260813_pop_history_truth" in remote_script
+    assert "expected_candidate_heads='20260819_campus_oidc'" in remote_script
     assert "requirements.txt requirements.lock" in remote_script
     assert "refusing to mutate the shared production venv" in remote_script
     assert "pip install" not in remote_script
@@ -525,7 +522,6 @@ def test_production_api_deploy_is_journaled_backup_first_and_forward_recoverable
     assert 'skip_sampler_activation=true' in remote_script
     assert 'git cat-file -e "${DEPLOY_SHA}^{commit}"' in remote_script
     assert 'system_identifier FROM pg_control_system()' in remote_script
-
     # Do not feed external command output or unbounded decimal strings into
     # Bash arithmetic. The tested Python helper uses statvfs and arbitrary-size
     # integers, and every capacity gate invokes it directly under errexit.
@@ -573,6 +569,18 @@ def test_production_api_deploy_is_journaled_backup_first_and_forward_recoverable
     assert "os.fsync" in helper
     assert "verify_backup" in helper
     assert "cannot abort a deployment at or beyond migration start" in helper
+
+
+def test_production_deploy_syncs_campus_sso_secrets_without_logging_values():
+    deploy_workflow = (
+        ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "CAMPUS_SSO_CLIENT_SECRET: ${{ secrets.CAMPUS_SSO_CLIENT_SECRET }}" in deploy_workflow
+    assert "CAMPUS_SSO_ENABLED: ${{ vars.CAMPUS_SSO_ENABLED || 'false' }}" in deploy_workflow
+    assert "CAMPUS_SSO_CLIENT_SECRET,CAMPUS_SSO_ISSUER" in deploy_workflow
+    assert 'output_lines.append(f"{key}={values[key]}")' in deploy_workflow
+    assert "without exposing secret values" in deploy_workflow
 
 
 def test_production_deploy_activates_bounded_popularity_sampling_with_user_crontab():

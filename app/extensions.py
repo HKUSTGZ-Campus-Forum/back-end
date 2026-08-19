@@ -3,6 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate
 from flask_caching import Cache
+from authlib.integrations.flask_client import OAuth
 
 db = SQLAlchemy()
 
@@ -12,6 +13,11 @@ migrate = Migrate()
 
 # Initialize cache
 cache = Cache()
+
+# OpenID Connect client registry. Providers are registered from application
+# configuration during app creation so tests and deployments can supply their
+# own issuer and credentials without module-level network access.
+oauth = OAuth()
 
 
 # TODO: Add Flask-Limiter
@@ -23,4 +29,3 @@ cache = Cache()
 #     key_func=get_remote_address,
 #     default_limits=["200 per day", "50 per hour"]
 # )
-

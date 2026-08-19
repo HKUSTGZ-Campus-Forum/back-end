@@ -39,6 +39,7 @@ CORS(app,
                         "http://127.0.0.1:3003",
                         "https://dev.unikorn.axfff.com",
                         "https://unikorn.axfff.com",
+                        "https://unikorn.hkust-gz.edu.cn",
                     ]
                     }},
      supports_credentials=True)
