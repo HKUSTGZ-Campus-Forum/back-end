@@ -93,6 +93,9 @@ jobs:
             test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
             test -z "$(git status --porcelain=v1 --untracked-files=all)"
 
+            python3 tools/normalize_runtime_permissions.py \
+              --repository "$app_dir"
+
             source venv/bin/activate
             python -m pip install --upgrade pip
             python -m pip install -r requirements.txt --timeout 600
@@ -113,6 +116,15 @@ jobs:
             python -m flask db upgrade heads
             python -m app.scripts.init_db
 
+            diagnose_startup_failure() {
+              /usr/bin/systemctl status "$service_name" \
+                --no-pager --lines=40 || true
+              if [ -r /var/unikorn/dev_log/error.log ]; then
+                /usr/bin/tail -n 160 /var/unikorn/dev_log/error.log || true
+              fi
+            }
+            trap diagnose_startup_failure ERR
+
             sudo /usr/bin/systemctl restart "$service_name"
             /usr/bin/systemctl is-active --quiet "$service_name"
 
@@ -130,6 +142,7 @@ jobs:
               sleep 3
             done
             test "$api_ready" = "true"
+            trap - ERR
             python - "$api_response" <<'PY'
             import json
             import sys
