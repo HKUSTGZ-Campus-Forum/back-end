@@ -32,3 +32,8 @@ jobs:
               --since "-10 minutes" \
               --no-pager \
               --lines=120 || true
+            if [ -r /var/unikorn/dev_log/error.log ]; then
+              /usr/bin/tail -n 160 /var/unikorn/dev_log/error.log
+            else
+              echo "Dev API error log is not readable by the deployment user."
+            fi
