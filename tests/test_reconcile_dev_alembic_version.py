@@ -57,6 +57,13 @@ def test_fixed_reconciliation_boundary_is_narrow():
     )
 
 
+def test_checkout_permission_guard_allows_only_reviewed_group_write(monkeypatch):
+    source = MODULE_PATH.read_text(encoding="utf-8")
+    assert "stat.S_IMODE(details.st_mode) not in {0o755, 0o775}" in source
+    assert "details.st_uid != os.geteuid()" in source
+    assert "details.st_gid != os.getegid()" in source
+
+
 def test_apply_requires_exact_digest_confirmation_and_backup(monkeypatch):
     reviewed = _audit_result()
     monkeypatch.setattr(reconciliation, "audit", lambda: reviewed)

@@ -154,7 +154,8 @@ def _validate_checkout() -> dict[str, Any]:
     if (
         not stat.S_ISDIR(details.st_mode)
         or details.st_uid != os.geteuid()
-        or details.st_mode & 0o022
+        or details.st_gid != os.getegid()
+        or stat.S_IMODE(details.st_mode) not in {0o755, 0o775}
     ):
         raise ReconciliationBlocked("fixed dev checkout has unsafe ownership or permissions")
     if _git("rev-parse", "--show-toplevel") != str(APP_DIR):
