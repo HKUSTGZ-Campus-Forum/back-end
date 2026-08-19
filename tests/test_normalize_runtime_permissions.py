@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
-import os
 from pathlib import Path
 import stat
 import subprocess
-
-import pytest
 
 
 MODULE_PATH = Path(__file__).parents[1] / "tools" / "normalize_runtime_permissions.py"
@@ -52,7 +49,7 @@ def test_normalize_only_changes_tracked_files_and_their_directories(tmp_path):
     assert stat.S_IMODE(secret.stat().st_mode) == 0o600
 
 
-def test_normalize_rejects_symlink_tracked_entry(tmp_path):
+def test_normalize_skips_tracked_symlink_without_following_it(tmp_path):
     repository = tmp_path / "repo"
     repository.mkdir()
     _git(repository, "init")
@@ -61,11 +58,11 @@ def test_normalize_rejects_symlink_tracked_entry(tmp_path):
     (repository / "link").symlink_to(target)
     _git(repository, "add", "link")
 
-    with pytest.raises(
-        normalizer.PermissionNormalizationBlocked,
-        match="not a regular file",
-    ):
-        normalizer.normalize(repository)
+    before_mode = stat.S_IMODE(target.stat().st_mode)
+    result = normalizer.normalize(repository)
+    assert result["symlinks_skipped"] == 1
+    assert (repository / "link").is_symlink()
+    assert stat.S_IMODE(target.stat().st_mode) == before_mode
 
 
 def test_deploy_normalizes_permissions_before_starting_runtime():

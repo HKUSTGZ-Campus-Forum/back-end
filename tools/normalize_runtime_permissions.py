@@ -35,9 +35,9 @@ def _tracked_entries(repository: Path) -> list[tuple[int, str]]:
             mode = int(raw_mode, 8)
         except (UnicodeDecodeError, ValueError) as error:
             raise PermissionNormalizationBlocked("invalid Git index entry") from error
-        if raw_stage != b"0" or mode not in {0o100644, 0o100755}:
+        if raw_stage != b"0" or mode not in {0o100644, 0o100755, 0o120000}:
             raise PermissionNormalizationBlocked(
-                "tracked entry is staged, unmerged, or not a regular file"
+                "tracked entry is staged, unmerged, or has an unsupported type"
             )
         pure_path = PurePosixPath(path)
         if pure_path.is_absolute() or ".." in pure_path.parts or path.startswith(".git/"):
@@ -70,9 +70,17 @@ def normalize(repository: Path) -> dict[str, int | str]:
     entries = _tracked_entries(repository)
     directories = {repository}
     files_changed = 0
+    symlinks_skipped = 0
     for git_mode, relative_path in entries:
         path = repository / relative_path
         file_details = path.lstat()
+        if git_mode == 0o120000:
+            if not stat.S_ISLNK(file_details.st_mode):
+                raise PermissionNormalizationBlocked(
+                    f"tracked symlink has an unexpected type: {relative_path}"
+                )
+            symlinks_skipped += 1
+            continue
         if not stat.S_ISREG(file_details.st_mode) or file_details.st_uid != os.geteuid():
             raise PermissionNormalizationBlocked(
                 f"tracked file ownership or type is invalid: {relative_path}"
@@ -106,6 +114,7 @@ def normalize(repository: Path) -> dict[str, int | str]:
         "tracked_files": len(entries),
         "files_changed": files_changed,
         "directories_changed": directories_changed,
+        "symlinks_skipped": symlinks_skipped,
     }
 
 
