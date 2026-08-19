@@ -260,7 +260,7 @@ print(json.dumps(
     return payload
 
 
-def _schema_check() -> None:
+def _schema_check() -> list[str]:
     # Compare the live schema directly with SQLAlchemy metadata. Do not invoke
     # Alembic's ScriptDirectory while the reviewed untracked migration files
     # are present, because loading migration modules would execute their code.
@@ -282,9 +282,39 @@ with app.app_context(), engine.connect() as connection:
     if connection.execute(text('SELECT current_database()')).scalar_one() != {EXPECTED_DATABASE!r}:
         raise SystemExit(42)
     differences = compare_metadata(MigrationContext.configure(connection), db.metadata)
-if differences:
-    print(json.dumps([repr(difference) for difference in differences], sort_keys=True))
+expected = []
+unexpected = []
+for difference in differences:
+    if (
+        isinstance(difference, tuple)
+        and len(difference) == 2
+        and difference[0] == 'remove_table'
+        and getattr(difference[1], 'name', None) == 'scheduler_offering_import_runs'
+    ):
+        expected.append('runtime_table:scheduler_offering_import_runs')
+        continue
+    if isinstance(difference, list) and len(difference) == 1:
+        operation = difference[0]
+        if (
+            isinstance(operation, tuple)
+            and len(operation) >= 7
+            and operation[0] == 'modify_type'
+            and operation[2] == 'gugu_messages'
+            and operation[3] == 'deleted_at'
+            and getattr(operation[-2], 'timezone', None) is False
+            and getattr(operation[-1], 'timezone', None) is True
+        ):
+            expected.append('known_type_drift:gugu_messages.deleted_at:naive_to_timezone')
+            continue
+    unexpected.append(repr(difference))
+required = [
+    'known_type_drift:gugu_messages.deleted_at:naive_to_timezone',
+    'runtime_table:scheduler_offering_import_runs',
+]
+if sorted(expected) != required or unexpected:
+    print(json.dumps({{'expected': sorted(expected), 'unexpected': unexpected}}, sort_keys=True))
     raise SystemExit(43)
+print(json.dumps(required, sort_keys=True))
 """
     result = _run(
         str(APP_DIR / "venv" / "bin" / "python"),
@@ -299,6 +329,13 @@ if differences:
                 "database schema does not match the checked-out models: " + detail
             )
         raise ReconciliationBlocked("database schema comparison failed")
+    try:
+        summary = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise ReconciliationBlocked("database schema comparison returned invalid output") from error
+    if not isinstance(summary, list) or not all(isinstance(item, str) for item in summary):
+        raise ReconciliationBlocked("database schema comparison returned invalid summary")
+    return summary
 
 
 def _digest(context: dict[str, Any]) -> str:
@@ -310,7 +347,7 @@ def audit() -> dict[str, Any]:
     checkout = _validate_checkout()
     graph = _committed_graph()
     database = _database_probe()
-    _schema_check()
+    schema_differences = _schema_check()
     context = {
         "schema_version": 1,
         "target": "dev",
@@ -318,7 +355,8 @@ def audit() -> dict[str, Any]:
         "legacy_revision": LEGACY_REVISION,
         "canonical_revision": CANONICAL_REVISION,
         "companion_revision": COMPANION_REVISION,
-        "schema_check": "passed",
+        "schema_check": "passed_with_reviewed_existing_drift",
+        "reviewed_schema_differences": schema_differences,
         "helper_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         **checkout,
         "committed_graph": graph,

@@ -23,6 +23,10 @@ def _audit_result() -> dict:
         "canonical_revision": reconciliation.CANONICAL_REVISION,
         "companion_revision": reconciliation.COMPANION_REVISION,
         "schema_check": "passed",
+        "reviewed_schema_differences": [
+            "known_type_drift:gugu_messages.deleted_at:naive_to_timezone",
+            "runtime_table:scheduler_offering_import_runs",
+        ],
         "helper_sha256": "a" * 64,
         "repository_sha": "b" * 40,
         "legacy_files": [],
@@ -148,7 +152,12 @@ def test_schema_check_compares_metadata_without_loading_migration_modules(monkey
 
     class Result:
         returncode = 0
-        stdout = ""
+        stdout = json.dumps(
+            [
+                "known_type_drift:gugu_messages.deleted_at:naive_to_timezone",
+                "runtime_table:scheduler_offering_import_runs",
+            ]
+        )
         stderr = ""
 
     def fake_run(*arguments, env=None):
@@ -156,18 +165,22 @@ def test_schema_check_compares_metadata_without_loading_migration_modules(monkey
         return Result()
 
     monkeypatch.setattr(reconciliation, "_run", fake_run)
-    reconciliation._schema_check()
+    summary = reconciliation._schema_check()
     script = captured["arguments"][2]
     assert "compare_metadata" in script
     assert "MigrationContext.configure" in script
     assert "ScriptDirectory" not in script
     assert "flask" not in captured["arguments"][0]
+    assert summary == [
+        "known_type_drift:gugu_messages.deleted_at:naive_to_timezone",
+        "runtime_table:scheduler_offering_import_runs",
+    ]
 
 
 def test_schema_check_reports_only_structural_diff_representations(monkeypatch):
     class Result:
         returncode = 43
-        stdout = '["remove_table: legacy"]\n'
+        stdout = '{"expected": [], "unexpected": ["remove_table: legacy"]}\n'
         stderr = "ignored runtime detail"
 
     monkeypatch.setattr(reconciliation, "_run", lambda *args, **kwargs: Result())
