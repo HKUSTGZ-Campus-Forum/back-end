@@ -23,6 +23,8 @@ def _lectures_for_section(source_section: Any) -> list[Any]:
 def sync_offering_sections(
     offering: CourseOffering,
     source_sections: Iterable[Any],
+    *,
+    preserve_missing: bool = False,
 ) -> dict[str, int]:
     """Synchronize an offering without replacing stable CourseSection rows.
 
@@ -97,6 +99,13 @@ def sync_offering_sections(
         section.avail = getattr(source, "avail", None)
         section.wait = getattr(source, "wait", None)
         section.is_main = source.is_main
+        section.status = "active"
+        section.source_class_type = getattr(source, "source_class_type", None)
+        section.source_section_label = getattr(source, "source_section_label", None)
+        section.associated_class = getattr(source, "associated_class", None)
+        section.consent_required = bool(getattr(source, "consent_required", False))
+        section.remarks = getattr(source, "remarks", None)
+        section.reserve_cap = list(getattr(source, "reserve_cap", None) or [])
         db.session.flush()
 
         if cart_user_ids:
@@ -127,13 +136,25 @@ def sync_offering_sections(
                 end_time=lecture.end_time,
                 room=lecture.room,
                 instructor_text=lecture.instructor,
+                facility_id=getattr(lecture, "facility_id", None),
+                date_ranges=list(getattr(lecture, "date_ranges", None) or []),
             ))
 
     removed = 0
+    cancelled = 0
     for source_section_id, section in existing.items():
         if source_section_id in incoming_ids:
             continue
-        db.session.delete(section)
-        removed += 1
+        if preserve_missing:
+            section.status = "cancelled"
+            cancelled += 1
+        else:
+            db.session.delete(section)
+            removed += 1
 
-    return {"created": created, "updated": updated, "removed": removed}
+    return {
+        "created": created,
+        "updated": updated,
+        "removed": removed,
+        "cancelled": cancelled,
+    }

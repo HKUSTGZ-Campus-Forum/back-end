@@ -150,12 +150,19 @@ def _course_flag(course, field_name):
     return getattr(course, field_name)
 
 
+def _course_source_metadata(course):
+    version = current_catalog_version(course)
+    if version and isinstance(version.source_metadata, dict):
+        return version.source_metadata
+    return {}
+
+
 def _domain_sections_for_offering(offering):
     if not offering:
         return []
     return (
         CourseSection.query
-        .filter_by(offering_id=offering.id)
+        .filter_by(offering_id=offering.id, status="active")
         .order_by(CourseSection.layer, CourseSection.bundle, CourseSection.source_section_id)
         .all()
     )
@@ -178,6 +185,8 @@ def list_semesters():
     domain_rows = (
         db.session.query(CourseOffering.semester_id, func.count(CourseSection.id))
         .join(CourseSection, CourseSection.offering_id == CourseOffering.id)
+        .filter(CourseOffering.status == 'offered')
+        .filter(CourseSection.status == 'active')
         .group_by(CourseOffering.semester_id)
         .all()
     )
@@ -221,7 +230,10 @@ def search_courses():
         course_ids = [
             course_id for (course_id,) in (
                 db.session.query(CourseOffering.course_id)
-                .filter(CourseOffering.semester_id == semester)
+                .filter(
+                    CourseOffering.semester_id == semester,
+                    CourseOffering.status == 'offered',
+                )
                 .distinct()
                 .all()
             )
@@ -258,6 +270,8 @@ def list_subjects():
         )
         .join(CourseOffering, CourseOffering.course_id == Course.id)
         .join(CourseSection, CourseSection.offering_id == CourseOffering.id)
+        .filter(CourseOffering.status == 'offered')
+        .filter(CourseSection.status == 'active')
         .filter(Course.is_deleted == False)
         .filter(Course.subject.isnot(None))
         .filter(func.trim(Course.subject) != '')
@@ -289,6 +303,7 @@ def get_course_detail(code):
         domain_sections.extend(_domain_sections_for_offering(offering))
 
     if domain_sections:
+        source_metadata = _course_source_metadata(course)
         section_data = []
         for s in domain_sections:
             meetings = _meetings_for_section(s.id)
@@ -299,6 +314,12 @@ def get_course_detail(code):
                 'bundle': s.bundle,
                 'layer': s.layer,
                 'quota': s.quota,
+                'enrol': s.enrol,
+                'unfilled_capacity': s.avail,
+                'wait': s.wait,
+                'reserve_cap': s.reserve_cap or [],
+                'consent_required': s.consent_required,
+                'remarks': s.remarks,
                 'section_type': s.section_type,
                 'is_main': s.is_main,
                 'lectures': [{
@@ -307,6 +328,8 @@ def get_course_detail(code):
                     'end_time': m.end_time,
                     'room': m.room,
                     'instructor': m.instructor_text,
+                    'facility_id': m.facility_id,
+                    'date_ranges': m.date_ranges or [],
                 } for m in meetings],
             })
 
@@ -323,9 +346,12 @@ def get_course_detail(code):
             'exclusion': _course_requirement(course, "exclusion"),
             'pg_course': _course_flag(course, "pg_course"),
             'klms_course': _course_flag(course, "klms_course"),
+            'attributes': source_metadata.get('attributes', []),
+            'previous_course_code': source_metadata.get('previous_course_code'),
             'sections': section_data,
         })
 
+    source_metadata = _course_source_metadata(course)
     return jsonify({
         'course_code': course.code,
         'course_title': _course_title(course),
@@ -339,6 +365,8 @@ def get_course_detail(code):
         'exclusion': _course_requirement(course, "exclusion"),
         'pg_course': _course_flag(course, "pg_course"),
         'klms_course': _course_flag(course, "klms_course"),
+        'attributes': source_metadata.get('attributes', []),
+        'previous_course_code': source_metadata.get('previous_course_code'),
         'sections': [],
     })
 
@@ -469,12 +497,20 @@ def _serialize_domain_cart_item(cart_item):
             'section_type': section.section_type,
             'is_main': section.is_main,
             'quota': section.quota,
+            'enrol': section.enrol,
+            'unfilled_capacity': section.avail,
+            'wait': section.wait,
+            'reserve_cap': section.reserve_cap or [],
+            'consent_required': section.consent_required,
+            'remarks': section.remarks,
             'lectures': [{
                 'day': meeting.day,
                 'start_time': meeting.start_time,
                 'end_time': meeting.end_time,
                 'room': meeting.room,
                 'instructor': meeting.instructor_text,
+                'facility_id': meeting.facility_id,
+                'date_ranges': meeting.date_ranges or [],
             } for meeting in meetings],
         })
 
@@ -602,6 +638,7 @@ def remove_from_cart(semester, code):
                     UserSectionSelection.offering_id == offering.id,
                     UserSectionSelection.enabled.is_(True),
                     CourseSection.offering_id == offering.id,
+                    CourseSection.status == 'active',
                 )
                 .with_for_update()
                 .all()
@@ -664,6 +701,7 @@ def toggle_course_enabled(semester, code):
                     UserSectionSelection.offering_id == offering.id,
                     UserSectionSelection.enabled.is_(True),
                     CourseSection.offering_id == offering.id,
+                    CourseSection.status == 'active',
                 )
                 .with_for_update()
                 .all()
@@ -715,6 +753,7 @@ def toggle_bundle_enabled(semester, code, bundle_id, layer):
             offering_id=offering.id,
             bundle=bundle_id,
             layer=layer,
+            status='active',
         ).all()
         if not cart or not sections:
             return jsonify({'error': 'Bundle not found'}), 404
@@ -780,7 +819,11 @@ def toggle_layer_enabled(semester, code, layer):
             .with_for_update()
             .first()
         )
-        sections = CourseSection.query.filter_by(offering_id=offering.id, layer=layer).all()
+        sections = CourseSection.query.filter_by(
+            offering_id=offering.id,
+            layer=layer,
+            status='active',
+        ).all()
         if not cart or not sections:
             return jsonify({'error': 'No bundles found'}), 404
         existing_selections = (

@@ -27,6 +27,7 @@ class CourseCatalogVersion(db.Model):
     pg_course = db.Column(db.Boolean, default=False, nullable=False)
     klms_course = db.Column(db.Boolean, default=False, nullable=False)
     vector = db.Column(db.String(16), nullable=True)
+    source_metadata = db.Column(JSONB, default=dict, nullable=False)
     effective_from_semester_id = db.Column(db.String(16), nullable=True)
     effective_to_semester_id = db.Column(db.String(16), nullable=True)
     imported_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
@@ -152,6 +153,13 @@ class CourseSection(db.Model):
     avail = db.Column(db.Integer, nullable=True)
     wait = db.Column(db.Integer, nullable=True)
     is_main = db.Column(db.Boolean, default=False, nullable=False)
+    status = db.Column(db.String(24), default="active", nullable=False)
+    source_class_type = db.Column(db.String(16), nullable=True)
+    source_section_label = db.Column(db.String(64), nullable=True)
+    associated_class = db.Column(db.Integer, nullable=True)
+    consent_required = db.Column(db.Boolean, default=False, nullable=False)
+    remarks = db.Column(db.Text, nullable=True)
+    reserve_cap = db.Column(JSONB, default=list, nullable=False)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -162,8 +170,13 @@ class CourseSection(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint("offering_id", "source_section_id", name="uq_course_section_offering_source_section"),
+        db.CheckConstraint(
+            "status IN ('active', 'cancelled')",
+            name="valid_course_section_status",
+        ),
         db.Index("idx_course_sections_offering", "offering_id"),
         db.Index("idx_course_sections_bundle_layer", "offering_id", "bundle", "layer"),
+        db.Index("idx_course_sections_offering_status", "offering_id", "status"),
     )
 
 
@@ -177,6 +190,8 @@ class CourseMeeting(db.Model):
     end_time = db.Column(db.Integer, nullable=False)
     room = db.Column(db.String(255), nullable=False)
     instructor_text = db.Column(db.String(255), nullable=False)
+    facility_id = db.Column(db.String(64), nullable=True)
+    date_ranges = db.Column(JSONB, default=list, nullable=False)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -191,6 +206,40 @@ class CourseMeeting(db.Model):
         db.CheckConstraint("end_time >= 0 AND end_time <= 2359", name="valid_course_meeting_end_time"),
         db.CheckConstraint("start_time < end_time", name="valid_course_meeting_time_order"),
         db.Index("idx_course_meetings_section", "section_id"),
+    )
+
+
+class SisnSyncRun(db.Model):
+    __tablename__ = "sisn_sync_runs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    request_id = db.Column(db.String(64), nullable=False, unique=True)
+    semester_id = db.Column(db.String(16), nullable=False)
+    mode = db.Column(db.String(16), nullable=False)
+    status = db.Column(db.String(24), nullable=False)
+    source_payload_sha256 = db.Column(db.String(64), nullable=True)
+    candidate_sha256 = db.Column(db.String(64), nullable=True)
+    fetched_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    counts = db.Column(JSONB, default=dict, nullable=False)
+    plan = db.Column(JSONB, default=dict, nullable=False)
+    error_code = db.Column(db.String(80), nullable=True)
+    error_message = db.Column(db.Text, nullable=True)
+    started_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    completed_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    __table_args__ = (
+        db.CheckConstraint(
+            "mode IN ('dry-run', 'apply')",
+            name="valid_sisn_sync_run_mode",
+        ),
+        db.CheckConstraint(
+            "status IN ('started', 'dry-run', 'applied', 'skipped', 'blocked', 'failed')",
+            name="valid_sisn_sync_run_status",
+        ),
+        db.Index("idx_sisn_sync_runs_semester_started", "semester_id", "started_at"),
+        db.Index("idx_sisn_sync_runs_source_hash", "source_payload_sha256"),
     )
 
 

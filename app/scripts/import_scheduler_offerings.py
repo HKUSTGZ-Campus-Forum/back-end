@@ -102,6 +102,8 @@ class NormalizedLecture:
     end_time: int
     room: str
     instructor: str
+    facility_id: str | None = None
+    date_ranges: list[dict[str, Any]] | None = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +121,13 @@ class NormalizedSection:
     wait: int | None
     is_main: bool
     lectures: list[NormalizedLecture]
+    status: str = "active"
+    source_class_type: str | None = None
+    source_section_label: str | None = None
+    associated_class: int | None = None
+    consent_required: bool = False
+    remarks: str | None = None
+    reserve_cap: list[dict[str, Any]] | None = None
 
 
 @dataclass(frozen=True)
@@ -136,6 +145,8 @@ class NormalizedCourse:
     pg_course: bool
     klms_course: bool
     vector: str | None
+    attributes: list[dict[str, Any]]
+    previous_course_code: str | None
     sections: list[NormalizedSection]
 
 
@@ -264,6 +275,20 @@ def _bool(value: Any, context: str) -> bool:
     raise OfferingValidationError(f"{context}: expected boolean-compatible value")
 
 
+def _object_list(value: Any, context: str) -> list[dict[str, Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise OfferingValidationError(f"{context}: expected list")
+    if not all(isinstance(item, dict) for item in value):
+        raise OfferingValidationError(f"{context}: expected a list of objects")
+    try:
+        json.dumps(value, ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise OfferingValidationError(f"{context}: expected JSON-compatible objects") from exc
+    return value
+
+
 def _normalize_course_code(value: Any, context: str) -> str:
     code = _string(value, context).replace(" ", "").upper()
     if not COURSE_CODE_RE.fullmatch(code):
@@ -297,6 +322,8 @@ def _parse_lecture(data: Any, context: str) -> NormalizedLecture:
         end_time=end_time,
         room=_string(_field(data, "room", context), f"{context}.room", allow_empty=True),
         instructor=_string(_field(data, "instructor", context), f"{context}.instructor", allow_empty=True),
+        facility_id=_optional_string(data.get("facility_id")),
+        date_ranges=_object_list(data.get("date_ranges", []), f"{context}.date_ranges"),
     )
 
 
@@ -333,6 +360,10 @@ def _parse_section(
     if not isinstance(lectures, list):
         raise OfferingValidationError(f"{context}.lectures: expected list")
 
+    status = _string(data.get("status", "active"), f"{context}.status")
+    if status != "active":
+        raise OfferingValidationError(f"{context}.status: snapshots may contain only active sections")
+
     return NormalizedSection(
         semester_id=semester_id,
         section_id=section_id,
@@ -352,6 +383,20 @@ def _parse_section(
             _parse_lecture(lecture, f"{context}.lectures[{lecture_index}]")
             for lecture_index, lecture in enumerate(lectures)
         ],
+        status=status,
+        source_class_type=_optional_string(data.get("source_class_type")),
+        source_section_label=_optional_string(data.get("source_section_label")),
+        associated_class=_optional_min_int(
+            data.get("associated_class"),
+            f"{context}.associated_class",
+            minimum=0,
+        ),
+        consent_required=_bool(
+            data.get("consent_required", False),
+            f"{context}.consent_required",
+        ),
+        remarks=_optional_string(data.get("remarks")),
+        reserve_cap=_object_list(data.get("reserve_cap", []), f"{context}.reserve_cap"),
     )
 
 
@@ -389,6 +434,8 @@ def _parse_course(
         pg_course=_bool(data.get("pg_course", False), f"{context}.pg_course"),
         klms_course=_bool(data.get("klms_course", False), f"{context}.klms_course"),
         vector=_optional_string(data.get("vector")),
+        attributes=_object_list(data.get("attributes", []), f"{context}.attributes"),
+        previous_course_code=_optional_string(data.get("prev_course_code")),
         sections=[
             _parse_section(
                 section,
@@ -402,10 +449,10 @@ def _parse_course(
     )
 
 
-def load_offerings_file(file_path: Path, semester_override: str | None = None) -> OfferingSnapshot:
-    with file_path.open("r", encoding="utf-8") as handle:
-        data = json.load(handle)
-
+def load_offerings_data(
+    data: Any,
+    semester_override: str | None = None,
+) -> OfferingSnapshot:
     if not isinstance(data, dict):
         raise OfferingValidationError("top level JSON must be an object")
 
@@ -437,6 +484,12 @@ def load_offerings_file(file_path: Path, semester_override: str | None = None) -
     ]
 
     return OfferingSnapshot(semester_id=semester_id, courses=courses)
+
+
+def load_offerings_file(file_path: Path, semester_override: str | None = None) -> OfferingSnapshot:
+    with file_path.open("r", encoding="utf-8") as handle:
+        data = json.load(handle)
+    return load_offerings_data(data, semester_override)
 
 
 def file_sha256(file_path: Path) -> str:
@@ -779,6 +832,8 @@ def apply_offerings(
     expected_counts: SnapshotExpectations | None = None,
     allow_destructive_replacement: bool = False,
     import_hash: str | None = None,
+    source: str = "scheduler_offerings",
+    preserve_missing_sections: bool = False,
 ) -> ImportPlan:
     _validate_snapshot_counts(snapshot, expected_counts)
     plan = build_import_plan(snapshot)
@@ -839,19 +894,20 @@ def apply_offerings(
             course = course_by_code[normalize_course_code(item.course_code)]
             version = CourseCatalogVersion.query.filter_by(
                 course_id=course.id,
-                source="scheduler_offerings",
+                source=source,
                 source_version=snapshot.semester_id,
             ).first()
             if version is None:
                 version = CourseCatalogVersion(
                     course_id=course.id,
-                    source="scheduler_offerings",
+                    source=source,
                     source_version=snapshot.semester_id,
                     title=item.course_title,
                     credits=item.credit,
                 )
                 db.session.add(version)
             version.catalog_year = snapshot.semester_id[:2]
+            version.source = source
             version.title = item.course_title
             version.title_abbr = item.course_title_abbr
             version.description = item.course_desc
@@ -862,6 +918,10 @@ def apply_offerings(
             version.pg_course = item.pg_course
             version.klms_course = item.klms_course
             version.vector = item.vector
+            version.source_metadata = {
+                "attributes": item.attributes,
+                "previous_course_code": item.previous_course_code,
+            }
             version.effective_from_semester_id = snapshot.semester_id
             version_by_code[item.course_code] = version
         db.session.flush()
@@ -874,7 +934,11 @@ def apply_offerings(
         for offering in CourseOffering.query.filter_by(semester_id=snapshot.semester_id).all():
             if normalize_course_code(offering.course.code) not in offered_course_codes:
                 offering.status = "archived"
-                sync_offering_sections(offering, [])
+                sync_offering_sections(
+                    offering,
+                    [],
+                    preserve_missing=preserve_missing_sections,
+                )
 
         for item in snapshot.courses:
             course = course_by_code[normalize_course_code(item.course_code)]
@@ -890,7 +954,7 @@ def apply_offerings(
                         offering_code=item.course_code,
                         title_snapshot=item.course_title,
                         credits_snapshot=item.credit,
-                        source="scheduler_offerings",
+                        source=source,
                         status="offered",
                     )
                     db.session.add(offering)
@@ -898,11 +962,15 @@ def apply_offerings(
                 offering.offering_code = item.course_code
                 offering.title_snapshot = item.course_title
                 offering.credits_snapshot = item.credit
-                offering.source = "scheduler_offerings"
+                offering.source = source
                 offering.import_hash = import_hash
                 offering.status = "offered"
                 db.session.flush()
-                sync_offering_sections(offering, item.sections)
+                sync_offering_sections(
+                    offering,
+                    item.sections,
+                    preserve_missing=preserve_missing_sections,
+                )
 
             for section in item.sections:
                 db.session.add(SchedulerSection(

@@ -203,6 +203,30 @@ class Config:
     EMBEDDING_MAINTENANCE_BATCH_SIZE = int(os.getenv('EMBEDDING_MAINTENANCE_BATCH_SIZE', '50'))
     EMBEDDING_MAINTENANCE_MAX_TIME_MINUTES = int(os.getenv('EMBEDDING_MAINTENANCE_MAX_TIME_MINUTES', '30'))
 
+    # SISN data is fetched through the IP-allowlisted CoursePlan server.  The
+    # shared secret authenticates only UniKorn's internal proxy request; the
+    # school credentials never enter this application or its database.
+    SISN_PROXY_BASE_URL = os.getenv('SISN_PROXY_BASE_URL', '').strip().rstrip('/')
+    SISN_PROXY_SHARED_SECRET = os.getenv('SISN_PROXY_SHARED_SECRET', '').strip()
+    SISN_PROXY_TIMEOUT_SECONDS = int(os.getenv('SISN_PROXY_TIMEOUT_SECONDS', '75'))
+    SISN_SYNC_TERM = os.getenv('SISN_SYNC_TERM', '2610').strip()
+    SISN_SYNC_BASELINE_PATH = os.getenv(
+        'SISN_SYNC_BASELINE_PATH',
+        os.path.join(basedir, 'data', 'pending', 'scheduler_offerings', '26-27fall.json'),
+    )
+    SISN_SYNC_ARCHIVE_DIR = os.getenv('SISN_SYNC_ARCHIVE_DIR', '').strip()
+    SISN_SYNC_ARCHIVE_RETENTION_FILES = int(os.getenv('SISN_SYNC_ARCHIVE_RETENTION_FILES', '336'))
+    SISN_SYNC_MIN_SOURCE_COURSES = int(os.getenv('SISN_SYNC_MIN_SOURCE_COURSES', '300'))
+    SISN_SYNC_MAX_SOURCE_COURSES = int(os.getenv('SISN_SYNC_MAX_SOURCE_COURSES', '600'))
+    SISN_SYNC_MIN_SOURCE_CLASSES = int(os.getenv('SISN_SYNC_MIN_SOURCE_CLASSES', '650'))
+    SISN_SYNC_MAX_SOURCE_CLASSES = int(os.getenv('SISN_SYNC_MAX_SOURCE_CLASSES', '1200'))
+    SISN_SYNC_MIN_SOURCE_SCHEDULES = int(os.getenv('SISN_SYNC_MIN_SOURCE_SCHEDULES', '700'))
+    SISN_SYNC_MAX_SOURCE_SCHEDULES = int(os.getenv('SISN_SYNC_MAX_SOURCE_SCHEDULES', '1800'))
+    SISN_SYNC_MIN_CANDIDATE_SECTIONS = int(os.getenv('SISN_SYNC_MIN_CANDIDATE_SECTIONS', '650'))
+    SISN_SYNC_MAX_FALLBACK_MAIN_CLASSES = int(os.getenv('SISN_SYNC_MAX_FALLBACK_MAIN_CLASSES', '20'))
+    SISN_SYNC_MAX_MISSING_BASELINE_CLASSES = int(os.getenv('SISN_SYNC_MAX_MISSING_BASELINE_CLASSES', '50'))
+    SISN_SYNC_MAX_OMITTED_UNSCHEDULED_CLASSES = int(os.getenv('SISN_SYNC_MAX_OMITTED_UNSCHEDULED_CLASSES', '50'))
+
     # Forwarded headers are untrusted unless a deployment opts in explicitly.
     # Separate counts avoid assuming every trusted proxy appends every header.
     _LEGACY_TRUSTED_PROXY_HOPS = get_env_nonnegative_int('TRUSTED_PROXY_HOPS', 0)

@@ -47,6 +47,7 @@ from .course_domain import (
     CourseOffering,
     CourseSection,
     CourseMeeting,
+    SisnSyncRun,
     UserCourseState,
     UserCourseAttempt,
     UserOfferingCart,

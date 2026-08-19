@@ -118,7 +118,10 @@ def _popularity_history_universe(
 
     sections = (
         CourseSection.query
-        .filter(CourseSection.offering_id.in_(offering_ids))
+        .filter(
+            CourseSection.offering_id.in_(offering_ids),
+            CourseSection.status == "active",
+        )
         .order_by(CourseSection.offering_id, CourseSection.source_section_id)
         .all()
         if offering_ids else []
@@ -308,7 +311,10 @@ def build_popularity_snapshot(
     offering_ids = [offering.id for _, offering, _ in target_rows]
     sections = (
         CourseSection.query
-        .filter(CourseSection.offering_id.in_(offering_ids))
+        .filter(
+            CourseSection.offering_id.in_(offering_ids),
+            CourseSection.status == "active",
+        )
         .order_by(CourseSection.offering_id, CourseSection.layer, CourseSection.bundle, CourseSection.source_section_id)
         .all()
     )
@@ -903,6 +909,7 @@ def build_popularity_history(
         section = CourseSection.query.filter_by(
             offering_id=offering.id,
             source_section_id=section_id.strip(),
+            status="active",
         ).first()
         if section is None:
             return None

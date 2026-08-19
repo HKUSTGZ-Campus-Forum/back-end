@@ -240,7 +240,7 @@ def _scheduler_offering_summary(course, semester_id):
     if offering:
         sections = (
             CourseSection.query
-            .filter_by(offering_id=offering.id)
+            .filter_by(offering_id=offering.id, status="active")
             .order_by(CourseSection.layer, CourseSection.bundle, CourseSection.source_section_id)
             .all()
         )
@@ -508,6 +508,11 @@ def get_course_overview(code):
         academic_record = record.to_dict(include_grade=True) if record else None
 
     version = current_catalog_version(course)
+    source_metadata = (
+        version.source_metadata
+        if version and isinstance(version.source_metadata, dict)
+        else {}
+    )
     base_course = _base_catalog_course_for_course(course)
     base_version = current_catalog_version(base_course) if base_course else None
     compact_code = _compact_course_code(course.normalized_code or course.code)
@@ -527,6 +532,8 @@ def get_course_overview(code):
             "exclusion": _rule_value(version, base_version, base_course, "exclusion_raw", course.exclusion),
             "pg_course": _version_value(version, "pg_course", course.pg_course),
             "klms_course": _version_value(version, "klms_course", course.klms_course),
+            "attributes": source_metadata.get("attributes", []),
+            "previous_course_code": source_metadata.get("previous_course_code"),
             "is_active": course.is_active,
         },
         "offerings": _serialize_course_overview_offerings(course, language),
