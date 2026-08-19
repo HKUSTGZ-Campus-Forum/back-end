@@ -13,6 +13,7 @@ from app.extensions import db
 from app.models.academic_map import CurriculumRequirementGroup
 from app.models.course import Course
 from app.models.course_domain import CourseCatalogVersion, CourseOffering, CourseSection
+from app.models.oauth_client import OAuthClient
 from app.scripts import run_backend_operation as operations
 from app.scripts.import_pending_academic_data import PENDING_SCHEDULER_SUBJECTS
 
@@ -331,7 +332,9 @@ def test_campus_target_accepts_only_academic_operations(operation, package_id):
     assert (package or {}).get("id") == package_id
 
 
-@pytest.mark.parametrize("operation", ["course-duplicates", "database-upgrade-heads"])
+@pytest.mark.parametrize(
+    "operation", ["course-duplicates", "database-upgrade-heads", "oauth-redirect"]
+)
 def test_campus_target_rejects_non_academic_operations(operation):
     args = operations.build_parser().parse_args(
         [
@@ -689,6 +692,85 @@ def test_scheduler_apply_retry_requires_exact_postconditions(
         )
 
 
+def test_courseplan_oauth_redirect_preserves_existing_uris_and_is_idempotent(
+    app, monkeypatch, tmp_path
+):
+    monkeypatch.setenv(operations.REPORT_DIR_ENV, str(tmp_path / "reports"))
+    existing_uris = [
+        "https://scheduler.unikorn.axfff.com/api/auth/campus-forum/callback",
+        "http://localhost:3000/api/auth/campus-forum/callback",
+    ]
+    with app.app_context():
+        client = OAuthClient(
+            client_id=operations.COURSEPLAN_OAUTH_CLIENT_ID,
+            client_secret="test-client-secret",
+            client_name="CoursePlan.search",
+            is_active=True,
+        )
+        client.set_redirect_uris(existing_uris)
+        db.session.add(client)
+        db.session.commit()
+
+    dry_args = _args()
+    dry_args.operation = "oauth-redirect"
+    dry_args.package_id = None
+    with app.app_context():
+        dry = operations._oauth_redirect_operation(dry_args)
+    _write_approved_report("oauth-approved", dry)
+
+    apply_args = _apply_args("oauth-redirect", None, "oauth-approved")
+    with app.app_context():
+        applied = operations._oauth_redirect_operation(apply_args)
+        assert OAuthClient.query.one().get_redirect_uris() == [
+            *existing_uris,
+            operations.COURSEPLAN_SCHOOL_REDIRECT_URI,
+        ]
+        retry_dry = operations._oauth_redirect_operation(dry_args)
+
+    assert applied["status"] == "applied"
+    assert applied["updated_redirect_count"] == 3
+    assert retry_dry["already_present"] is True
+
+
+def test_courseplan_oauth_redirect_dry_run_is_allowlisted_without_package():
+    args = _args()
+    args.operation = "oauth-redirect"
+    args.package_id = None
+    args.target = "production"
+
+    assert operations._validate_args(args) is None
+
+
+def test_courseplan_oauth_redirect_apply_rejects_state_drift(
+    app, monkeypatch, tmp_path
+):
+    monkeypatch.setenv(operations.REPORT_DIR_ENV, str(tmp_path / "reports"))
+    with app.app_context():
+        client = OAuthClient(
+            client_id=operations.COURSEPLAN_OAUTH_CLIENT_ID,
+            client_secret="test-client-secret",
+            client_name="CoursePlan.search",
+            is_active=True,
+        )
+        client.set_redirect_uris(["https://scheduler.example/callback"])
+        db.session.add(client)
+        db.session.commit()
+        dry_args = _args()
+        dry_args.operation = "oauth-redirect"
+        dry_args.package_id = None
+        dry = operations._oauth_redirect_operation(dry_args)
+    _write_approved_report("oauth-drift-approved", dry)
+
+    with app.app_context():
+        OAuthClient.query.one().set_redirect_uris(
+            ["https://scheduler.example/callback", "https://new.example/callback"]
+        )
+        db.session.commit()
+        apply_args = _apply_args("oauth-redirect", None, "oauth-drift-approved")
+        with pytest.raises(operations.OperationBlocked, match="approved dry-run"):
+            operations._oauth_redirect_operation(apply_args)
+
+
 def test_scheduler_retry_rejects_course_field_drift(app, monkeypatch, tmp_path):
     monkeypatch.setenv(operations.REPORT_DIR_ENV, str(tmp_path / "reports"))
     monkeypatch.setattr(operations, "create_import_app", lambda: app)
@@ -886,6 +968,8 @@ def test_operation_workflow_is_a_hardened_dispatch_api():
     workflow = (ROOT / ".github/workflows/backend-operations.yml").read_text(encoding="utf-8")
 
     assert "workflow_dispatch:" in workflow
+    assert "- oauth-redirect" in workflow
+    assert "oauth-redirect:dry-run|oauth-redirect:apply" in workflow
     assert "permissions:\n  contents: read" in workflow
     assert "environment: production" in workflow
     assert "cancel-in-progress: false" in workflow

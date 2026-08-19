@@ -64,6 +64,7 @@ OPERATIONS = (
     "curriculum-sync",
     "course-duplicates",
     "database-upgrade-heads",
+    "oauth-redirect",
 )
 TARGET_CONFIRMATIONS = {
     "dev": "APPLY_DEV",
@@ -85,6 +86,7 @@ MUTATING_OPERATIONS = frozenset(
         "curriculum-sync",
         "course-duplicates",
         "database-upgrade-heads",
+        "oauth-redirect",
     }
 )
 IDEMPOTENCY_FIELDS = (
@@ -110,6 +112,10 @@ ACTOR_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,127}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DATABASE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,62}$")
+COURSEPLAN_OAUTH_CLIENT_ID = "PF41TCVh1knwDaRCHXUH"
+COURSEPLAN_SCHOOL_REDIRECT_URI = (
+    "https://unikorn.hkust-gz.edu.cn/api/auth/campus-forum/callback"
+)
 
 
 class OperationBlocked(RuntimeError):
@@ -1127,6 +1133,113 @@ def _database_upgrade_heads() -> dict[str, Any]:
     }
 
 
+def _courseplan_oauth_state(*, for_update: bool = False) -> dict[str, Any]:
+    lock_clause = (
+        " FOR UPDATE"
+        if for_update and db.engine.dialect.name == "postgresql"
+        else ""
+    )
+    rows = db.session.execute(
+        text(
+            "SELECT id, client_id, redirect_uris, is_active "
+            "FROM oauth_clients WHERE client_id = :client_id" + lock_clause
+        ),
+        {"client_id": COURSEPLAN_OAUTH_CLIENT_ID},
+    ).mappings().all()
+    if len(rows) != 1:
+        raise OperationBlocked(
+            "expected exactly one active CoursePlan OAuth client; "
+            f"found {len(rows)}"
+        )
+
+    row = rows[0]
+    if not row["is_active"]:
+        raise OperationBlocked("CoursePlan OAuth client is inactive")
+    try:
+        redirect_uris = json.loads(row["redirect_uris"])
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise OperationBlocked("CoursePlan OAuth redirect URI JSON is invalid") from exc
+    if (
+        not isinstance(redirect_uris, list)
+        or any(not isinstance(uri, str) or not uri for uri in redirect_uris)
+        or len(set(redirect_uris)) != len(redirect_uris)
+    ):
+        raise OperationBlocked(
+            "CoursePlan OAuth redirect URIs must be a unique JSON string array"
+        )
+
+    state = {
+        "client_id": row["client_id"],
+        "is_active": bool(row["is_active"]),
+        "redirect_uris": redirect_uris,
+    }
+    return {
+        "row_id": row["id"],
+        "redirect_uris": redirect_uris,
+        "pre_state_sha256": _sha256_json(state),
+    }
+
+
+def _oauth_redirect_operation(args: argparse.Namespace) -> dict[str, Any]:
+    state = _courseplan_oauth_state(for_update=args.mode == "apply")
+    current_uris = state["redirect_uris"]
+    already_present = COURSEPLAN_SCHOOL_REDIRECT_URI in current_uris
+    plan = {
+        "client_id": COURSEPLAN_OAUTH_CLIENT_ID,
+        "redirect_uri": COURSEPLAN_SCHOOL_REDIRECT_URI,
+        "existing_redirect_count": len(current_uris),
+        "already_present": already_present,
+        "pre_state_sha256": state["pre_state_sha256"],
+    }
+    if args.mode == "dry-run":
+        return {"status": "dry-run", **plan}
+
+    approved = _read_report(args.approved_dry_run_id)
+    approved_result = approved.get("result")
+    if (
+        not isinstance(approved_result, dict)
+        or approved_result.get("pre_state_sha256") != state["pre_state_sha256"]
+    ):
+        raise OperationBlocked(
+            "current OAuth client state does not match the approved dry-run"
+        )
+    if already_present:
+        return {"status": "already-applied", **plan}
+
+    updated_uris = [*current_uris, COURSEPLAN_SCHOOL_REDIRECT_URI]
+    result = db.session.execute(
+        text(
+            "UPDATE oauth_clients "
+            "SET redirect_uris = :redirect_uris, updated_at = CURRENT_TIMESTAMP "
+            "WHERE id = :row_id AND client_id = :client_id AND is_active = true"
+        ),
+        {
+            "redirect_uris": json.dumps(updated_uris, ensure_ascii=False),
+            "row_id": state["row_id"],
+            "client_id": COURSEPLAN_OAUTH_CLIENT_ID,
+        },
+    )
+    if result.rowcount != 1:
+        db.session.rollback()
+        raise OperationBlocked("CoursePlan OAuth client changed during the update")
+    db.session.commit()
+
+    verified = _courseplan_oauth_state()
+    if (
+        verified["redirect_uris"] != updated_uris
+        or COURSEPLAN_SCHOOL_REDIRECT_URI not in verified["redirect_uris"]
+    ):
+        raise OperationBlocked(
+            "OAuth redirect update failed exact postcondition verification"
+        )
+    return {
+        "status": "applied",
+        **plan,
+        "updated_redirect_count": len(updated_uris),
+        "post_state_sha256": verified["pre_state_sha256"],
+    }
+
+
 def _run(args: argparse.Namespace, package: dict[str, Any] | None) -> Any:
     app = create_import_app()
     with app.app_context(), _database_operation_lock():
@@ -1150,6 +1263,8 @@ def _run(args: argparse.Namespace, package: dict[str, Any] | None) -> Any:
             return result
         if args.operation == "course-duplicates":
             return _reconciliation_operation(args)
+        if args.operation == "oauth-redirect":
+            return _oauth_redirect_operation(args)
     raise OperationBlocked("operation is not allowlisted")
 
 
