@@ -73,3 +73,6 @@ def test_deploy_normalizes_permissions_before_starting_runtime():
     activate_index = workflow.index("source venv/bin/activate", normalize_index)
     restart_index = workflow.index('systemctl restart "$service_name"', activate_index)
     assert normalize_index < activate_index < restart_index
+    assert "--force-reinstall --no-deps" in workflow
+    assert "'PyJWT>=2.13,<3'" in workflow
+    assert "from jwt import DecodeError" in workflow
