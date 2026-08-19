@@ -1,6 +1,11 @@
 from flask import Blueprint, request, jsonify
 from app.models.course import Course
-from app.models.course_domain import CourseMeeting, CourseOffering, CourseSection
+from app.models.course_domain import (
+    CourseMeeting,
+    CourseOffering,
+    CoursePostOfferingTarget,
+    CourseSection,
+)
 from app.models.tag import Tag, TagType
 from app.models.post import Post
 from app.models.user_role import UserRole
@@ -14,6 +19,7 @@ from app.utils.semester import (
 )
 from flask_jwt_extended import jwt_required, get_jwt_identity, current_user
 from sqlalchemy import func, desc, asc
+from sqlalchemy.orm import joinedload
 from functools import wraps
 import bleach
 import re
@@ -696,6 +702,80 @@ def get_course_discussions(course_id):
         "total_pages": paginated_posts.pages,
         "current_page": page,
         "visible_offering_tags": visible_offering_tags,
+        "course": course.to_dict(),
+    }), 200
+
+
+@bp.route('/<int:course_id>/reviews', methods=['GET'])
+def get_course_reviews(course_id):
+    """List course reviews across every offering, with term context."""
+    page = max(request.args.get('page', 1, type=int), 1)
+    limit = min(max(request.args.get('limit', 20, type=int), 1), 50)
+    language = request.args.get('lang', 'zh')
+
+    course = Course.query.filter_by(id=course_id, is_deleted=False).first_or_404()
+    query = (
+        Post.query
+        .options(
+            joinedload(Post.course_offering_target)
+            .joinedload(CoursePostOfferingTarget.course_offering)
+        )
+        .join(
+            CoursePostOfferingTarget,
+            CoursePostOfferingTarget.post_id == Post.id,
+        )
+        .join(
+            CourseOffering,
+            CourseOffering.id == CoursePostOfferingTarget.course_offering_id,
+        )
+        .filter(
+            CourseOffering.course_id == course.id,
+            Post.is_deleted == False,
+            Post.tags.any(Tag.name == COURSE_REVIEW_TAG),
+        )
+        .order_by(desc(Post.created_at), desc(Post.id))
+    )
+    pagination = query.paginate(page=page, per_page=limit, error_out=False)
+
+    reviews = []
+    for post in pagination.items:
+        offering = post.course_offering_target.course_offering
+        parsed_semester = _parse_scheduler_semester_id(offering.semester_id)
+        if parsed_semester:
+            offering_data = _build_semester_info(
+                parsed_semester[0],
+                parsed_semester[1],
+                language,
+            )
+        else:
+            offering_data = {
+                "code": offering.semester_id,
+                "display_name": offering.semester_id,
+                "year": "",
+                "season": "",
+                "season_display": "",
+                "offering_tag": offering.semester_id,
+            }
+
+        review_data = post.to_dict(
+            include_content=True,
+            include_tags=False,
+            include_files=False,
+            include_author=True,
+        )
+        review_data["offering"] = {
+            "id": offering.id,
+            "semester_id": offering.semester_id,
+            **offering_data,
+        }
+        reviews.append(review_data)
+
+    return jsonify({
+        "reviews": reviews,
+        "total_count": pagination.total,
+        "total_pages": pagination.pages,
+        "current_page": page,
+        "has_next": pagination.has_next,
         "course": course.to_dict(),
     }), 200
 
