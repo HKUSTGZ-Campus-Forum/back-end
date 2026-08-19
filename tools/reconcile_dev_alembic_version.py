@@ -265,6 +265,7 @@ def _schema_check() -> None:
     # Alembic's ScriptDirectory while the reviewed untracked migration files
     # are present, because loading migration modules would execute their code.
     script = f"""
+import json
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import create_engine, text
@@ -282,6 +283,7 @@ with app.app_context(), engine.connect() as connection:
         raise SystemExit(42)
     differences = compare_metadata(MigrationContext.configure(connection), db.metadata)
 if differences:
+    print(json.dumps([repr(difference) for difference in differences], sort_keys=True))
     raise SystemExit(43)
 """
     result = _run(
@@ -291,7 +293,12 @@ if differences:
         env=_runtime_environment(),
     )
     if result.returncode:
-        raise ReconciliationBlocked("database schema does not match the checked-out models")
+        detail = result.stdout.strip()
+        if result.returncode == 43 and detail and len(detail) <= 12_000:
+            raise ReconciliationBlocked(
+                "database schema does not match the checked-out models: " + detail
+            )
+        raise ReconciliationBlocked("database schema comparison failed")
 
 
 def _digest(context: dict[str, Any]) -> str:

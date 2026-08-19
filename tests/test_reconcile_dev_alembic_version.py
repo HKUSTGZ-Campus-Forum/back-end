@@ -164,6 +164,20 @@ def test_schema_check_compares_metadata_without_loading_migration_modules(monkey
     assert "flask" not in captured["arguments"][0]
 
 
+def test_schema_check_reports_only_structural_diff_representations(monkeypatch):
+    class Result:
+        returncode = 43
+        stdout = '["remove_table: legacy"]\n'
+        stderr = "ignored runtime detail"
+
+    monkeypatch.setattr(reconciliation, "_run", lambda *args, **kwargs: Result())
+    with pytest.raises(
+        reconciliation.ReconciliationBlocked,
+        match="remove_table: legacy",
+    ):
+        reconciliation._schema_check()
+
+
 def test_workflow_requires_a_verified_backup_before_apply():
     workflow = (
         Path(__file__).parents[1]
