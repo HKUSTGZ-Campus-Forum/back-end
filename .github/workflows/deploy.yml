@@ -96,6 +96,7 @@ jobs:
             python3 tools/normalize_runtime_permissions.py \
               --repository "$app_dir"
 
+            umask 022
             source venv/bin/activate
             python -m pip install --upgrade pip
             python -m pip install -r requirements.txt --timeout 600
@@ -108,6 +109,10 @@ jobs:
             from flask_jwt_extended import JWTManager  # noqa: F401
             from jwt import DecodeError  # noqa: F401
             PY
+            find venv -type d -exec chmod go+rx {} +
+            find venv -type f -exec chmod go+r {} +
+            find venv/bin -type f -exec chmod go+rx {} +
+            umask 077
 
             install -d -m 0750 "$backup_dir"
             timestamp="$(date -u +%Y%m%dT%H%M%SZ)"

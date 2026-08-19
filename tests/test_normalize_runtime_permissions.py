@@ -76,3 +76,7 @@ def test_deploy_normalizes_permissions_before_starting_runtime():
     assert "--force-reinstall --no-deps" in workflow
     assert "'PyJWT>=2.13,<3'" in workflow
     assert "from jwt import DecodeError" in workflow
+    assert "umask 022" in workflow
+    assert "find venv -type d -exec chmod go+rx {} +" in workflow
+    assert "find venv -type f -exec chmod go+r {} +" in workflow
+    assert "find venv/bin -type f -exec chmod go+rx {} +" in workflow
