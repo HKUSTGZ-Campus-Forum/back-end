@@ -24,6 +24,7 @@ concurrency:
 jobs:
   sync:
     name: Fetch, validate, and synchronize
+    if: vars.SISN_SYNC_ENABLED == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
