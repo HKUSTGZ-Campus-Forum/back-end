@@ -299,7 +299,8 @@ def build_oidc_logout_url(id_token: str) -> str | None:
     )
     if not endpoint or not post_logout_uri or not id_token:
         return None
-    return f"{endpoint}?{urlencode({
+    query = urlencode({
         'id_token_hint': id_token,
         'post_logout_redirect_uri': post_logout_uri,
-    })}"
+    })
+    return f"{endpoint}?{query}"
