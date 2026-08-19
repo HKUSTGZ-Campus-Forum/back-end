@@ -1,0 +1,34 @@
+name: Diagnose Dev API
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Read dev API service diagnostics
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require the main branch
+        run: test "$GITHUB_REF" = "refs/heads/main"
+
+      - name: Read service status and recent startup journal
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        with:
+          host: ${{ secrets.DEV_HOST }}
+          username: ${{ secrets.DEV_USER }}
+          key: ${{ secrets.DEV_SSH_KEY }}
+          command_timeout: 2m
+          script: |
+            set -u
+            readonly service_name="dev-unikorn-api.service"
+            /usr/bin/systemctl is-active "$service_name" || true
+            /usr/bin/systemctl status "$service_name" --no-pager --lines=40 || true
+            sudo -n /usr/bin/journalctl \
+              -u "$service_name" \
+              --since "-10 minutes" \
+              --no-pager \
+              --lines=120 || true
