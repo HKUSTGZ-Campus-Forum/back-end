@@ -60,10 +60,12 @@ Never send `client_secret` to `/connect/authorize` or expose it to frontend
 code. It is used only by the backend at the token endpoint via
 `client_secret_basic`.
 
-Production stores the client secret in the GitHub `production` environment and
-keeps `CAMPUS_SSO_ENABLED` as an environment variable. Leave that variable
-`false` until the registered school domain resolves over HTTPS; switch it to
-`true` and re-run the production backend deployment to activate SSO.
+The client secret may be staged in the GitHub `production` environment, but the
+deployment identity intentionally cannot rewrite the root-owned production
+`.env`. A privileged operator must install the settings above without logging
+the secret. Keep `CAMPUS_SSO_ENABLED=false` until the registered school domain
+resolves over HTTPS; set it to `true` and restart the production API only after
+DNS, TLS, and routing checks pass.
 
 ## Database migration
 

@@ -101,17 +101,6 @@ jobs:
       env:
         DEPLOY_SHA: ${{ github.sha }}
         CONFIGURED_PROD_API_URL: ${{ vars.PROD_SCHEDULER_HEALTH_URL }}
-        CAMPUS_SSO_ENABLED: ${{ vars.CAMPUS_SSO_ENABLED || 'false' }}
-        CAMPUS_SSO_CLIENT_ID: unikorn.client
-        CAMPUS_SSO_CLIENT_SECRET: ${{ secrets.CAMPUS_SSO_CLIENT_SECRET }}
-        CAMPUS_SSO_ISSUER: https://sso.hkust-gz.edu.cn
-        CAMPUS_SSO_METADATA_URL: https://sso.hkust-gz.edu.cn/.well-known/openid-configuration
-        CAMPUS_SSO_END_SESSION_ENDPOINT: https://sso.hkust-gz.edu.cn/connect/endsession
-        CAMPUS_SSO_REDIRECT_URI: https://unikorn.hkust-gz.edu.cn/api/auth/oidc/callback
-        CAMPUS_SSO_POST_LOGOUT_REDIRECT_URI: https://unikorn.hkust-gz.edu.cn/
-        CAMPUS_SSO_SCOPES: openid profile
-        CAMPUS_SSO_COOKIE_SECURE: 'true'
-        SESSION_COOKIE_SECURE: 'true'
         PROD_RECONCILE_HELPER_GZIP_B64: ${{ steps.verifier.outputs.payload }}
         PROD_RECONCILE_HELPER_SHA256: ${{ steps.verifier.outputs.sha256 }}
         PROD_DEPLOY_JOURNAL_GZIP_B64: ${{ steps.deploy-journal.outputs.payload }}
@@ -121,7 +110,7 @@ jobs:
         username: ${{ secrets.PROD_SSH_USER }}
         key: ${{ secrets.PROD_SSH_KEY }}
         fingerprint: ${{ secrets.PROD_SSH_FINGERPRINT }}
-        envs: DEPLOY_SHA,CONFIGURED_PROD_API_URL,CAMPUS_SSO_ENABLED,CAMPUS_SSO_CLIENT_ID,CAMPUS_SSO_CLIENT_SECRET,CAMPUS_SSO_ISSUER,CAMPUS_SSO_METADATA_URL,CAMPUS_SSO_END_SESSION_ENDPOINT,CAMPUS_SSO_REDIRECT_URI,CAMPUS_SSO_POST_LOGOUT_REDIRECT_URI,CAMPUS_SSO_SCOPES,CAMPUS_SSO_COOKIE_SECURE,SESSION_COOKIE_SECURE,PROD_RECONCILE_HELPER_GZIP_B64,PROD_RECONCILE_HELPER_SHA256,PROD_DEPLOY_JOURNAL_GZIP_B64,PROD_DEPLOY_JOURNAL_SHA256
+        envs: DEPLOY_SHA,CONFIGURED_PROD_API_URL,PROD_RECONCILE_HELPER_GZIP_B64,PROD_RECONCILE_HELPER_SHA256,PROD_DEPLOY_JOURNAL_GZIP_B64,PROD_DEPLOY_JOURNAL_SHA256
         command_timeout: 35m
         script: |
           set -Eeuo pipefail
@@ -729,88 +718,6 @@ jobs:
           from alibabacloud_tea_openapi import models  # noqa: F401
           PY
           echo "Existing production dependencies match the candidate and are healthy."
-
-          /usr/bin/python3 -I - "${app_dir}/.env" <<'PY'
-          import os
-          from pathlib import Path
-          import re
-          import stat
-          import sys
-          import tempfile
-
-          env_path = Path(sys.argv[1])
-          if env_path.is_symlink() or not env_path.is_file():
-              raise SystemExit("production environment file is not a regular file")
-
-          source_stat = env_path.stat()
-          if source_stat.st_uid != os.geteuid():
-              raise SystemExit("production environment file is not deployment-owned")
-
-          keys = (
-              "CAMPUS_SSO_ENABLED",
-              "CAMPUS_SSO_CLIENT_ID",
-              "CAMPUS_SSO_CLIENT_SECRET",
-              "CAMPUS_SSO_ISSUER",
-              "CAMPUS_SSO_METADATA_URL",
-              "CAMPUS_SSO_END_SESSION_ENDPOINT",
-              "CAMPUS_SSO_REDIRECT_URI",
-              "CAMPUS_SSO_POST_LOGOUT_REDIRECT_URI",
-              "CAMPUS_SSO_SCOPES",
-              "CAMPUS_SSO_COOKIE_SECURE",
-              "SESSION_COOKIE_SECURE",
-          )
-          values = {}
-          for key in keys:
-              value = os.environ.get(key)
-              if value is None or not value or "\n" in value or "\r" in value:
-                  raise SystemExit(f"missing or invalid production setting: {key}")
-              values[key] = value
-
-          assignment = re.compile(r"^(?:export\s+)?([A-Z][A-Z0-9_]*)=")
-          output_lines = []
-          written = set()
-          for line in env_path.read_text(encoding="utf-8").splitlines():
-              match = assignment.match(line)
-              key = match.group(1) if match else None
-              if key not in values:
-                  output_lines.append(line)
-                  continue
-              if key not in written:
-                  output_lines.append(f"{key}={values[key]}")
-                  written.add(key)
-
-          for key in keys:
-              if key not in written:
-                  output_lines.append(f"{key}={values[key]}")
-
-          fd, temporary_name = tempfile.mkstemp(
-              prefix=".env.campus-sso.",
-              dir=env_path.parent,
-          )
-          try:
-              os.fchmod(fd, stat.S_IMODE(source_stat.st_mode))
-              with os.fdopen(fd, "w", encoding="utf-8") as output_file:
-                  output_file.write("\n".join(output_lines).rstrip("\n") + "\n")
-                  output_file.flush()
-                  os.fsync(output_file.fileno())
-              os.replace(temporary_name, env_path)
-              directory_fd = os.open(env_path.parent, os.O_RDONLY)
-              try:
-                  os.fsync(directory_fd)
-              finally:
-                  os.close(directory_fd)
-          except BaseException:
-              try:
-                  os.close(fd)
-              except OSError:
-                  pass
-              try:
-                  os.unlink(temporary_name)
-              except FileNotFoundError:
-                  pass
-              raise
-          PY
-          echo "Campus SSO production configuration synchronized without exposing secret values."
 
           candidate_stage="$(mktemp -d /tmp/unikorn-api-candidate.XXXXXX)"
           git archive "${DEPLOY_SHA}" | tar -x -C "${candidate_stage}"
