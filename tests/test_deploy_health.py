@@ -571,16 +571,15 @@ def test_production_api_deploy_is_journaled_backup_first_and_forward_recoverable
     assert "cannot abort a deployment at or beyond migration start" in helper
 
 
-def test_production_deploy_syncs_campus_sso_secrets_without_logging_values():
+def test_production_deploy_does_not_mutate_root_owned_environment_file():
     deploy_workflow = (
         ROOT / ".github" / "workflows" / "deploy-backend-prod.yml"
     ).read_text(encoding="utf-8")
 
-    assert "CAMPUS_SSO_CLIENT_SECRET: ${{ secrets.CAMPUS_SSO_CLIENT_SECRET }}" in deploy_workflow
-    assert "CAMPUS_SSO_ENABLED: ${{ vars.CAMPUS_SSO_ENABLED || 'false' }}" in deploy_workflow
-    assert "CAMPUS_SSO_CLIENT_SECRET,CAMPUS_SSO_ISSUER" in deploy_workflow
-    assert 'output_lines.append(f"{key}={values[key]}")' in deploy_workflow
-    assert "without exposing secret values" in deploy_workflow
+    assert "CAMPUS_SSO_CLIENT_SECRET: ${{ secrets.CAMPUS_SSO_CLIENT_SECRET }}" not in deploy_workflow
+    assert "CAMPUS_SSO_CLIENT_SECRET,CAMPUS_SSO_ISSUER" not in deploy_workflow
+    assert 'output_lines.append(f"{key}={values[key]}")' not in deploy_workflow
+    assert "production environment file is not deployment-owned" not in deploy_workflow
 
 
 def test_production_deploy_activates_bounded_popularity_sampling_with_user_crontab():
