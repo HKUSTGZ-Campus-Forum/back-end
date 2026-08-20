@@ -285,7 +285,14 @@ def ingest_sisn_snapshot():
         return jsonify(response), 500
 
     response = asdict(result)
-    status_code = 422 if result.status == 'blocked' else 200
+    status_code = 200
+    if result.status == 'blocked':
+        blocked_run = SisnSyncRun.query.filter_by(request_id=result.request_id).first()
+        response['error'] = 'SISN snapshot blocked'
+        if blocked_run is not None:
+            response['code'] = blocked_run.error_code
+            response['detail'] = blocked_run.error_message
+        status_code = 422
     return jsonify(response), status_code
 
 @bp.route('/semesters', methods=['GET'])

@@ -98,9 +98,14 @@ def _sync_lock() -> Iterator[None]:
     if not _LOCAL_LOCK.acquire(blocking=False):
         raise SisnSyncBlocked("another SISN sync is already running")
     advisory_acquired = False
+    advisory_connection = None
     try:
         if db.engine.dialect.name == "postgresql":
-            advisory_acquired = bool(db.session.execute(
+            # PostgreSQL advisory locks are connection-scoped. Keep a dedicated
+            # connection checked out for the whole sync so intermediate ORM
+            # commits cannot return the locked connection to the pool.
+            advisory_connection = db.engine.connect()
+            advisory_acquired = bool(advisory_connection.execute(
                 text("SELECT pg_try_advisory_lock(:lock_key)"),
                 {"lock_key": _LOCK_KEY},
             ).scalar())
@@ -108,12 +113,16 @@ def _sync_lock() -> Iterator[None]:
                 raise SisnSyncBlocked("another SISN sync holds the database lock")
         yield
     finally:
-        if advisory_acquired:
-            db.session.execute(
-                text("SELECT pg_advisory_unlock(:lock_key)"),
-                {"lock_key": _LOCK_KEY},
-            )
-            db.session.commit()
+        if advisory_connection is not None:
+            try:
+                if advisory_acquired:
+                    advisory_connection.execute(
+                        text("SELECT pg_advisory_unlock(:lock_key)"),
+                        {"lock_key": _LOCK_KEY},
+                    )
+                    advisory_connection.commit()
+            finally:
+                advisory_connection.close()
         _LOCAL_LOCK.release()
 
 

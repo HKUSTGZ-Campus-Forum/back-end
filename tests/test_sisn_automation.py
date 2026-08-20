@@ -379,6 +379,22 @@ def test_signed_push_endpoint_applies_and_rejects_replay(app, baseline_path, tmp
     )
     assert replay.status_code == 409
 
+    app.config["SISN_SYNC_MIN_SOURCE_COURSES"] = 2
+    blocked_headers = _push_headers(
+        private_key,
+        body,
+        nonce="blocked_nonce_123456789012345678",
+    )
+    blocked = app.test_client().post(
+        "/scheduler/internal/sisn-ingest",
+        data=body,
+        headers=blocked_headers,
+    )
+    assert blocked.status_code == 422
+    assert blocked.json["status"] == "blocked"
+    assert blocked.json["code"] == "SisnSyncBlocked"
+    assert "outside reviewed range" in blocked.json["detail"]
+
 
 def test_signed_push_endpoint_rejects_stale_or_tampered_request(app, baseline_path, tmp_path):
     from app.routes.scheduler import bp as scheduler_bp
