@@ -1,9 +1,13 @@
 import hashlib
 import json
+import base64
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from app.extensions import db
 from app.models.course_domain import (
@@ -15,7 +19,12 @@ from app.models.course_domain import (
 from app.scripts.import_scheduler_offerings import create_import_app
 from app.services.sisn_offerings import SisnMappingError, adapt_proxy_envelope
 from app.services.sisn_proxy_client import canonical_query, sign_request
-from app.services.sisn_sync import SisnSyncGuards, run_sisn_sync
+from app.services.sisn_push_auth import canonical_push_message
+from app.services.sisn_sync import (
+    SisnSyncDuplicateRequest,
+    SisnSyncGuards,
+    run_sisn_sync,
+)
 
 
 def _stable_json(value):
@@ -267,3 +276,125 @@ def test_sync_guard_records_blocked_run_without_mutating_offerings(app, baseline
     run = SisnSyncRun.query.one()
     assert run.status == "blocked"
     assert "outside reviewed range" in run.error_message
+
+
+def test_sync_rejects_duplicate_request_id(app, baseline_path):
+    client = FakeClient(_envelope())
+    run_sisn_sync(
+        client=client,
+        term="2610",
+        baseline_path=baseline_path,
+        request_id="push-fixed-request-id",
+        guards=_relaxed_guards(),
+    )
+    with pytest.raises(SisnSyncDuplicateRequest):
+        run_sisn_sync(
+            client=client,
+            term="2610",
+            baseline_path=baseline_path,
+            request_id="push-fixed-request-id",
+            guards=_relaxed_guards(),
+        )
+
+
+def _push_headers(private_key, body, *, nonce="fixed_nonce_12345678901234567890", timestamp=None):
+    timestamp = str(timestamp or int(time.time()))
+    signature = private_key.sign(canonical_push_message(
+        timestamp=timestamp,
+        nonce=nonce,
+        body=body,
+    ))
+    return {
+        "Content-Type": "application/json",
+        "X-UniKorn-Timestamp": timestamp,
+        "X-UniKorn-Nonce": nonce,
+        "X-UniKorn-Signature": base64.urlsafe_b64encode(signature).decode().rstrip("="),
+    }
+
+
+def test_signed_push_endpoint_applies_and_rejects_replay(app, baseline_path, tmp_path):
+    from app.routes.scheduler import bp as scheduler_bp
+
+    private_key = Ed25519PrivateKey.generate()
+    public_key_path = tmp_path / "sisn-push-public.pem"
+    public_key_path.write_bytes(private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ))
+    app.register_blueprint(scheduler_bp)
+    app.config.update({
+        "SISN_PUSH_INGEST_ENABLED": True,
+        "SISN_PUSH_PUBLIC_KEY_PATH": str(public_key_path),
+        "SISN_PUSH_MAX_BODY_BYTES": 8 * 1024 * 1024,
+        "SISN_PUSH_MAX_AGE_SECONDS": 300,
+        "SISN_SYNC_TERM": "2610",
+        "SISN_SYNC_BASELINE_PATH": str(baseline_path),
+        "SISN_SYNC_ARCHIVE_DIR": "",
+        "SISN_SYNC_ARCHIVE_RETENTION_FILES": 3,
+        "SISN_SYNC_MIN_SOURCE_COURSES": 1,
+        "SISN_SYNC_MAX_SOURCE_COURSES": 10,
+        "SISN_SYNC_MIN_SOURCE_CLASSES": 1,
+        "SISN_SYNC_MAX_SOURCE_CLASSES": 10,
+        "SISN_SYNC_MIN_SOURCE_SCHEDULES": 1,
+        "SISN_SYNC_MAX_SOURCE_SCHEDULES": 10,
+        "SISN_SYNC_MIN_CANDIDATE_SECTIONS": 1,
+        "SISN_SYNC_MAX_FALLBACK_MAIN_CLASSES": 1,
+        "SISN_SYNC_MAX_MISSING_BASELINE_CLASSES": 1,
+        "SISN_SYNC_MAX_OMITTED_UNSCHEDULED_CLASSES": 1,
+    })
+    body = _stable_json({
+        "term": "2610",
+        "mode": "apply",
+        "envelope": _envelope(),
+    }).encode()
+    headers = _push_headers(private_key, body)
+
+    response = app.test_client().post(
+        "/scheduler/internal/sisn-ingest",
+        data=body,
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.json["status"] == "applied"
+    assert CourseSection.query.filter_by(status="active").count() == 2
+
+    replay = app.test_client().post(
+        "/scheduler/internal/sisn-ingest",
+        data=body,
+        headers=headers,
+    )
+    assert replay.status_code == 409
+
+
+def test_signed_push_endpoint_rejects_stale_or_tampered_request(app, baseline_path, tmp_path):
+    from app.routes.scheduler import bp as scheduler_bp
+
+    private_key = Ed25519PrivateKey.generate()
+    public_key_path = tmp_path / "sisn-push-public.pem"
+    public_key_path.write_bytes(private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ))
+    app.register_blueprint(scheduler_bp)
+    app.config.update(
+        SISN_PUSH_INGEST_ENABLED=True,
+        SISN_PUSH_PUBLIC_KEY_PATH=str(public_key_path),
+        SISN_PUSH_MAX_BODY_BYTES=8 * 1024 * 1024,
+        SISN_PUSH_MAX_AGE_SECONDS=300,
+    )
+    body = _stable_json({"term": "2610", "mode": "dry-run", "envelope": _envelope()}).encode()
+
+    stale = app.test_client().post(
+        "/scheduler/internal/sisn-ingest",
+        data=body,
+        headers=_push_headers(private_key, body, timestamp=int(time.time()) - 301),
+    )
+    assert stale.status_code == 401
+
+    tampered_body = body.replace(b'"dry-run"', b'"apply"')
+    tampered = app.test_client().post(
+        "/scheduler/internal/sisn-ingest",
+        data=tampered_body,
+        headers=_push_headers(private_key, body, nonce="tampered_1234567890123456789012"),
+    )
+    assert tampered.status_code == 401

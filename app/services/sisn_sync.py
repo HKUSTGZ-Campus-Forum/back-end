@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from app.extensions import db
 from app.models.course_domain import SisnSyncRun
@@ -31,6 +32,10 @@ from app.services.sisn_proxy_client import SisnProxyClient
 
 class SisnSyncBlocked(RuntimeError):
     """A safe, expected guard prevented a candidate from being applied."""
+
+
+class SisnSyncDuplicateRequest(RuntimeError):
+    """A request identifier was already consumed."""
 
 
 @dataclass(frozen=True)
@@ -241,7 +246,11 @@ def run_sisn_sync(
         status="started",
     )
     db.session.add(run)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError as exc:
+        db.session.rollback()
+        raise SisnSyncDuplicateRequest("request_id has already been consumed") from exc
     source_hash = None
     candidate_hash = None
     fetched_at = None

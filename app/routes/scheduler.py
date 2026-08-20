@@ -1,6 +1,9 @@
+import json
+from dataclasses import asdict
 from datetime import datetime, timezone
+from pathlib import Path
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, current_app, request, jsonify
 from app.models.course import Course
 from app.models.course_domain import (
     CourseMeeting,
@@ -26,6 +29,16 @@ from app.services.scheduler_popularity import (
     popularity_state,
     record_popularity_transition,
 )
+from app.services.sisn_push_auth import (
+    SisnPushAuthenticationError,
+    verify_push_request,
+)
+from app.services.sisn_sync import (
+    SisnSyncBlocked,
+    SisnSyncDuplicateRequest,
+    SisnSyncGuards,
+    run_sisn_sync,
+)
 
 bp = Blueprint('scheduler', __name__, url_prefix='/scheduler')
 
@@ -44,6 +57,29 @@ def _json_body():
     if not isinstance(data, dict):
         return None, (jsonify({'error': 'Invalid JSON body'}), 400)
     return data, None
+
+
+class _EnvelopeClient:
+    def __init__(self, envelope):
+        self.envelope = envelope
+
+    def fetch_class_quota(self, *, term):
+        return self.envelope
+
+
+def _sisn_guards_from_config():
+    return SisnSyncGuards(
+        min_source_courses=current_app.config['SISN_SYNC_MIN_SOURCE_COURSES'],
+        max_source_courses=current_app.config['SISN_SYNC_MAX_SOURCE_COURSES'],
+        min_source_classes=current_app.config['SISN_SYNC_MIN_SOURCE_CLASSES'],
+        max_source_classes=current_app.config['SISN_SYNC_MAX_SOURCE_CLASSES'],
+        min_source_schedules=current_app.config['SISN_SYNC_MIN_SOURCE_SCHEDULES'],
+        max_source_schedules=current_app.config['SISN_SYNC_MAX_SOURCE_SCHEDULES'],
+        min_candidate_sections=current_app.config['SISN_SYNC_MIN_CANDIDATE_SECTIONS'],
+        max_fallback_main_classes=current_app.config['SISN_SYNC_MAX_FALLBACK_MAIN_CLASSES'],
+        max_missing_baseline_classes=current_app.config['SISN_SYNC_MAX_MISSING_BASELINE_CLASSES'],
+        max_omitted_unscheduled_classes=current_app.config['SISN_SYNC_MAX_OMITTED_UNSCHEDULED_CLASSES'],
+    )
 
 
 def _requested_enabled(data, default):
@@ -178,6 +214,73 @@ def _meetings_for_section(section_id):
 
 
 # --- Semester & Course Search ---
+
+@bp.route('/internal/sisn-ingest', methods=['POST'])
+def ingest_sisn_snapshot():
+    """Accept a fresh, Ed25519-signed snapshot from the school server."""
+    if not current_app.config.get('SISN_PUSH_INGEST_ENABLED', False):
+        return jsonify({'error': 'SISN ingest is disabled'}), 404
+
+    maximum_body_size = current_app.config['SISN_PUSH_MAX_BODY_BYTES']
+    if request.content_length is not None and request.content_length > maximum_body_size:
+        return jsonify({'error': 'Request body is too large'}), 413
+    raw_body = request.get_data(cache=False)
+    if not raw_body or len(raw_body) > maximum_body_size:
+        return jsonify({'error': 'Invalid request body'}), 400 if not raw_body else 413
+
+    timestamp = request.headers.get('X-UniKorn-Timestamp', '')
+    nonce = request.headers.get('X-UniKorn-Nonce', '')
+    signature = request.headers.get('X-UniKorn-Signature', '')
+    try:
+        verify_push_request(
+            public_key_path=Path(current_app.config['SISN_PUSH_PUBLIC_KEY_PATH']),
+            timestamp=timestamp,
+            nonce=nonce,
+            signature=signature,
+            body=raw_body,
+            max_age_seconds=current_app.config['SISN_PUSH_MAX_AGE_SECONDS'],
+        )
+    except SisnPushAuthenticationError:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    try:
+        payload = json.loads(raw_body)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return jsonify({'error': 'Invalid JSON body'}), 400
+    if not isinstance(payload, dict) or not isinstance(payload.get('envelope'), dict):
+        return jsonify({'error': 'Invalid SISN envelope'}), 400
+
+    configured_term = current_app.config['SISN_SYNC_TERM']
+    term = payload.get('term')
+    mode = payload.get('mode')
+    if term != configured_term:
+        return jsonify({'error': 'Unexpected SISN term'}), 400
+    if mode not in {'dry-run', 'apply'}:
+        return jsonify({'error': 'mode must be dry-run or apply'}), 400
+
+    archive_value = current_app.config.get('SISN_SYNC_ARCHIVE_DIR', '')
+    try:
+        result = run_sisn_sync(
+            client=_EnvelopeClient(payload['envelope']),
+            term=term,
+            baseline_path=Path(current_app.config['SISN_SYNC_BASELINE_PATH']).resolve(),
+            mode=mode,
+            guards=_sisn_guards_from_config(),
+            archive_dir=Path(archive_value).resolve() if archive_value else None,
+            archive_retention_files=current_app.config['SISN_SYNC_ARCHIVE_RETENTION_FILES'],
+            request_id=f'push-{nonce}',
+        )
+    except SisnSyncDuplicateRequest:
+        return jsonify({'error': 'Request already processed'}), 409
+    except SisnSyncBlocked as exc:
+        return jsonify({'error': 'SISN snapshot blocked', 'detail': str(exc)}), 422
+    except Exception:
+        current_app.logger.exception('SISN push ingest failed')
+        return jsonify({'error': 'SISN ingest failed'}), 500
+
+    response = asdict(result)
+    status_code = 422 if result.status == 'blocked' else 200
+    return jsonify(response), status_code
 
 @bp.route('/semesters', methods=['GET'])
 def list_semesters():

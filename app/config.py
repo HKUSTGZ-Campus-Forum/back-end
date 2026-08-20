@@ -226,6 +226,19 @@ class Config:
     SISN_SYNC_MAX_FALLBACK_MAIN_CLASSES = int(os.getenv('SISN_SYNC_MAX_FALLBACK_MAIN_CLASSES', '20'))
     SISN_SYNC_MAX_MISSING_BASELINE_CLASSES = int(os.getenv('SISN_SYNC_MAX_MISSING_BASELINE_CLASSES', '50'))
     SISN_SYNC_MAX_OMITTED_UNSCHEDULED_CLASSES = int(os.getenv('SISN_SYNC_MAX_OMITTED_UNSCHEDULED_CLASSES', '50'))
+    # The school network cannot be reached from the public UniKorn hosts. The
+    # allowlisted school server therefore pushes signed snapshots outward.
+    # Production is fail-closed unless explicitly enabled by its operators.
+    SISN_PUSH_INGEST_ENABLED = get_env_bool(
+        'SISN_PUSH_INGEST_ENABLED',
+        APP_ENV not in {'prod', 'production'},
+    )
+    SISN_PUSH_PUBLIC_KEY_PATH = os.getenv(
+        'SISN_PUSH_PUBLIC_KEY_PATH',
+        os.path.join(basedir, 'data', 'sisn_push_public_key.pem'),
+    ).strip()
+    SISN_PUSH_MAX_BODY_BYTES = int(os.getenv('SISN_PUSH_MAX_BODY_BYTES', str(8 * 1024 * 1024)))
+    SISN_PUSH_MAX_AGE_SECONDS = int(os.getenv('SISN_PUSH_MAX_AGE_SECONDS', '300'))
 
     # Forwarded headers are untrusted unless a deployment opts in explicitly.
     # Separate counts avoid assuming every trusted proxy appends every header.
