@@ -50,6 +50,7 @@ def test_release_build_is_noninteractive_and_survives_atomic_stage_rename():
     assert "export CI=1" in deploy
     assert "export NUXT_TELEMETRY_DISABLED=1" in deploy
     assert 'mv -T -- "${stage_path}" "${release_path}"' in deploy
+    assert deploy.count("GIT_OPTIONAL_LOCKS=0 git -C") == 2
 
 
 def test_nginx_splits_hosts_strips_api_prefix_and_sanitizes_proxy_headers():

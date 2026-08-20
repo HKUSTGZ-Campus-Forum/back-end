@@ -43,9 +43,9 @@ backend_source="$(realpath -e -- "${backend_source}")"
 frontend_source="$(realpath -e -- "${frontend_source}")"
 [[ "$(git -C "${backend_source}" rev-parse HEAD)" == "${backend_sha}" ]] || fail "backend SHA mismatch"
 [[ "$(git -C "${frontend_source}" rev-parse HEAD)" == "${frontend_sha}" ]] || fail "frontend SHA mismatch"
-[[ -z "$(git -C "${backend_source}" status --porcelain=v1 --untracked-files=all)" ]] || \
+[[ -z "$(GIT_OPTIONAL_LOCKS=0 git -C "${backend_source}" status --porcelain=v1 --untracked-files=all)" ]] || \
     fail "backend source is not a clean committed checkout"
-[[ -z "$(git -C "${frontend_source}" status --porcelain=v1 --untracked-files=all)" ]] || \
+[[ -z "$(GIT_OPTIONAL_LOCKS=0 git -C "${frontend_source}" status --porcelain=v1 --untracked-files=all)" ]] || \
     fail "frontend source is not a clean committed checkout"
 
 if [[ -z "${release_id}" ]]; then
