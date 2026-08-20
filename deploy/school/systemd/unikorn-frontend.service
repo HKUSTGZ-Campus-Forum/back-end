@@ -15,7 +15,7 @@ Environment=HOST=127.0.0.1
 Environment=PORT=3000
 Environment=NITRO_HOST=127.0.0.1
 Environment=NITRO_PORT=3000
-Environment=NEXT_TELEMETRY_DISABLED=1
+Environment=NUXT_TELEMETRY_DISABLED=1
 ExecStartPre=/usr/bin/test -x /opt/node-v20.19.6-linux-x64/bin/node
 ExecStartPre=/usr/bin/test -f /srv/unikorn/current/frontend/.output/server/index.mjs
 ExecStart=/opt/node-v20.19.6-linux-x64/bin/node /srv/unikorn/current/frontend/.output/server/index.mjs

@@ -25,6 +25,7 @@ def test_all_school_shell_scripts_are_executable_and_parse():
 def test_systemd_units_are_loopback_only_hardened_and_restartable():
     backend = read("systemd/unikorn-backend.service")
     frontend = read("systemd/unikorn-frontend.service")
+    migrate = read("systemd/unikorn-migrate@.service")
     redis = read("systemd/unikorn-redis.service")
     for unit in (backend, frontend, redis):
         assert "NoNewPrivileges=true" in unit
@@ -37,6 +38,18 @@ def test_systemd_units_are_loopback_only_hardened_and_restartable():
     assert "port 6380" in read("redis.conf")
     assert "/etc/unikorn-redis/redis.conf" in redis
     assert "courseplan.service" not in backend + frontend + redis
+    assert ".venv/bin/python -m gunicorn" in backend
+    assert ".venv/bin/python -m flask db upgrade" in migrate
+    assert ".venv/bin/gunicorn" not in backend
+    assert ".venv/bin/flask" not in migrate
+    assert "NUXT_TELEMETRY_DISABLED=1" in frontend
+
+
+def test_release_build_is_noninteractive_and_survives_atomic_stage_rename():
+    deploy = read("deploy-release.sh")
+    assert "export CI=1" in deploy
+    assert "export NUXT_TELEMETRY_DISABLED=1" in deploy
+    assert 'mv -T -- "${stage_path}" "${release_path}"' in deploy
 
 
 def test_nginx_splits_hosts_strips_api_prefix_and_sanitizes_proxy_headers():

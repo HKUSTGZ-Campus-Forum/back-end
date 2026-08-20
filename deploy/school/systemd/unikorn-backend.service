@@ -13,8 +13,8 @@ WorkingDirectory=/srv/unikorn/current/backend
 EnvironmentFile=/etc/unikorn/unikorn.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
-ExecStartPre=/usr/bin/test -x /srv/unikorn/current/backend/.venv/bin/gunicorn
-ExecStart=/srv/unikorn/current/backend/.venv/bin/gunicorn --config /srv/unikorn/current/backend/deploy/school/gunicorn.conf.py wsgi:application
+ExecStartPre=/usr/bin/test -x /srv/unikorn/current/backend/.venv/bin/python
+ExecStart=/srv/unikorn/current/backend/.venv/bin/python -m gunicorn --config /srv/unikorn/current/backend/deploy/school/gunicorn.conf.py wsgi:application
 Restart=on-failure
 RestartSec=5s
 TimeoutStartSec=120s

@@ -120,6 +120,8 @@ python3 -m venv "${stage_path}/backend/.venv"
 (
     cd -- "${stage_path}/frontend"
     export PATH="$(dirname -- "${node_bin}"):${PATH}"
+    export CI=1
+    export NUXT_TELEMETRY_DISABLED=1
     NODE_ENV=development "${node_bin}" "${npm_cli}" ci --no-audit --no-fund
     NODE_ENV=production \
     NUXT_PUBLIC_API_BASE_URL= \

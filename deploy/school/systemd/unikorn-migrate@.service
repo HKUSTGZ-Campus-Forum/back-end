@@ -12,7 +12,10 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
 Environment=AUTO_INIT_ON_STARTUP=false
 Environment=ENABLE_BACKGROUND_TASKS=false
-ExecStart=/srv/unikorn/releases/%i/backend/.venv/bin/flask db upgrade
+# Console-script shebangs contain the temporary build path and are not
+# relocatable after the release directory is atomically renamed.  Invoke the
+# installed module through the venv interpreter instead.
+ExecStart=/srv/unikorn/releases/%i/backend/.venv/bin/python -m flask db upgrade
 UMask=0027
 SyslogIdentifier=unikorn-migrate
 
