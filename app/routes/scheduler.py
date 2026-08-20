@@ -9,6 +9,7 @@ from app.models.course_domain import (
     CourseMeeting,
     CourseOffering,
     CourseSection,
+    SisnSyncRun,
     UserOfferingCart,
     UserSectionSelection,
 )
@@ -276,7 +277,12 @@ def ingest_sisn_snapshot():
         return jsonify({'error': 'SISN snapshot blocked', 'detail': str(exc)}), 422
     except Exception:
         current_app.logger.exception('SISN push ingest failed')
-        return jsonify({'error': 'SISN ingest failed'}), 500
+        failed_run = SisnSyncRun.query.filter_by(request_id=f'push-{nonce}').first()
+        response = {'error': 'SISN ingest failed'}
+        if failed_run is not None:
+            response['code'] = failed_run.error_code
+            response['detail'] = failed_run.error_message
+        return jsonify(response), 500
 
     response = asdict(result)
     status_code = 422 if result.status == 'blocked' else 200
