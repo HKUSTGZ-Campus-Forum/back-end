@@ -1,0 +1,36 @@
+[Unit]
+Description=Apply UniKorn Alembic migrations for release %i
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=unikorn
+Group=unikorn
+WorkingDirectory=/srv/unikorn/releases/%i/backend
+EnvironmentFile=/etc/unikorn/unikorn.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=AUTO_INIT_ON_STARTUP=false
+Environment=ENABLE_BACKGROUND_TASKS=false
+ExecStart=/srv/unikorn/releases/%i/backend/.venv/bin/flask db upgrade
+UMask=0027
+SyslogIdentifier=unikorn-migrate
+
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectProc=invisible
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
