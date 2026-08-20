@@ -64,6 +64,9 @@ def test_nginx_splits_hosts_strips_api_prefix_and_sanitizes_proxy_headers():
     assert "10\\.121\\.10\\.250:https" in shared
     assert "X-Forwarded-Proto $unikorn_external_scheme" in unikorn
     assert "TRUSTED_PROXY_PROTO_HOPS=1" in read("unikorn.env.example")
+    activation = read("activate-nginx.sh")
+    assert "for _attempt in {1..40}" in activation
+    assert "reloaded Nginx did not serve both host routes" in activation
 
 
 def test_access_logs_exclude_queries_and_redirect_preserves_them():

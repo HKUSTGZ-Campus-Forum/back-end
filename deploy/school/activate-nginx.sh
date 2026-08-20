@@ -72,10 +72,18 @@ ln -sfn -- "${unikorn_config}" "${unikorn_link}"
 
 nginx -t
 systemctl reload nginx
-curl --fail --silent --show-error --max-time 15 \
-    -H 'Host: unikorn.hkust-gz.edu.cn' http://127.0.0.1/api/healthz >/dev/null
-curl --fail --silent --show-error --max-time 15 \
-    -H 'Host: scheduler.unikorn.hkust-gz.edu.cn' http://127.0.0.1/ >/dev/null
+split_ready=false
+for _attempt in {1..40}; do
+    if curl --fail --silent --show-error --connect-timeout 2 --max-time 5 \
+        -H 'Host: unikorn.hkust-gz.edu.cn' http://127.0.0.1/api/healthz >/dev/null && \
+       curl --fail --silent --show-error --connect-timeout 2 --max-time 5 \
+        -H 'Host: scheduler.unikorn.hkust-gz.edu.cn' http://127.0.0.1/ >/dev/null; then
+        split_ready=true
+        break
+    fi
+    sleep 0.25
+done
+[[ "${split_ready}" == "true" ]] || fail "reloaded Nginx did not serve both host routes"
 systemctl is-active --quiet courseplan.service
 trap - EXIT
 printf 'Nginx split activated; rollback snapshot: %s\n' "${backup_dir}"
