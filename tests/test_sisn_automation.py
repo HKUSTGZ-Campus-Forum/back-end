@@ -217,6 +217,20 @@ def test_adapter_preserves_reviewed_grouping_and_uses_official_live_fields():
     }]
 
 
+def test_official_course_titles_can_exceed_legacy_abbreviation_width():
+    payload = _payload()
+    official_title = "Advanced Economic Analysis of Cities and the Environment"
+    assert len(official_title) > 48
+    payload["courses"][0]["crseDesc"] = official_title
+    adapted = adapt_proxy_envelope(
+        _envelope(payload),
+        term="2610",
+        baseline=_baseline(),
+        baseline_label="reviewed-baseline.json",
+    )
+    assert adapted.snapshot["courses"][0]["course_title_abbr"] == official_title
+
+
 def test_adapter_fails_closed_for_new_scheduled_associated_class():
     with pytest.raises(SisnMappingError, match="no reviewed WCQ mapping"):
         adapt_proxy_envelope(

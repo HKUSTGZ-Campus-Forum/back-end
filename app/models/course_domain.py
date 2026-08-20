@@ -18,7 +18,7 @@ class CourseCatalogVersion(db.Model):
     source_version = db.Column(db.String(80), nullable=True)
     catalog_year = db.Column(db.String(20), nullable=True)
     title = db.Column(db.String(255), nullable=False)
-    title_abbr = db.Column(db.String(48), nullable=True)
+    title_abbr = db.Column(db.String(255), nullable=True)
     description = db.Column(db.Text, nullable=True)
     credits = db.Column(db.Integer, nullable=False)
     pre_requirement_raw = db.Column(db.Text, nullable=True)

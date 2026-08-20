@@ -25,7 +25,7 @@ class Course(db.Model):
     # Scheduler fields
     subject = db.Column(db.String(4), nullable=True)
     catalog_number = db.Column(db.String(16), nullable=True)
-    course_title_abbr = db.Column(db.String(48), nullable=True)
+    course_title_abbr = db.Column(db.String(255), nullable=True)
     pre_requirement = db.Column(db.Text, nullable=True)
     co_requirement = db.Column(db.Text, nullable=True)
     exclusion = db.Column(db.Text, nullable=True)
