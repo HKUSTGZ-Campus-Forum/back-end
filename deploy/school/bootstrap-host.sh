@@ -53,8 +53,14 @@ if [[ ! -e "${config_root}/scheduler-auth-policy.conf" ]]; then
         "${script_dir}/nginx/scheduler-auth-policy.open.conf" \
         "${config_root}/scheduler-auth-policy.conf"
 fi
-install -o root -g root -m 0644 \
-    "${script_dir}/logrotate-unikorn-nginx.conf" /etc/logrotate.d/unikorn-nginx
+# Ubuntu's packaged /etc/logrotate.d/nginx already covers every *.log in the
+# Nginx log directory with daily rotation and 14 archives.  A second stanza
+# for the same paths makes the whole system logrotate job fail as a duplicate.
+if [[ -e /etc/logrotate.d/unikorn-nginx || -L /etc/logrotate.d/unikorn-nginx ]]; then
+    [[ -f /etc/logrotate.d/unikorn-nginx && ! -L /etc/logrotate.d/unikorn-nginx ]] || \
+        fail "unsafe obsolete UniKorn logrotate path"
+    unlink -- /etc/logrotate.d/unikorn-nginx
+fi
 for unit in "${script_dir}"/systemd/*; do
     [[ -f "${unit}" && ! -L "${unit}" ]] || fail "unsafe systemd unit source"
     install -o root -g root -m 0644 "${unit}" "/etc/systemd/system/$(basename -- "${unit}")"

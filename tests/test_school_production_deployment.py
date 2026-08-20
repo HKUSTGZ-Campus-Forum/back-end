@@ -177,6 +177,8 @@ def test_bootstrap_preserves_courseplan_and_uses_postgresql_peer_auth():
     assert "ExecStart=/usr/bin/true" in bootstrap
     assert 'redis_config_root="/etc/unikorn-redis"' in bootstrap
     assert "ca-certificates curl git logrotate" in bootstrap
+    assert "unlink -- /etc/logrotate.d/unikorn-nginx" in bootstrap
+    assert not (SCHOOL / "logrotate-unikorn-nginx.conf").exists()
 
 
 def test_environment_migration_compares_values_without_printing_them(tmp_path):
