@@ -205,10 +205,41 @@ runuser -u unikorn -- env \
     "${current_release}/backend/deploy/school/compare-database-snapshots.py" \
     "${contents}/source-database.json" "${restore_root}/target-output/target-database.json"
 
+# The source snapshot must first match byte-for-byte restored schema/data. Only
+# after that gate may the candidate advance to the currently deployed release's
+# Alembic heads. This keeps source accounting exact while ensuring a newly
+# promoted database is compatible with the application that will open it.
+(
+    cd -- "${current_release}/backend"
+    runuser -u unikorn -- env \
+        APP_ENV=development \
+        DATABASE_URL="postgresql:///${candidate}" \
+        AUTO_INIT_ON_STARTUP=false \
+        ENABLE_BACKGROUND_TASKS=false \
+        "${current_release}/backend/.venv/bin/python" -m flask --app wsgi db upgrade
+)
+runuser -u unikorn -- env \
+    APP_ENV=development \
+    DATABASE_URL="postgresql:///${candidate}" \
+    AUTO_INIT_ON_STARTUP=false \
+    ENABLE_BACKGROUND_TASKS=false \
+    "${current_release}/backend/.venv/bin/python" \
+    "${current_release}/backend/deploy/school/database-snapshot.py" \
+    --expected-database "${candidate}" \
+    --output "${restore_root}/target-output/target-post-migration-database.json"
+"${current_release}/backend/.venv/bin/python" \
+    "${current_release}/backend/deploy/school/verify-post-migration-snapshot.py" \
+    "${contents}/source-database.json" \
+    "${restore_root}/target-output/target-post-migration-database.json" \
+    --migrations-dir "${current_release}/backend/migrations"
+
 if [[ "${promote}" != "true" ]]; then
+    runuser -u postgres -- psql --dbname=postgres --no-psqlrc --set ON_ERROR_STOP=1 \
+        --command="ALTER DATABASE ${candidate} WITH ALLOW_CONNECTIONS false" >/dev/null
     trap - ERR
     candidate_created=false
-    printf 'rehearsal restored and verified without promotion: database=%s\n' "${candidate}"
+    printf 'rehearsal restored, migrated, verified, and left offline: database=%s\n' \
+        "${candidate}"
     exit 0
 fi
 

@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import os
 import re
 import subprocess
@@ -106,6 +107,7 @@ def test_backup_is_custom_format_verified_hashed_and_retained():
 def test_restore_compares_every_table_alembic_and_foreign_keys_before_promotion():
     snapshot = read("database-snapshot.py")
     compare = read("compare-database-snapshots.py")
+    post_migration = read("verify-post-migration-snapshot.py")
     restore = read("restore-production.sh")
     assert "pg_catalog.pg_tables" in snapshot
     assert "SELECT count(*)" in snapshot
@@ -130,6 +132,73 @@ def test_restore_compares_every_table_alembic_and_foreign_keys_before_promotion(
         "ALLOWED_TO_CHANGE", 1
     )[1].split("})", 1)[0]
     assert "--exit-on-error --no-owner --no-acl" in restore
+    exact_compare_position = restore.index("compare-database-snapshots.py")
+    migration_position = restore.index("-m flask --app wsgi db upgrade")
+    post_migration_position = restore.index("verify-post-migration-snapshot.py")
+    assert exact_compare_position < migration_position < post_migration_position < promote_position
+    assert "ast.parse" in post_migration
+    assert "source table row count" in post_migration
+    assert "target-only migration table is not empty" in post_migration
+    assert "target Alembic heads do not match release" in post_migration
+    rehearsal_gate = restore.index("ALTER DATABASE ${candidate} WITH ALLOW_CONNECTIONS false")
+    assert post_migration_position < rehearsal_gate < promote_position
+
+
+def test_post_migration_snapshot_allows_only_empty_new_tables(tmp_path):
+    source = {
+        "format": 1,
+        "table_counts": {"public.alembic_version": 1, "public.users": 7},
+        "alembic_heads": ["20260819_campus_oidc"],
+        "extensions": ["plpgsql"],
+        "foreign_keys": 10,
+        "unvalidated_foreign_keys": 0,
+    }
+    target = {
+        **source,
+        "table_counts": {
+            "public.alembic_version": 1,
+            "public.users": 7,
+            "public.sisn_sync_runs": 0,
+        },
+        "alembic_heads": ["20260820_title_abbr_255"],
+        "foreign_keys": 11,
+    }
+    source_path = tmp_path / "source.json"
+    target_path = tmp_path / "target.json"
+    source_path.write_text(json.dumps(source), encoding="utf-8")
+    target_path.write_text(json.dumps(target), encoding="utf-8")
+    helper = SCHOOL / "verify-post-migration-snapshot.py"
+    subprocess.run(
+        [
+            sys.executable,
+            str(helper),
+            str(source_path),
+            str(target_path),
+            "--migrations-dir",
+            str(ROOT / "migrations"),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    target["table_counts"]["public.sisn_sync_runs"] = 1
+    target_path.write_text(json.dumps(target), encoding="utf-8")
+    failed = subprocess.run(
+        [
+            sys.executable,
+            str(helper),
+            str(source_path),
+            str(target_path),
+            "--migrations-dir",
+            str(ROOT / "migrations"),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert failed.returncode != 0
+    assert "target-only migration table is not empty" in failed.stdout
 
 
 def test_migration_dump_and_source_counts_share_one_exported_snapshot():
