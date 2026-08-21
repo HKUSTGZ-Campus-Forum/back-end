@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the verified UniKorn PostgreSQL backup daily
+
+[Timer]
+OnCalendar=*-*-* 03:20:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=20m
+AccuracySec=1m
+Unit=unikorn-backup.service
+
+[Install]
+WantedBy=timers.target

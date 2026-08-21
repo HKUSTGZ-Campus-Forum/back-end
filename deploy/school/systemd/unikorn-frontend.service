@@ -1,0 +1,50 @@
+[Unit]
+Description=UniKorn Nuxt frontend
+Wants=network-online.target
+After=network-online.target unikorn-backend.service
+ConditionPathIsSymbolicLink=/srv/unikorn/current
+
+[Service]
+Type=simple
+User=unikorn
+Group=unikorn
+WorkingDirectory=/srv/unikorn/current/frontend
+EnvironmentFile=/etc/unikorn/unikorn.env
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3000
+Environment=NITRO_HOST=127.0.0.1
+Environment=NITRO_PORT=3000
+Environment=NUXT_TELEMETRY_DISABLED=1
+ExecStartPre=/usr/bin/test -x /opt/node-v20.19.6-linux-x64/bin/node
+ExecStartPre=/usr/bin/test -f /srv/unikorn/current/frontend/.output/server/index.mjs
+ExecStart=/opt/node-v20.19.6-linux-x64/bin/node /srv/unikorn/current/frontend/.output/server/index.mjs
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=90s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+UMask=0027
+SyslogIdentifier=unikorn-frontend
+
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectProc=invisible
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

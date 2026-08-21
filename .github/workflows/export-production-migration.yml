@@ -1,0 +1,230 @@
+name: Export encrypted school migration package
+
+on:
+  workflow_dispatch:
+    inputs:
+      export_kind:
+        description: Rehearsal keeps production online; final stops the old API for the maintenance window
+        required: true
+        type: choice
+        options:
+          - rehearsal
+          - final
+      freeze_confirmation:
+        description: For final only, enter FREEZE_OLD_PRODUCTION_WRITES
+        required: false
+        type: string
+      reason:
+        description: Change-ticket or maintenance-window reference
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-mutations-production
+  cancel-in-progress: false
+
+jobs:
+  export:
+    name: Create ciphertext on the production host
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: production
+
+    steps:
+      - name: Validate explicit final-freeze confirmation
+        env:
+          EXPORT_KIND: ${{ inputs.export_kind }}
+          FREEZE_CONFIRMATION: ${{ inputs.freeze_confirmation }}
+        run: |
+          set -Eeuo pipefail
+          if [[ "${EXPORT_KIND}" == "final" && \
+                "${FREEZE_CONFIRMATION}" != "FREEZE_OLD_PRODUCTION_WRITES" ]]; then
+            echo "Final export requires the exact write-freeze confirmation." >&2
+            exit 1
+          fi
+
+      - name: Checkout the audited export helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Export, encrypt, and download ciphertext only
+        id: encrypted-export
+        shell: bash
+        env:
+          EXPORT_KIND: ${{ inputs.export_kind }}
+          PROD_SSH_HOST: ${{ secrets.PROD_SSH_HOST }}
+          PROD_SSH_USER: ${{ secrets.PROD_SSH_USER }}
+          PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
+          PROD_SSH_FINGERPRINT: ${{ secrets.PROD_SSH_FINGERPRINT }}
+          SCHOOL_MIGRATION_PUBLIC_CERT_B64: ${{ vars.SCHOOL_MIGRATION_PUBLIC_CERT_B64 }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          key_file="$(mktemp "${RUNNER_TEMP}/unikorn-key.XXXXXX")"
+          known_hosts="$(mktemp "${RUNNER_TEMP}/unikorn-known-hosts.XXXXXX")"
+          cert_file="$(mktemp "${RUNNER_TEMP}/unikorn-migration-cert.XXXXXX")"
+          output_file="${RUNNER_TEMP}/unikorn-${EXPORT_KIND}-migration.cms"
+          cleanup_runner() {
+            find "${key_file}" "${known_hosts}" "${cert_file}" -type f -exec shred -u -- {} + 2>/dev/null || true
+          }
+          trap cleanup_runner EXIT
+          printf '%s\n' "${PROD_SSH_KEY}" >"${key_file}"
+          printf '%s' "${SCHOOL_MIGRATION_PUBLIC_CERT_B64}" | base64 --decode >"${cert_file}"
+          openssl x509 -in "${cert_file}" -noout -checkend 1209600
+
+          ssh-keyscan -T 10 "${PROD_SSH_HOST}" >"${known_hosts}.scan"
+          expected_fingerprint="${PROD_SSH_FINGERPRINT#SHA256:}"
+          matched=false
+          : >"${known_hosts}"
+          while IFS= read -r host_key; do
+            printf '%s\n' "${host_key}" >"${known_hosts}.candidate"
+            fingerprint="$(ssh-keygen -lf "${known_hosts}.candidate" -E sha256 | awk '{print $2}')"
+            if [[ "${fingerprint#SHA256:}" == "${expected_fingerprint}" ]]; then
+              printf '%s\n' "${host_key}" >>"${known_hosts}"
+              matched=true
+            fi
+          done <"${known_hosts}.scan"
+          [[ "${matched}" == "true" ]] || { echo "Production SSH host fingerprint mismatch." >&2; exit 1; }
+          shred -u -- "${known_hosts}.scan" "${known_hosts}.candidate"
+
+          ssh_args=(
+            -i "${key_file}"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile="${known_hosts}"
+          )
+          remote_root="$(ssh "${ssh_args[@]}" "${PROD_SSH_USER}@${PROD_SSH_HOST}" \
+            'mktemp -d /data/prod_unikorn/backups/.school-migration.XXXXXX')"
+          [[ "${remote_root}" =~ ^/data/prod_unikorn/backups/\.school-migration\.[A-Za-z0-9]+$ ]] || {
+            echo "Unexpected remote staging path." >&2
+            exit 1
+          }
+          scp "${ssh_args[@]}" deploy/school/create-migration-export.py "${cert_file}" \
+            "${PROD_SSH_USER}@${PROD_SSH_HOST}:${remote_root}/"
+
+          remote_package="$(ssh "${ssh_args[@]}" "${PROD_SSH_USER}@${PROD_SSH_HOST}" \
+            bash -s -- "${remote_root}" "${EXPORT_KIND}" <<'REMOTE'
+          set -Eeuo pipefail
+          IFS=$'\n\t'
+          umask 077
+          root="$1"
+          export_kind="$2"
+          app_dir="/data/prod_unikorn/back-end"
+          frontend_dir="/data/prod_unikorn/front-end/current"
+          backup_root="/data/prod_unikorn/backups"
+          [[ "${root}" =~ ^/data/prod_unikorn/backups/\.school-migration\.[A-Za-z0-9]+$ ]] || exit 1
+          [[ "${export_kind}" == "rehearsal" || "${export_kind}" == "final" ]] || exit 1
+          chmod 0750 "${root}"
+          frozen=false
+          success=false
+          remote_package="${backup_root}/school-${export_kind}-$(date -u +%Y%m%dT%H%M%SZ)-$$.cms"
+          cleanup_remote() {
+            status=$?
+            find "${root}" -type f -exec shred -u -n 1 -- {} + 2>/dev/null || true
+            find "${root}" -depth -type d -empty -delete 2>/dev/null || true
+            if [[ "${export_kind}" == "final" && "${frozen}" == "true" && "${success}" != "true" ]]; then
+              sudo -n systemctl start prod-unikorn-api.service >/dev/null 2>&1 || true
+            fi
+            exit "${status}"
+          }
+          trap cleanup_remote EXIT
+
+          if [[ "${export_kind}" == "final" ]]; then
+            sudo -n systemctl stop prod-unikorn-api.service
+            if systemctl is-active --quiet prod-unikorn-api.service; then
+              exit 1
+            fi
+            frozen=true
+          fi
+
+          cd "${app_dir}"
+          "${app_dir}/venv/bin/python" "${root}/create-migration-export.py" \
+            --app-root "${app_dir}" --output-dir "${root}" \
+            --expected-database prod_unikorn >"${root}/backup-result.json"
+          cp -- "${app_dir}/.env" "${root}/production.env"
+          chmod 0600 "${root}/production.env"
+
+          backend_commit="$(git -C "${app_dir}" rev-parse HEAD)"
+          frontend_commit="$(curl --fail --silent --show-error --max-time 10 \
+            http://127.0.0.1:3000/health | "${app_dir}/venv/bin/python" -c \
+            'import json,sys; print(json.load(sys.stdin)["version"])')"
+          [[ "${backend_commit}" =~ ^[0-9a-f]{40}$ && "${frontend_commit}" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          "${app_dir}/venv/bin/python" - "${root}/source-commits.json" \
+            "${backend_commit}" "${frontend_commit}" <<'PY'
+          import json,sys
+          with open(sys.argv[1], "x", encoding="utf-8") as output:
+              json.dump({"backend": sys.argv[2], "frontend": sys.argv[3]}, output, sort_keys=True)
+              output.write("\n")
+          PY
+
+          writes_frozen=false
+          [[ "${export_kind}" == "final" ]] && writes_frozen=true
+          "${app_dir}/venv/bin/python" - "${root}" "${export_kind}" "${writes_frozen}" <<'PY'
+          import hashlib,json,pathlib,sys
+          root = pathlib.Path(sys.argv[1])
+          def digest(name):
+              return hashlib.sha256((root / name).read_bytes()).hexdigest()
+          payload = {
+              "format": 1,
+              "source_database": "prod_unikorn",
+              "export_kind": sys.argv[2],
+              "writes_frozen": sys.argv[3] == "true",
+              "database_sha256": digest("database.dump"),
+              "database_list_sha256": digest("database.dump.list"),
+              "database_snapshot_sha256": digest("source-database.json"),
+              "source_commits_sha256": digest("source-commits.json"),
+              "production_env_sha256": digest("production.env"),
+          }
+          with (root / "manifest.json").open("x", encoding="utf-8") as output:
+              json.dump(payload, output, sort_keys=True)
+              output.write("\n")
+          PY
+          rm -f -- "${root}/backup-result.json" "${root}/create-migration-export.py"
+          tar --create --file="${root}/payload.tar" --format=posix --sort=name \
+            --mtime='@0' --owner=0 --group=0 --numeric-owner -C "${root}" \
+            manifest.json database.dump database.dump.list source-database.json \
+            source-commits.json production.env
+          openssl cms -encrypt -binary -aes-256-cbc -outform DER \
+            -in "${root}/payload.tar" -out "${remote_package}" "${root}/unikorn-migration-cert."*
+          [[ -s "${remote_package}" ]]
+          chmod 0600 "${remote_package}"
+          success=true
+          printf '%s\n' "${remote_package}"
+          REMOTE
+          )"
+          [[ "${remote_package}" =~ ^/data/prod_unikorn/backups/school-(rehearsal|final)-[0-9]{8}T[0-9]{6}Z-[0-9]+\.cms$ ]] || {
+            echo "Unexpected encrypted package path." >&2
+            exit 1
+          }
+          scp "${ssh_args[@]}" "${PROD_SSH_USER}@${PROD_SSH_HOST}:${remote_package}" "${output_file}"
+          ssh "${ssh_args[@]}" "${PROD_SSH_USER}@${PROD_SSH_HOST}" \
+            "test -f '${remote_package}' && unlink -- '${remote_package}'"
+          [[ -s "${output_file}" ]]
+          openssl cms -cmsout -inform DER -in "${output_file}" -noout
+          sha256sum "${output_file}"
+          printf 'artifact_path=%s\n' "${output_file}" >>"${GITHUB_OUTPUT}"
+          printf 'artifact_name=unikorn-%s-migration-%s\n' \
+            "${EXPORT_KIND}" "${GITHUB_RUN_ID}" >>"${GITHUB_OUTPUT}"
+
+      - name: Upload encrypted package only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.encrypted-export.outputs.artifact_name }}
+          path: ${{ steps.encrypted-export.outputs.artifact_path }}
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+      - name: Record maintenance state
+        env:
+          EXPORT_KIND: ${{ inputs.export_kind }}
+        run: |
+          if [[ "${EXPORT_KIND}" == "final" ]]; then
+            echo '### Old production API is stopped' >>"${GITHUB_STEP_SUMMARY}"
+            echo 'Do not restart it unless the migration is aborted and the rollback owner authorizes reopening writes.' >>"${GITHUB_STEP_SUMMARY}"
+          else
+            echo 'Rehearsal export completed without freezing old production writes.' >>"${GITHUB_STEP_SUMMARY}"
+          fi

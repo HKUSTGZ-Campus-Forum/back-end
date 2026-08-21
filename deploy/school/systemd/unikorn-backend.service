@@ -1,0 +1,46 @@
+[Unit]
+Description=UniKorn Flask API
+Wants=network-online.target
+After=network-online.target postgresql.service unikorn-redis.service
+Requires=unikorn-redis.service
+ConditionPathIsSymbolicLink=/srv/unikorn/current
+
+[Service]
+Type=simple
+User=unikorn
+Group=unikorn
+WorkingDirectory=/srv/unikorn/current/backend
+EnvironmentFile=/etc/unikorn/unikorn.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStartPre=/usr/bin/test -x /srv/unikorn/current/backend/.venv/bin/python
+ExecStart=/srv/unikorn/current/backend/.venv/bin/python -m gunicorn --config /srv/unikorn/current/backend/deploy/school/gunicorn.conf.py wsgi:application
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=120s
+TimeoutStopSec=45s
+KillSignal=SIGTERM
+UMask=0027
+SyslogIdentifier=unikorn-backend
+
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectProc=invisible
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
