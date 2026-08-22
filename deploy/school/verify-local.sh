@@ -34,6 +34,30 @@ curl_json http://127.0.0.1:8001/readyz | json_assert \
 curl_json http://127.0.0.1:3000/health | json_assert 'data.get("status") == "ok"'
 curl_json -H 'Host: unikorn.hkust-gz.edu.cn' http://127.0.0.1/api/healthz | \
     json_assert 'data.get("status") == "ok"'
+
+# The signed SISN ingest is available only on the loopback Flask listener.
+# Public and SSR Nginx boundaries must conceal it, while an unsigned direct
+# request must fail closed at the backend authentication layer.
+for endpoint in \
+    'http://127.0.0.1/api/scheduler/internal/sisn-ingest' \
+    'http://127.0.0.1:8081/api/scheduler/internal/sisn-ingest'; do
+    status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+        --connect-timeout 3 --max-time 15 --request POST \
+        --header 'Host: unikorn.hkust-gz.edu.cn' \
+        --header 'Content-Type: application/json' --data '{}' "${endpoint}")"
+    [[ "${status}" == 404 ]] || {
+        printf 'SISN ingest is exposed at %s (HTTP %s)\n' "${endpoint}" "${status}" >&2
+        exit 1
+    }
+done
+status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+    --connect-timeout 3 --max-time 15 --request POST \
+    --header 'Content-Type: application/json' --data '{}' \
+    http://127.0.0.1:8001/scheduler/internal/sisn-ingest)"
+[[ "${status}" == 401 ]] || {
+    printf 'loopback SISN ingest did not fail closed (HTTP %s)\n' "${status}" >&2
+    exit 1
+}
 oidc_payload="$(curl_json -H 'Host: unikorn.hkust-gz.edu.cn' \
     http://127.0.0.1/api/auth/oidc/status)"
 printf '%s' "${oidc_payload}" | json_assert \

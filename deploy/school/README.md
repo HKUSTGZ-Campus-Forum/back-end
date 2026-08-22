@@ -101,6 +101,52 @@ The activation has an automatic config rollback on `nginx -t`, reload, or local
 health failure. It records the former Nginx files under
 `/etc/unikorn/nginx-backups/<UTC timestamp>`.
 
+### 4.1 Enable the official SISN production feed
+
+The school production feed is deliberately local to this host: CoursePlan
+fetches the IP-allowlisted official SISN snapshot, then signs and pushes it to
+the loopback-only UniKorn backend. Public and SSR Nginx listeners return `404`
+for the ingest path.
+
+After activating the release and its Nginx configuration, enable the backend
+receiver. This derives only the public half of CoursePlan's existing signing
+key, atomically updates the UniKorn environment file without shell-sourcing it,
+creates the protected snapshot archive, restarts the backend, and verifies that
+unsigned requests fail closed:
+
+```bash
+sudo deploy/school/enable-sisn-production-ingest.sh
+```
+
+Install the CoursePlan production push units from its separately reviewed
+checkout. The installer leaves the production timer disabled:
+
+```bash
+sudo deploy/install-school-sisn-production-push.sh
+```
+
+Run and inspect the signed dry-run before any offering mutation:
+
+```bash
+sudo systemctl start unikorn-sisn-push-production-dry-run.service
+sudo journalctl -u unikorn-sisn-push-production-dry-run.service \
+  --since '-10 minutes' --no-pager
+```
+
+After reviewing the source counts, candidate counts, omissions, warnings, and
+import plan, create a verified database backup and perform the first apply:
+
+```bash
+sudo systemctl start unikorn-backup.service
+sudo systemctl start unikorn-sisn-push-production.service
+sudo systemctl enable --now unikorn-sisn-push-production.timer
+sudo deploy/school/verify-local.sh --require-oidc
+```
+
+The timer runs every 30 minutes with jitter. Stop it before restoring the
+pre-apply database backup. `sisn_sync_runs` and `/srv/unikorn/sisn-archive`
+retain the audit trail and bounded source snapshots.
+
 ### 5. Encrypted rehearsal
 
 Dispatch `export-production-migration.yml` with `export_kind=rehearsal`. Download

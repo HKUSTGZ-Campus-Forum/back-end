@@ -66,6 +66,11 @@ def test_nginx_splits_hosts_strips_api_prefix_and_sanitizes_proxy_headers():
     assert "10\\.121\\.10\\.250:https" in shared
     assert "X-Forwarded-Proto $unikorn_external_scheme" in unikorn
     assert "TRUSTED_PROXY_PROTO_HOPS=1" in read("unikorn.env.example")
+    assert unikorn.count("location = /api/scheduler/internal/sisn-ingest") == 2
+    assert re.search(
+        r"location = /api/scheduler/internal/sisn-ingest\s*\{\s*return 404;",
+        unikorn,
+    )
     activation = read("activate-nginx.sh")
     assert "for _attempt in {1..40}" in activation
     assert "reloaded Nginx did not serve both host routes" in activation
@@ -91,6 +96,28 @@ def test_environment_values_are_never_shell_sourced():
     for unit in (SCHOOL / "systemd").glob("*.service"):
         if unit.name != "unikorn-redis.service":
             assert "EnvironmentFile=/etc/unikorn/unikorn.env" in unit.read_text(encoding="utf-8")
+
+
+def test_sisn_production_ingest_is_loopback_only_signed_and_archived():
+    environment = read("unikorn.env.example")
+    assert "SISN_SYNC_TERM=2610" in environment
+    assert "SISN_SYNC_ARCHIVE_DIR=/srv/unikorn/sisn-archive" in environment
+    assert "SISN_PUSH_INGEST_ENABLED=true" in environment
+    assert "SISN_PUSH_PUBLIC_KEY_PATH=/etc/unikorn/sisn-push-public.pem" in environment
+
+    setup = read("enable-sisn-production-ingest.sh")
+    assert "/etc/course-scheduler/credentials/sisn_push_private_key" in setup
+    assert "openssl pkey" in setup
+    assert "install -o root -g unikorn -m 0640" in setup
+    assert "install -d -o unikorn -g unikorn -m 0750" in setup
+    assert "cp --preserve=mode,ownership" in setup
+    assert "signed ingest did not fail closed" in setup
+    assert "source /etc/unikorn/unikorn.env" not in setup
+
+    verification = read("verify-local.sh")
+    assert "http://127.0.0.1:8001/scheduler/internal/sisn-ingest" in verification
+    assert "http://127.0.0.1/api/scheduler/internal/sisn-ingest" in verification
+    assert "http://127.0.0.1:8081/api/scheduler/internal/sisn-ingest" in verification
 
 
 def test_backup_is_custom_format_verified_hashed_and_retained():
