@@ -173,6 +173,8 @@ def test_callback_provisions_account_and_ticket_is_single_use(
     assert payload["refresh_token"]
     assert payload["return_to"] == "/courses/planner"
     assert payload["user"]["email"] == "wtao565@connect.hkust-gz.edu.cn"
+    assert payload["user"]["onboarding_required"] is True
+    assert payload["user"]["onboarding_completed_at"] is None
 
     repeated = client.post("/auth/oidc/exchange", json={"code": code})
     assert repeated.status_code == 400
@@ -186,6 +188,100 @@ def test_callback_provisions_account_and_ticket_is_single_use(
         assert identity.subject == "school-user-001"
         assert identity.department == "DSTE"
         assert OidcLoginTicket.query.one().consumed_at is not None
+
+
+def test_new_sso_user_can_confirm_public_profile_once(
+    app,
+    client,
+    monkeypatch,
+):
+    install_fake_client(monkeypatch)
+    _, code = callback_and_get_code(client)
+    exchange = client.post("/auth/oidc/exchange", json={"code": code})
+    access_token = exchange.get_json()["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    missing = client.post("/users/me/onboarding", json={}, headers=headers)
+    assert missing.status_code == 400
+    assert missing.get_json()["code"] == "username_required"
+
+    monkeypatch.setattr(
+        "app.routes.user.content_moderation.moderate_text",
+        lambda **_kwargs: {
+            "is_safe": True,
+            "reason": "",
+            "risk_level": "low",
+        },
+    )
+    completed = client.post(
+        "/users/me/onboarding",
+        json={"username": "  Campus_Student  "},
+        headers=headers,
+    )
+
+    assert completed.status_code == 200
+    completed_user = completed.get_json()["user"]
+    assert completed_user["username"] == "Campus_Student"
+    assert completed_user["onboarding_required"] is False
+    assert completed_user["onboarding_completed_at"]
+
+    repeated = client.post(
+        "/users/me/onboarding",
+        json={"username": "Should_Not_Replace_Confirmed_Name"},
+        headers=headers,
+    )
+    assert repeated.status_code == 200
+    assert repeated.get_json()["user"]["username"] == "Campus_Student"
+
+    with app.app_context():
+        user = User.query.one()
+        assert user.username == "Campus_Student"
+        assert user.onboarding_completed_at is not None
+
+
+def test_new_sso_user_cannot_claim_an_existing_username(
+    app,
+    client,
+    monkeypatch,
+):
+    with app.app_context():
+        role = UserRole.query.filter_by(name=UserRole.USER).one()
+        existing = User(
+            username="Reserved_Name",
+            email="existing@connect.hkust-gz.edu.cn",
+            email_verified=True,
+            role_id=role.id,
+        )
+        existing.set_password("existing-password")
+        db.session.add(existing)
+        db.session.commit()
+
+    install_fake_client(monkeypatch)
+    _, code = callback_and_get_code(client)
+    exchange = client.post("/auth/oidc/exchange", json={"code": code})
+    access_token = exchange.get_json()["access_token"]
+    monkeypatch.setattr(
+        "app.routes.user.content_moderation.moderate_text",
+        lambda **_kwargs: {
+            "is_safe": True,
+            "reason": "",
+            "risk_level": "low",
+        },
+    )
+
+    response = client.post(
+        "/users/me/onboarding",
+        json={"username": "Reserved_Name"},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["code"] == "username_taken"
+    with app.app_context():
+        new_user = User.query.filter_by(
+            email="wtao565@connect.hkust-gz.edu.cn"
+        ).one()
+        assert new_user.onboarding_required is True
 
 
 def test_verified_existing_account_is_linked_instead_of_duplicated(
@@ -212,9 +308,11 @@ def test_verified_existing_account_is_linked_instead_of_duplicated(
 
     assert exchange.status_code == 200
     assert exchange.get_json()["user"]["id"] == existing_id
+    assert exchange.get_json()["user"]["onboarding_required"] is False
     with app.app_context():
         assert User.query.count() == 1
         assert OidcIdentity.query.one().user_id == existing_id
+        assert db.session.get(User, existing_id).onboarding_completed_at is not None
 
 
 def test_unverified_existing_email_is_not_silently_linked(

@@ -193,6 +193,11 @@ def reconcile_oidc_user(claims: dict) -> User:
         user.set_password(secrets.token_urlsafe(64))
         db.session.add(user)
         db.session.flush()
+    elif user.onboarding_completed_at is None:
+        # Existing verified accounts keep their established public profile when
+        # Campus SSO is linked for the first time. Only newly provisioned local
+        # accounts enter the profile-confirmation flow.
+        user.onboarding_completed_at = datetime.now(timezone.utc)
 
     identity = OidcIdentity(
         user_id=user.id,

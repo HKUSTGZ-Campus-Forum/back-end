@@ -83,7 +83,7 @@ def test_alembic_revision_graph_is_acyclic_and_has_expected_heads():
         )
         if parent is not None
     }
-    assert set(revisions) - parents == {"20260820_title_abbr_255"}
+    assert set(revisions) - parents == {"20260822_sso_onboarding"}
 
 
 def test_cross_branch_dependencies_order_pristine_database_revisions():
@@ -197,6 +197,47 @@ def test_deploy_workflows_fail_on_migration_errors_and_use_committed_revisions()
         assert "sudo /usr/bin/systemctl is-active" not in deploy_workflow
         assert "flask db upgrade heads" in deploy_workflow
         assert "flask db migrate" not in deploy_workflow
+
+
+def test_dev_deploy_disables_runtime_initializers_and_verifies_exact_migration_head():
+    deploy_workflow = (
+        ROOT / ".github" / "workflows" / "deploy.yml"
+    ).read_text(encoding="utf-8")
+
+    backup_at = deploy_workflow.index(
+        "app.scripts.create_verified_database_backup"
+    )
+    expected_heads_at = deploy_workflow.index("expected_candidate_heads=")
+    migrate_at = deploy_workflow.index("flask db upgrade heads")
+    current_at = deploy_workflow.index("flask db current")
+    init_at = deploy_workflow.index("python -m app.scripts.init_db")
+    restart_at = deploy_workflow.index('systemctl restart "$service_name"')
+
+    assert (
+        backup_at
+        < expected_heads_at
+        < migrate_at
+        < current_at
+        < init_at
+        < restart_at
+    )
+    assert deploy_workflow.count(
+        "AUTO_INIT_ON_STARTUP=false ENABLE_BACKGROUND_TASKS=false"
+    ) >= 3
+    assert "Expected exactly one candidate Alembic head" in deploy_workflow
+    assert 'if [[ "${live_heads}" != "${expected_candidate_heads}" ]]' in deploy_workflow
+    assert "Database did not reach the exact candidate Alembic head" in deploy_workflow
+
+
+def test_sso_onboarding_migration_uses_rollout_time_for_existing_users():
+    migration = (
+        VERSION_DIR / "20260822_sso_onboarding.py"
+    ).read_text(encoding="utf-8")
+
+    assert "SET onboarding_completed_at = CURRENT_TIMESTAMP" in migration
+    assert "WHERE onboarding_completed_at IS NULL" in migration
+    assert "COALESCE(updated_at, created_at" not in migration
+    assert 'if "onboarding_completed_at" in columns:\n        return' not in migration
 
 
 def test_production_deploy_pins_remote_host_fingerprint():

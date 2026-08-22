@@ -36,7 +36,29 @@ The stable identity key is `(issuer, sub)`, stored in
    email is already verified.
 3. An unverified local email collision is rejected for administrator review.
 4. If no local account exists, UniKorn creates one with a verified school email
-   and an unknown random local password.
+   and an unknown random local password. The generated username is only an
+   initial suggestion; the account must confirm its public profile before using
+   the rest of the product.
+
+## First-login profile confirmation
+
+Only accounts newly provisioned by SSO require onboarding. Own-user responses
+and the OIDC exchange response expose:
+
+- `onboarding_required`: derived from whether `onboarding_completed_at` is null.
+- `onboarding_completed_at`: the persistent completion timestamp.
+
+The frontend must route an incomplete account to its localized onboarding page
+and call `POST /api/users/me/onboarding` with a `username`. The endpoint applies
+the same length, character, moderation, and uniqueness rules as the normal
+profile username update, requires a verified email, and is idempotent. Avatar
+upload is optional and continues to use the existing file/profile endpoints.
+
+Accounts that existed before this feature are backfilled as complete. When an
+OIDC identity is first linked to an already verified local account, that account
+is also marked complete. This prevents an authentication rollout from blocking
+existing community members; only a genuinely new SSO-created user sees the
+confirmation gate.
 
 ## Deployment configuration
 
@@ -80,6 +102,29 @@ Revision `20260819_campus_oidc` merges the two existing Alembic heads and adds:
 The migration only adds tables and indexes. It does not update, replace, or
 delete existing user records. Downgrade removes the two new tables.
 
+Revision `20260822_sso_onboarding` adds nullable
+`users.onboarding_completed_at` and backfills every existing user with its
+database current timestamp at migration time. This timestamp means the account
+was grandfathered when the feature shipped; it does not pretend that the user
+completed a flow before it existed. Future SSO-provisioned accounts leave the
+column null until profile confirmation. Downgrade removes only this column.
+
+Before applying this revision outside a local test database, record the target
+environment and current `users` row count, take a database backup, run the
+migration in the development environment, and verify that the number of null
+values equals only the new accounts intentionally awaiting onboarding. The dev
+workflow creates and verifies this backup automatically, disables application
+initializers while Alembic runs, and refuses to restart unless the database
+reaches the release's single migration head.
+
+Do not downgrade the column while code that maps it is running. The preferred
+application rollback is to restore the previous backend while leaving the
+additive nullable column in place. If the database itself must be reversed,
+stop writes, restore the previous backend first, and only then downgrade or
+restore the verified backup. Production remains forward-only after its recorded
+migration boundary. No production migration or backfill should run without
+explicit approval.
+
 ## Production verification
 
 - Confirm `unikorn.hkust-gz.edu.cn` has a valid TLS certificate and routes
@@ -89,3 +134,8 @@ delete existing user records. Downgrade removes the two new tables.
 - Confirm `/api/auth/oidc/status` reports the provider as available.
 - Confirm every legacy password route returns `410 sso_only` and that the login
   page exposes no local-account controls.
+- Sign in with a newly provisioned account and confirm it cannot bypass the
+  profile page by refreshing or opening another route; verify completion is
+  durable across a new session.
+- Sign in with a pre-migration account and an existing verified account linked
+  for the first time; neither should be sent through onboarding.

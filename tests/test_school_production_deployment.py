@@ -160,7 +160,7 @@ def test_post_migration_snapshot_allows_only_empty_new_tables(tmp_path):
             "public.users": 7,
             "public.sisn_sync_runs": 0,
         },
-        "alembic_heads": ["20260820_title_abbr_255"],
+        "alembic_heads": ["20260822_sso_onboarding"],
         "foreign_keys": 11,
     }
     source_path = tmp_path / "source.json"

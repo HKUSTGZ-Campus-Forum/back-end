@@ -26,6 +26,7 @@ class User(db.Model):
     updated_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
                           onupdate=lambda: datetime.now(timezone.utc), nullable=False)
     last_active_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    onboarding_completed_at = db.Column(db.DateTime(timezone=True), nullable=True)
     display_identity_id = db.Column(db.Integer, db.ForeignKey('user_identities.id'), nullable=True)
 
     # Relationships
@@ -70,6 +71,11 @@ class User(db.Model):
     def get_effective_last_active(self):
         """Get the effective last active time, falling back to created_at if last_active_at is None"""
         return self.last_active_at or self.created_at
+
+    @property
+    def onboarding_required(self):
+        """Whether this account still needs to confirm its public profile."""
+        return self.onboarding_completed_at is None
 
     def update_last_active(self):
         """Update the last_active_at timestamp to current time"""
@@ -136,12 +142,12 @@ class User(db.Model):
         return None
 
     def to_dict(self, include_contact=False, include_last_active=False):
-        avatar_url = self.avatar_url  # Generate fresh signed URL once
+        avatar_url = self.avatar_url  # Resolve the stable same-origin URL once
         data = {
             "id": self.id,
             "username": self.username,
-            "profile_picture_url": avatar_url,  # Legacy field for backward compatibility
-            "avatar_url": avatar_url,  # New field for fresh signed URLs
+            "profile_picture_url": avatar_url,  # Legacy response field
+            "avatar_url": avatar_url,  # Same-origin alias for newer clients
             "role_id": self.role_id,
             "role_name": self.get_role_name(),
             "display_identity_id": self.display_identity_id,
@@ -154,6 +160,12 @@ class User(db.Model):
             data["email_verified"] = self.email_verified
             data["phone_number"] = self.phone_number
             data["phone_verified"] = self.phone_verified
+            data["onboarding_required"] = self.onboarding_required
+            data["onboarding_completed_at"] = (
+                self.onboarding_completed_at.isoformat()
+                if self.onboarding_completed_at
+                else None
+            )
             
         # Only include last_active_at if specifically requested
         if include_last_active:
