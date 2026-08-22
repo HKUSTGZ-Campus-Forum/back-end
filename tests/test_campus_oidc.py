@@ -44,22 +44,12 @@ class OidcTestConfig:
     SESSION_COOKIE_SECURE = False
 
 
-class FakeUserInfoResponse:
-    def __init__(self, claims):
-        self.claims = claims
-
-    def raise_for_status(self):
-        return None
-
-    def json(self):
-        return self.claims
-
-
 class FakeOidcClient:
     def __init__(self, claims=None, id_token_claims=None):
         self.claims = claims or {}
         self.id_token_claims = id_token_claims or dict(self.claims)
         self.authorize_kwargs = None
+        self.userinfo_token = None
 
     def authorize_redirect(self, redirect_uri, **kwargs):
         self.authorize_kwargs = {"redirect_uri": redirect_uri, **kwargs}
@@ -73,10 +63,10 @@ class FakeOidcClient:
             "userinfo": self.id_token_claims,
         }
 
-    def post(self, endpoint, token):
-        assert endpoint == "userinfo"
+    def userinfo(self, token):
         assert token["access_token"] == "school-access-token"
-        return FakeUserInfoResponse(self.claims)
+        self.userinfo_token = token
+        return self.claims
 
 
 @pytest.fixture
@@ -168,9 +158,10 @@ def test_callback_provisions_account_and_ticket_is_single_use(
     client,
     monkeypatch,
 ):
-    install_fake_client(monkeypatch)
+    fake = install_fake_client(monkeypatch)
     callback_response, code = callback_and_get_code(client)
 
+    assert fake.userinfo_token["access_token"] == "school-access-token"
     assert "test_oidc_id_token=school-id-token" in callback_response.headers.get(
         "Set-Cookie", ""
     )

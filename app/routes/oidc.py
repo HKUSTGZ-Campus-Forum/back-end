@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from urllib.parse import urlencode
 
 from flask import Blueprint, current_app, jsonify, redirect, request, session
@@ -88,14 +89,13 @@ def callback():
         token = client.authorize_access_token()
         id_token_claims = dict(token.get("userinfo") or {})
 
-        userinfo_response = client.post("userinfo", token=token)
-        userinfo_response.raise_for_status()
-        endpoint_claims = userinfo_response.json()
-        if not isinstance(endpoint_claims, dict):
+        endpoint_claims = client.userinfo(token=token)
+        if not isinstance(endpoint_claims, Mapping):
             raise CampusOidcError(
                 "invalid_response",
                 "The UserInfo response was not a JSON object.",
             )
+        endpoint_claims = dict(endpoint_claims)
 
         id_token_subject = id_token_claims.get("sub")
         endpoint_subject = endpoint_claims.get("sub")
