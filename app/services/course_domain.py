@@ -14,7 +14,7 @@ from app.models.course_domain import (
 
 
 GRADE_POINTS = {
-    "A+": 4.0,
+    "A+": 4.3,
     "A": 4.0,
     "A-": 3.7,
     "B+": 3.3,
