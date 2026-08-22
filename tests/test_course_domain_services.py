@@ -66,6 +66,7 @@ def test_normalize_and_display_course_code():
 def test_grade_points_for_letter():
     from app.services.course_domain import grade_points_for_letter
 
+    assert grade_points_for_letter("A+") == 4.3
     assert grade_points_for_letter("A") == 4.0
     assert grade_points_for_letter("A-") == 3.7
     assert grade_points_for_letter("F") == 0.0

@@ -175,23 +175,28 @@ def _grade_point(grade: str | None) -> float | None:
     return GRADE_POINTS.get(normalized)
 
 
-def _average_grade_points(records: list) -> dict:
-    included = []
+def _weighted_average_grade_points(records: list) -> dict:
+    weighted_points = 0.0
+    total_credits = 0.0
+    included_courses = 0
     excluded = 0
     for record in records:
         if not record.keep_grade or not record.grade:
             continue
         point = _grade_point(record.grade)
-        if point is None:
+        credits = _units(record)
+        if point is None or credits <= 0:
             excluded += 1
             continue
-        included.append(point)
-    if not included:
+        weighted_points += point * credits
+        total_credits += credits
+        included_courses += 1
+    if total_credits <= 0:
         return {"status": "not_uploaded", "value": None, "included_courses": 0, "excluded_courses": excluded}
     return {
         "status": "available",
-        "value": round(sum(included) / len(included), 2),
-        "included_courses": len(included),
+        "value": round(weighted_points / total_credits, 2),
+        "included_courses": included_courses,
         "excluded_courses": excluded,
     }
 
@@ -813,8 +818,8 @@ def build_academic_map_summary(user_id: int) -> dict:
     total_active = sum(_units(record) for record in active_records)
     total_minimum = primary_program.total_min_credits if primary_program else 120
     grade_uploaded = any(record.keep_grade and record.grade for record in records)
-    ocga = _average_grade_points(records)
-    mcga = _average_grade_points(_major_grade_records(records, primary_program))
+    ocga = _weighted_average_grade_points(records)
+    mcga = _weighted_average_grade_points(_major_grade_records(records, primary_program))
     if not grade_uploaded:
         ocga = {"status": "not_uploaded", "value": None, "included_courses": 0, "excluded_courses": 0}
         mcga = {"status": "not_uploaded", "value": None, "included_courses": 0, "excluded_courses": 0}

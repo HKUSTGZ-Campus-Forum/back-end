@@ -182,6 +182,65 @@ def test_summary_calculates_ocga_from_private_grade_records(app):
     assert summary["grade_metrics"]["ocga"]["excluded_courses"] == 1
 
 
+def test_summary_weights_ocga_by_course_credits(app):
+    with app.app_context():
+        create_user(115, "credit_weighted_grades")
+        db.session.add(UserAcademicProfile(user_id=115, cohort="2025", target_majors=["AI"]))
+        add_record(115, "AIAA2205", units=4, grade="A+", keep_grade=True)
+        add_record(115, "DSAA2011", units=2, grade="B", keep_grade=True)
+        db.session.commit()
+
+        summary = build_academic_map_summary(115)
+
+    assert summary["grade_metrics"]["ocga"]["status"] == "available"
+    assert summary["grade_metrics"]["ocga"]["value"] == 3.87
+    assert summary["grade_metrics"]["ocga"]["included_courses"] == 2
+    assert summary["grade_metrics"]["ocga"]["excluded_courses"] == 0
+
+
+def test_summary_excludes_grade_records_without_positive_credits(app):
+    with app.app_context():
+        create_user(116, "missing_grade_credits")
+        db.session.add(UserAcademicProfile(user_id=116, cohort="2025", target_majors=["AI"]))
+        add_record(116, "AIAA2205", units=3, grade="A", keep_grade=True)
+        add_record(116, "DSAA2011", units=0, grade="F", keep_grade=True)
+        db.session.commit()
+
+        summary = build_academic_map_summary(116)
+
+    assert summary["grade_metrics"]["ocga"]["value"] == 4.0
+    assert summary["grade_metrics"]["ocga"]["included_courses"] == 1
+    assert summary["grade_metrics"]["ocga"]["excluded_courses"] == 1
+
+
+def test_summary_weights_mcga_by_credits_within_primary_program(app):
+    with app.app_context():
+        create_user(117, "credit_weighted_major_grades")
+        program = CurriculumProgram(code="AI", name_en="Artificial Intelligence", cohort="2025", total_min_credits=120)
+        db.session.add(program)
+        db.session.flush()
+        db.session.add(CurriculumRequirementGroup(
+            program_id=program.id,
+            key="ai_core",
+            name_en="AI Core",
+            category="major",
+            rule={"required_courses": ["AIAA2205", "DSAA2011"]},
+            sort_order=1,
+        ))
+        db.session.add(UserAcademicProfile(user_id=117, cohort="2025", target_majors=["AI"]))
+        add_record(117, "AIAA2205", units=4, grade="A", keep_grade=True)
+        add_record(117, "DSAA2011", units=2, grade="B", keep_grade=True)
+        add_record(117, "FTEC1010", units=3, grade="F", keep_grade=True)
+        db.session.commit()
+
+        summary = build_academic_map_summary(117)
+
+    assert summary["grade_metrics"]["ocga"]["value"] == 2.44
+    assert summary["grade_metrics"]["mcga"]["value"] == 3.67
+    assert summary["grade_metrics"]["mcga"]["included_courses"] == 2
+    assert summary["grade_metrics"]["mcga"]["program_code"] == "AI"
+
+
 def test_summary_uses_domain_course_state_attempts_and_best_grade(app):
     with app.app_context():
         create_user(114, "domain_attempts")
