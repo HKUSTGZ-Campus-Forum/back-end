@@ -190,9 +190,12 @@ def test_post_migration_snapshot_allows_only_empty_new_tables(tmp_path):
             "public.alembic_version": 1,
             "public.users": 7,
             "public.sisn_sync_runs": 0,
+            "public.scheduler_plans": 0,
+            "public.scheduler_plan_courses": 0,
+            "public.scheduler_plan_sections": 0,
         },
-        "alembic_heads": ["20260822_sso_onboarding"],
-        "foreign_keys": 11,
+        "alembic_heads": ["20260822_scheduler_plans"],
+        "foreign_keys": 17,
     }
     source_path = tmp_path / "source.json"
     target_path = tmp_path / "target.json"

@@ -30,6 +30,7 @@ from app.services.scheduler_popularity import (
     popularity_state,
     record_popularity_transition,
 )
+from app.services.scheduler_plans import clear_workspace
 from app.services.sisn_push_auth import (
     SisnPushAuthenticationError,
     verify_push_request,
@@ -670,6 +671,15 @@ def get_cart(semester):
             result.append(serialized)
     result.sort(key=lambda x: x['course_code'])
     return jsonify(result)
+
+
+@bp.route('/cart/<semester>', methods=['DELETE'])
+@jwt_required()
+def clear_cart(semester):
+    """Start a blank scheduler workspace for a semester."""
+    user_id = int(get_jwt_identity())
+    removed_courses = clear_workspace(semester, user_id)
+    return jsonify({'ok': True, 'removed_courses': removed_courses})
 
 
 @bp.route('/cart/<semester>/add', methods=['POST'])

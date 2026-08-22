@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, inspect, text
 
 
 DATABASE_URL_ENV = "PRISTINE_POSTGRES_DATABASE_URL"
-EXPECTED_HEADS = {"20260822_sso_onboarding"}
+EXPECTED_HEADS = {"20260822_scheduler_plans"}
 
 
 @pytest.fixture(scope="module")

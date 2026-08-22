@@ -40,6 +40,7 @@ from .scheduler_popularity import (
     SchedulerPopularitySectionSnapshot,
     SchedulerPopularitySnapshotRun,
 )
+from .scheduler_plan import SchedulerPlan, SchedulerPlanCourse, SchedulerPlanSection
 from .course_domain import (
     CourseCatalogVersion,
     CourseCatalogRequirement,
