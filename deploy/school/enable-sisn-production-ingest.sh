@@ -12,6 +12,8 @@ readonly private_key="/etc/course-scheduler/credentials/sisn_push_private_key"
 readonly public_key="/etc/unikorn/sisn-push-public.pem"
 readonly archive_dir="/srv/unikorn/sisn-archive"
 readonly baseline_path="/srv/unikorn/current/backend/app/data/pending/scheduler_offerings/26-27fall.json"
+readonly systemd_dropin_dir="/etc/systemd/system/unikorn-backend.service.d"
+readonly systemd_dropin_path="${systemd_dropin_dir}/sisn-archive.conf"
 
 fail() {
     printf 'SISN production ingest setup failed: %s\n' "$*" >&2
@@ -37,6 +39,13 @@ openssl pkey -in "${private_key}" -pubout -out "${public_stage}" >/dev/null 2>&1
 openssl pkey -pubin -in "${public_stage}" -noout >/dev/null 2>&1
 install -o root -g unikorn -m 0640 "${public_stage}" "${public_key}"
 install -d -o unikorn -g unikorn -m 0750 "${archive_dir}"
+install -d -o root -g root -m 0755 "${systemd_dropin_dir}"
+dropin_stage="$(mktemp "${systemd_dropin_dir}/.sisn-archive.conf.XXXXXX")"
+printf '%s\n' '[Service]' "ReadWritePaths=${archive_dir}" > "${dropin_stage}"
+chown root:root "${dropin_stage}"
+chmod 0644 "${dropin_stage}"
+mv -f -- "${dropin_stage}" "${systemd_dropin_path}"
+systemctl daemon-reload
 
 python3 - "${env_file}" "${baseline_path}" "${archive_dir}" "${public_key}" <<'PY'
 import os

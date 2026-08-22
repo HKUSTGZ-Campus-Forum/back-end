@@ -44,6 +44,7 @@ def test_systemd_units_are_loopback_only_hardened_and_restartable():
     assert ".venv/bin/gunicorn" not in backend
     assert ".venv/bin/flask" not in migrate
     assert "NUXT_TELEMETRY_DISABLED=1" in frontend
+    assert "ReadWritePaths=/srv/unikorn/sisn-archive" in backend
 
 
 def test_release_build_is_noninteractive_and_survives_atomic_stage_rename():
@@ -110,6 +111,9 @@ def test_sisn_production_ingest_is_loopback_only_signed_and_archived():
     assert "openssl pkey" in setup
     assert "install -o root -g unikorn -m 0640" in setup
     assert "install -d -o unikorn -g unikorn -m 0750" in setup
+    assert "sisn-archive.conf" in setup
+    assert 'ReadWritePaths=${archive_dir}' in setup
+    assert "systemctl daemon-reload" in setup
     assert "cp --preserve=mode,ownership" in setup
     assert "signed ingest did not fail closed" in setup
     assert "source /etc/unikorn/unikorn.env" not in setup
