@@ -61,15 +61,10 @@ def validate_phone(phone):
 
 @bp.route('', methods=['POST'])
 def create_user():
-    """Compatibility alias for the canonical public registration endpoint.
+    """Reject the legacy public account-creation compatibility endpoint."""
+    from app.routes.auth import legacy_auth_disabled
 
-    Keeping all unauthenticated account creation on one code path prevents this
-    legacy endpoint from bypassing institutional-email ownership, verification
-    setup, or the forced default user role.
-    """
-    from app.routes.auth import register
-
-    return register()
+    return legacy_auth_disabled()
 
 @bp.route('/<int:user_id>', methods=['GET'])
 @jwt_required()
@@ -109,6 +104,11 @@ def update_user(user_id):
         return jsonify({"msg": "User not found"}), 404
     
     data = request.get_json() or {}
+
+    if 'password' in data or 'password_hash' in data:
+        from app.routes.auth import legacy_auth_disabled
+
+        return legacy_auth_disabled()
     
     # Update fields if provided
     if 'username' in data and data['username'] != user.username:
@@ -206,10 +206,6 @@ def update_user(user_id):
     # Only allow role changes if requester is admin
     if 'role_id' in data and current_user.is_admin():
         user.role_id = data['role_id']
-    
-    # If password provided, update it
-    if 'password' in data:  # Changed from password_hash
-        user.set_password(data['password'])
     
     db.session.commit()
     return jsonify(user.to_dict(include_contact=True))
