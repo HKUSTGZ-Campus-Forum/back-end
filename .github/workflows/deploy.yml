@@ -122,7 +122,35 @@ jobs:
               --output "$database_backup" \
               --expected-database dev_unikorn
 
-            python -m flask db upgrade heads
+            expected_candidate_heads="$(
+              AUTO_INIT_ON_STARTUP=false ENABLE_BACKGROUND_TASKS=false \
+                python -m flask db heads 2>/dev/null | \
+                awk '{print $1}' | sed '/^$/d' | sort -u
+            )"
+            expected_head_count="$(
+              printf '%s\n' "$expected_candidate_heads" | sed '/^$/d' | wc -l
+            )"
+            if [[ -z "$expected_candidate_heads" || "$expected_head_count" -ne 1 ]]; then
+              echo "Expected exactly one candidate Alembic head; got:" >&2
+              printf '%s\n' "$expected_candidate_heads" >&2
+              exit 1
+            fi
+
+            AUTO_INIT_ON_STARTUP=false ENABLE_BACKGROUND_TASKS=false \
+              python -m flask db upgrade heads
+            live_heads="$(
+              AUTO_INIT_ON_STARTUP=false ENABLE_BACKGROUND_TASKS=false \
+                python -m flask db current 2>/dev/null | \
+                awk '{print $1}' | sed '/^$/d' | sort -u
+            )"
+            if [[ "${live_heads}" != "${expected_candidate_heads}" ]]; then
+              echo "Database did not reach the exact candidate Alembic head:" >&2
+              printf 'expected=%s\nactual=%s\n' \
+                "$expected_candidate_heads" "$live_heads" >&2
+              exit 1
+            fi
+            printf 'Dev database reached Alembic head %s.\n' "$live_heads"
+
             python -m app.scripts.init_db
 
             diagnose_startup_failure() {

@@ -16,6 +16,7 @@ from app.services.institutional_email import (
 )
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from datetime import datetime, timezone
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.sql import func
 
 bp = Blueprint('user', __name__, url_prefix='/users')
@@ -58,6 +59,58 @@ def validate_phone(phone):
     if phone and not PHONE_PATTERN.match(phone):
         return False, "Phone number must be 10-15 digits, optionally with a + prefix"
     return True, ""
+
+
+def _apply_username_change(user, requested_username, actor_user_id):
+    """Validate and stage a public username change.
+
+    Returns a stable error payload/status pair or ``None`` when the staged
+    value is valid. The caller owns the transaction commit.
+    """
+    if not isinstance(requested_username, str):
+        return ({"code": "username_required", "msg": "Username is required"}, 400)
+
+    username = requested_username.strip()
+    is_valid, error_msg = validate_username(username)
+    if not is_valid:
+        return ({"code": "username_invalid", "msg": error_msg}, 400)
+
+    if not user.email_verified and user.email:
+        return ({
+            "code": "email_verification_required",
+            "msg": "Email verification required before changing username. Please verify your email first.",
+        }, 400)
+    if not user.email:
+        return ({
+            "code": "email_required",
+            "msg": "Email address required before changing username. Please add and verify your email first.",
+        }, 400)
+
+    moderation_result = content_moderation.moderate_text(
+        content=username,
+        data_id=f"username_update_{actor_user_id}_{datetime.now().timestamp()}",
+    )
+    if not moderation_result['is_safe']:
+        from flask import current_app
+        current_app.logger.warning(
+            "Content moderation blocked username update from user %s: %s - %s",
+            actor_user_id,
+            username,
+            moderation_result['reason'],
+        )
+        return ({
+            "code": "username_moderation_rejected",
+            "msg": "Username violates community guidelines and cannot be used",
+            "details": moderation_result['reason'],
+            "risk_level": moderation_result['risk_level'],
+        }, 400)
+
+    # Match the database-wide unique constraint, including soft-deleted rows.
+    if User.query.filter(User.username == username, User.id != user.id).first():
+        return ({"code": "username_taken", "msg": "Username already exists"}, 409)
+
+    user.username = username
+    return None
 
 @bp.route('', methods=['POST'])
 def create_user():
@@ -112,37 +165,14 @@ def update_user(user_id):
     
     # Update fields if provided
     if 'username' in data and data['username'] != user.username:
-        # Validate username format
-        is_valid, error_msg = validate_username(data['username'])
-        if not is_valid:
-            return jsonify({"msg": error_msg}), 400
-        
-        # Content moderation check for username
-        moderation_result = content_moderation.moderate_text(
-            content=data['username'],
-            data_id=f"username_update_{current_user_id}_{datetime.now().timestamp()}"
+        username_error = _apply_username_change(
+            user,
+            data['username'],
+            current_user_id,
         )
-        
-        if not moderation_result['is_safe']:
-            from flask import current_app
-            current_app.logger.warning(f"Content moderation blocked username update from user {current_user_id}: {data['username']} - {moderation_result['reason']}")
-            return jsonify({
-                "msg": "Username violates community guidelines and cannot be used",
-                "details": moderation_result['reason'],
-                "risk_level": moderation_result['risk_level']
-            }), 400
-            
-        # Check if username already exists
-        if User.query.filter_by(username=data['username'], is_deleted=False).first():
-            return jsonify({"msg": "Username already exists"}), 400
-        
-        # Require email verification for username changes (security measure)
-        if not user.email_verified and user.email:
-            return jsonify({"msg": "Email verification required before changing username. Please verify your email first."}), 400
-        elif not user.email:
-            return jsonify({"msg": "Email address required before changing username. Please add and verify your email first."}), 400
-            
-        user.username = data['username']
+        if username_error:
+            payload, status = username_error
+            return jsonify(payload), status
         
     if 'email' in data:
         normalized_email = normalize_email(data['email'])
@@ -207,8 +237,55 @@ def update_user(user_id):
     if 'role_id' in data and current_user.is_admin():
         user.role_id = data['role_id']
     
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({
+            "code": "username_taken",
+            "msg": "Username already exists",
+        }), 409
     return jsonify(user.to_dict(include_contact=True))
+
+
+@bp.route('/me/onboarding', methods=['POST'])
+@jwt_required()
+def complete_onboarding():
+    """Confirm the public profile for a newly provisioned SSO account."""
+    current_user_id = get_jwt_identity()
+    user = db.session.get(User, int(current_user_id))
+    if not user or user.is_deleted:
+        return jsonify({
+            "code": "account_unavailable",
+            "msg": "Authenticated user not found or inactive",
+        }), 401
+
+    # A repeated request after a lost response is safe and does not mutate an
+    # already confirmed profile. Later edits continue through the profile page.
+    if not user.onboarding_required:
+        return jsonify({"user": user.to_dict(include_contact=True)})
+
+    data = request.get_json(silent=True) or {}
+    username_error = _apply_username_change(
+        user,
+        data.get('username'),
+        current_user_id,
+    )
+    if username_error:
+        payload, status = username_error
+        return jsonify(payload), status
+
+    user.onboarding_completed_at = datetime.now(timezone.utc)
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({
+            "code": "username_taken",
+            "msg": "Username already exists",
+        }), 409
+
+    return jsonify({"user": user.to_dict(include_contact=True)})
 
 @bp.route('/<int:user_id>', methods=['DELETE'])
 @jwt_required()
@@ -246,7 +323,7 @@ def get_public_user_info(user_id):
     return jsonify({
         "id": user.id,
         "username": user.username,
-        "profile_picture_url": user.avatar_url,  # Always generate fresh signed URL
+        "profile_picture_url": user.avatar_url,  # Stable same-origin avatar URL
         "role_name": user.get_role_name()
     })
 
