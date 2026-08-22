@@ -121,17 +121,18 @@ class User(db.Model):
 
     @property
     def avatar_url(self):
-        """Generate a fresh signed URL for the user's avatar"""
-        if self.profile_picture_file_id and self.profile_picture_file:
-            try:
-                return self.profile_picture_file.url  # This generates a fresh signed URL each time
-            except Exception as e:
-                # Log error but don't crash
-                from flask import current_app
-                if current_app:
-                    current_app.logger.error(f"Error generating avatar URL for user {self.id}: {e}")
-        
-        # No avatar available
+        """Return a stable same-origin URL for the current database-linked avatar."""
+        avatar = self.profile_picture_file
+        if (
+            self.profile_picture_file_id
+            and avatar
+            and avatar.user_id == self.id
+            and avatar.file_type == avatar.AVATAR
+            and avatar.status == 'uploaded'
+            and not avatar.is_deleted
+        ):
+            return f"/api/files/avatar/{avatar.id}"
+
         return None
 
     def to_dict(self, include_contact=False, include_last_active=False):
