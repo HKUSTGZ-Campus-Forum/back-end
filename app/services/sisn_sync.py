@@ -50,6 +50,7 @@ class SisnSyncGuards:
     max_fallback_main_classes: int = 20
     max_missing_baseline_classes: int = 50
     max_omitted_unscheduled_classes: int = 50
+    max_baseline_meeting_fallback_sections: int = 50
     expected_source_courses: int | None = None
     expected_source_classes: int | None = None
     expected_source_schedules: int | None = None
@@ -149,6 +150,10 @@ def _validate_guards(counts: dict[str, int], guards: SisnSyncGuards) -> None:
         ("fallback_main_classes", guards.max_fallback_main_classes),
         ("missing_baseline_classes", guards.max_missing_baseline_classes),
         ("omitted_unscheduled_classes", guards.max_omitted_unscheduled_classes),
+        (
+            "baseline_meeting_fallback_sections",
+            guards.max_baseline_meeting_fallback_sections,
+        ),
     )
     failures.extend(
         f"{name}={counts[name]} above reviewed maximum {maximum}"
