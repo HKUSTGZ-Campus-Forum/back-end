@@ -125,6 +125,13 @@ def _baseline():
                     "bundle": 1,
                     "layer": 0,
                     "is_main": True,
+                    "lectures": [{
+                        "day": 2,
+                        "start_time": "1300",
+                        "end_time": "1420",
+                        "room": "Reviewed Room",
+                        "instructor": "Reviewed Instructor",
+                    }],
                 },
                 {
                     "section_id": "1002",
@@ -133,6 +140,13 @@ def _baseline():
                     "bundle": 1,
                     "layer": 1,
                     "is_main": False,
+                    "lectures": [{
+                        "day": 4,
+                        "start_time": "1500",
+                        "end_time": "1620",
+                        "room": "Reviewed Lab",
+                        "instructor": "Reviewed TA",
+                    }],
                 },
             ],
         }],
@@ -178,6 +192,7 @@ def _relaxed_guards(**overrides):
         "max_fallback_main_classes": 1,
         "max_missing_baseline_classes": 1,
         "max_omitted_unscheduled_classes": 1,
+        "max_baseline_meeting_fallback_sections": 1,
     }
     values.update(overrides)
     return SisnSyncGuards(**values)
@@ -215,6 +230,55 @@ def test_adapter_preserves_reviewed_grouping_and_uses_official_live_fields():
         "end_date": "2026-12-20",
         "facility_id": "FAC-A101",
     }]
+
+
+def test_adapter_preserves_reviewed_meeting_when_sisn_schedule_is_empty():
+    payload = _payload()
+    payload["courses"][0]["classes"][1]["schedules"] = []
+
+    adapted = adapt_proxy_envelope(
+        _envelope(payload),
+        term="2610",
+        baseline=_baseline(),
+        baseline_label="reviewed-baseline.json",
+    )
+
+    tutorial = adapted.snapshot["courses"][0]["sections"][1]
+    assert tutorial["lectures"] == [{
+        "day": 4,
+        "start_time": 1500,
+        "end_time": 1620,
+        "room": "Reviewed Lab",
+        "instructor": "Reviewed TA",
+        "facility_id": None,
+        "date_ranges": [],
+    }]
+    assert adapted.counts["baseline_meeting_fallback_sections"] == 1
+    assert adapted.snapshot["provenance"]["baseline_meeting_fallbacks"] == [{
+        "course_code": "TEST1001",
+        "section_id": "1002",
+        "section_name": "T01",
+        "meeting_count": 1,
+    }]
+    assert adapted.warnings == [
+        "preserved reviewed WCQ meetings for 1 class whose SISN schedules were empty"
+    ]
+
+
+def test_sync_guard_blocks_excessive_baseline_meeting_fallbacks(app, baseline_path):
+    payload = _payload()
+    payload["courses"][0]["classes"][1]["schedules"] = []
+
+    result = run_sisn_sync(
+        client=FakeClient(_envelope(payload)),
+        term="2610",
+        baseline_path=baseline_path,
+        guards=_relaxed_guards(max_baseline_meeting_fallback_sections=0),
+    )
+
+    assert result.status == "blocked"
+    run = SisnSyncRun.query.one()
+    assert "baseline_meeting_fallback_sections=1 above reviewed maximum 0" in run.error_message
 
 
 def test_official_course_titles_can_exceed_legacy_abbreviation_width():
@@ -355,6 +419,7 @@ def test_signed_push_endpoint_applies_and_rejects_replay(app, baseline_path, tmp
         "SISN_SYNC_MAX_FALLBACK_MAIN_CLASSES": 1,
         "SISN_SYNC_MAX_MISSING_BASELINE_CLASSES": 1,
         "SISN_SYNC_MAX_OMITTED_UNSCHEDULED_CLASSES": 1,
+        "SISN_SYNC_MAX_BASELINE_MEETING_FALLBACK_SECTIONS": 1,
     })
     body = _stable_json({
         "term": "2610",

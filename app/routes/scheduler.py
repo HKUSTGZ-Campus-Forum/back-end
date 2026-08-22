@@ -81,6 +81,9 @@ def _sisn_guards_from_config():
         max_fallback_main_classes=current_app.config['SISN_SYNC_MAX_FALLBACK_MAIN_CLASSES'],
         max_missing_baseline_classes=current_app.config['SISN_SYNC_MAX_MISSING_BASELINE_CLASSES'],
         max_omitted_unscheduled_classes=current_app.config['SISN_SYNC_MAX_OMITTED_UNSCHEDULED_CLASSES'],
+        max_baseline_meeting_fallback_sections=current_app.config[
+            'SISN_SYNC_MAX_BASELINE_MEETING_FALLBACK_SECTIONS'
+        ],
     )
 
 

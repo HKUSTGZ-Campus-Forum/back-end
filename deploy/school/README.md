@@ -137,8 +137,9 @@ sudo journalctl -u unikorn-sisn-push-production-dry-run.service \
   --since '-10 minutes' --no-pager
 ```
 
-After reviewing the source counts, candidate counts, omissions, warnings, and
-import plan, create a verified database backup and perform the first apply:
+After reviewing the source counts, candidate counts, omissions, warnings,
+reviewed-WCQ meeting fallback count, and import plan, create a verified
+database backup and perform the first apply:
 
 ```bash
 sudo systemctl start unikorn-backup.service

@@ -233,6 +233,65 @@ def _meetings(
     ]
 
 
+def _reviewed_baseline_meetings(
+    section: dict[str, Any],
+    context: str,
+) -> list[dict[str, Any]]:
+    """Normalize reviewed WCQ meetings used when SISN omits a class schedule.
+
+    The reviewed baseline is the authority for section grouping and is also a
+    safe secondary source for meeting times. Returning normalized copies keeps
+    the SISN candidate independent from the loaded baseline object and makes a
+    malformed fallback fail closed before it can reach the database importer.
+    """
+    lectures = section.get("lectures") or []
+    if not isinstance(lectures, list):
+        raise SisnMappingError(f"{context}.lectures: expected list")
+
+    normalized: list[dict[str, Any]] = []
+    for index, lecture in enumerate(lectures):
+        lecture_context = f"{context}.lectures[{index}]"
+        if not isinstance(lecture, dict):
+            raise SisnMappingError(f"{lecture_context}: expected object")
+        day = _integer(lecture.get("day"), f"{lecture_context}.day", minimum=1)
+        if day > 7:
+            raise SisnMappingError(f"{lecture_context}.day: expected 1-7")
+        start_time = _integer(
+            lecture.get("start_time"),
+            f"{lecture_context}.start_time",
+        )
+        end_time = _integer(
+            lecture.get("end_time"),
+            f"{lecture_context}.end_time",
+        )
+        if start_time >= end_time:
+            raise SisnMappingError(
+                f"{lecture_context}: start_time must precede end_time"
+            )
+        normalized.append({
+            "day": day,
+            "start_time": start_time,
+            "end_time": end_time,
+            "room": _string(
+                lecture.get("room"),
+                f"{lecture_context}.room",
+                allow_empty=True,
+            ),
+            "instructor": _string(
+                lecture.get("instructor"),
+                f"{lecture_context}.instructor",
+                allow_empty=True,
+            ),
+            "facility_id": _string(
+                lecture.get("facility_id"),
+                f"{lecture_context}.facility_id",
+                allow_empty=True,
+            ) or None,
+            "date_ranges": list(lecture.get("date_ranges") or []),
+        })
+    return normalized
+
+
 def _baseline_maps(
     baseline: dict[str, Any],
     expected_term: str,
@@ -277,6 +336,7 @@ def adapt_proxy_envelope(
     mapped_baseline_classes: set[str] = set()
     omitted_unscheduled: list[str] = []
     fallback_main_classes: list[str] = []
+    baseline_meeting_fallbacks: list[dict[str, Any]] = []
     warnings: list[str] = []
     output_courses = []
     raw_class_count = 0
@@ -382,6 +442,25 @@ def adapt_proxy_envelope(
 
             quota = _integer(api_class.get("enrlCap"), f"{class_context}.enrlCap")
             enrol = _integer(api_class.get("enrlTot"), f"{class_context}.enrlTot")
+            meetings = _meetings(
+                schedules,
+                f"{class_context}.schedules",
+                stats=transform_stats,
+            )
+            if not meetings and baseline_match is not None:
+                baseline_meetings = _reviewed_baseline_meetings(
+                    baseline_section,
+                    f"baseline class {class_number}",
+                )
+                if baseline_meetings:
+                    meetings = baseline_meetings
+                    baseline_meeting_fallbacks.append({
+                        "course_code": code,
+                        "section_id": class_number,
+                        "section_name": section_name,
+                        "meeting_count": len(baseline_meetings),
+                    })
+
             output_sections.append({
                 "course_code": code,
                 "section_type": section_type,
@@ -393,11 +472,7 @@ def adapt_proxy_envelope(
                 "enrol": enrol,
                 "avail": max(quota - enrol, 0),
                 "wait": _integer(api_class.get("waitTot"), f"{class_context}.waitTot"),
-                "lectures": _meetings(
-                    schedules,
-                    f"{class_context}.schedules",
-                    stats=transform_stats,
-                ),
+                "lectures": meetings,
                 "is_main": is_main,
                 "layer": layer,
                 "status": "active",
@@ -490,6 +565,13 @@ def adapt_proxy_envelope(
             "omitted "
             f"{transform_stats['omitted_tba_schedules']} TBA schedule rows without a day or time"
         )
+    if baseline_meeting_fallbacks:
+        fallback_count = len(baseline_meeting_fallbacks)
+        class_label = "class" if fallback_count == 1 else "classes"
+        warnings.append(
+            "preserved reviewed WCQ meetings for "
+            f"{fallback_count} {class_label} whose SISN schedules were empty"
+        )
 
     snapshot = {
         "semester_id": term,
@@ -503,6 +585,7 @@ def adapt_proxy_envelope(
             "fallback_main_classes": sorted(fallback_main_classes),
             "omitted_unscheduled_classes": sorted(omitted_unscheduled),
             "missing_baseline_classes": missing_baseline_classes,
+            "baseline_meeting_fallbacks": baseline_meeting_fallbacks,
         },
         "courses": output_courses,
     }
@@ -522,6 +605,7 @@ def adapt_proxy_envelope(
         "fallback_main_classes": len(fallback_main_classes),
         "omitted_unscheduled_classes": len(omitted_unscheduled),
         "missing_baseline_classes": len(missing_baseline_classes),
+        "baseline_meeting_fallback_sections": len(baseline_meeting_fallbacks),
         "omitted_tba_schedules": transform_stats["omitted_tba_schedules"],
     }
     return SisnAdaptation(

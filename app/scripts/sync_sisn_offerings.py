@@ -43,6 +43,9 @@ def _guards(args: argparse.Namespace) -> SisnSyncGuards:
         max_fallback_main_classes=Config.SISN_SYNC_MAX_FALLBACK_MAIN_CLASSES,
         max_missing_baseline_classes=Config.SISN_SYNC_MAX_MISSING_BASELINE_CLASSES,
         max_omitted_unscheduled_classes=Config.SISN_SYNC_MAX_OMITTED_UNSCHEDULED_CLASSES,
+        max_baseline_meeting_fallback_sections=(
+            Config.SISN_SYNC_MAX_BASELINE_MEETING_FALLBACK_SECTIONS
+        ),
         expected_source_courses=args.expected_source_courses,
         expected_source_classes=args.expected_source_classes,
         expected_source_schedules=args.expected_source_schedules,
