@@ -1,8 +1,12 @@
-# UniKorn school production migration
+# UniKorn school production deployment
 
-This directory deploys UniKorn as a real, isolated production stack on
-`10.121.15.221`. It never proxies the school domain to the former axfff host and
-does not modify `/srv/course-scheduler` or `courseplan.service`.
+This directory is the current production deployment runbook for
+`https://unikorn.hkust-gz.edu.cn` on `10.121.15.221`. It never proxies the school
+domain to the former axfff host and does not modify `/srv/course-scheduler` or
+`courseplan.service`. The migration sections below remain for recovery and audit;
+routine releases normally use the exact-commit deployment and verification steps.
+The stable environment map and legacy-host boundary are summarized in
+[`docs/production-environment.md`](../../docs/production-environment.md).
 
 ## Fixed topology
 

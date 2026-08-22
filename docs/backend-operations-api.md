@@ -1,5 +1,11 @@
 # Backend operations API
 
+> Environment scope: `target=production` in this GitHub workflow means the
+> former axfff production stack selected by the `production` branch. It does not
+> target the active school production site at
+> `https://unikorn.hkust-gz.edu.cn`. Use `deploy/school/*` and
+> `docs/production-environment.md` for school production operations.
+
 Backend database operations are exposed through GitHub Actions' authenticated
 `workflow_dispatch` REST API. They are not exposed as a Flask route: migrations
 and data imports are long-running privileged work and must not execute inside a
