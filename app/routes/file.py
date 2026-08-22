@@ -50,9 +50,12 @@ def _stream_file_from_oss(file_record, cache_control='public, max-age=3600'):
         return jsonify({"error": "Failed to fetch file from storage"}), 502
 
     def generate():
-        for chunk in response.iter_content(chunk_size=8192):
-            if chunk:
-                yield chunk
+        try:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    yield chunk
+        finally:
+            response.close()
 
     headers = {
         'Content-Type': file_record.mime_type or response.headers.get('Content-Type', 'application/octet-stream'),
@@ -550,6 +553,47 @@ def public_view_file(file_id):
     except Exception as e:
         current_app.logger.error(f"Error serving public file {file_id}: {e}", exc_info=True)
         return jsonify({"error": "Failed to serve file"}), 500
+
+
+@bp.route('/avatar/<int:file_id>', methods=['GET'])
+def public_avatar_file(file_id):
+    """Serve the avatar currently selected by an active user via UniKorn."""
+    import requests
+
+    file_record = File.query.filter_by(
+        id=file_id,
+        file_type=File.AVATAR,
+        status='uploaded',
+        is_deleted=False,
+    ).first()
+    if not file_record:
+        return jsonify({"error": "Avatar not found"}), 404
+
+    owner = User.query.filter_by(
+        id=file_record.user_id,
+        profile_picture_file_id=file_record.id,
+        is_deleted=False,
+    ).first()
+    if not owner:
+        return jsonify({"error": "Avatar not found"}), 404
+
+    if file_record.mime_type and not file_record.mime_type.lower().startswith('image/'):
+        return jsonify({"error": "Avatar is not an image"}), 415
+
+    try:
+        return _stream_file_from_oss(
+            file_record,
+            cache_control='public, max-age=86400, immutable',
+        )
+    except requests.exceptions.Timeout:
+        current_app.logger.error(f"Timeout fetching avatar file {file_id} from OSS")
+        return jsonify({"error": "Request timeout"}), 504
+    except Exception as e:
+        current_app.logger.error(
+            f"Error serving avatar file {file_id}: {e}",
+            exc_info=True,
+        )
+        return jsonify({"error": "Failed to serve avatar"}), 500
 
 
 @bp.route('/proxy/<int:file_id>', methods=['GET'])
