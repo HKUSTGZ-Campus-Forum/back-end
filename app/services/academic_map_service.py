@@ -175,7 +175,11 @@ def _grade_point(grade: str | None) -> float | None:
     return GRADE_POINTS.get(normalized)
 
 
-def _weighted_average_grade_points(records: list) -> dict:
+def _weighted_average_grade_points(
+    records: list,
+    *,
+    credits_by_code: dict[str, float | None] | None = None,
+) -> dict:
     weighted_points = 0.0
     total_credits = 0.0
     included_courses = 0
@@ -184,7 +188,13 @@ def _weighted_average_grade_points(records: list) -> dict:
         if not record.keep_grade or not record.grade:
             continue
         point = _grade_point(record.grade)
-        credits = _units(record)
+        code = _normalized_code(record.course_code)
+        credits = (
+            credits_by_code.get(code)
+            if credits_by_code is not None and code in credits_by_code
+            else _units(record)
+        )
+        credits = float(credits or 0)
         if point is None or credits <= 0:
             excluded += 1
             continue
@@ -204,11 +214,21 @@ def _weighted_average_grade_points(records: list) -> dict:
 def _programs_for_profile(profile: UserAcademicProfile) -> list[CurriculumProgram]:
     if not profile.cohort or not profile.target_majors:
         return []
-    return CurriculumProgram.query.filter(
+    programs = CurriculumProgram.query.filter(
         CurriculumProgram.cohort == profile.cohort,
         CurriculumProgram.code.in_(profile.target_majors),
         CurriculumProgram.is_active == True,
     ).all()
+    programs_by_code = {_normalized_code(program.code): program for program in programs}
+    ordered = []
+    seen = set()
+    for raw_code in profile.target_majors:
+        code = _normalized_code(raw_code)
+        program = programs_by_code.get(code)
+        if program is not None and code not in seen:
+            ordered.append(program)
+            seen.add(code)
+    return ordered
 
 
 def _codes_from_rule(rule: dict) -> set[str]:
@@ -230,15 +250,113 @@ def _codes_from_rule(rule: dict) -> set[str]:
     return {code for code in codes if code}
 
 
-def _major_grade_records(records: list, program: CurriculumProgram | None) -> list:
-    if program is None:
-        return []
-    required_codes: set[str] = set()
-    for group in program.requirement_groups.order_by(CurriculumRequirementGroup.sort_order.asc()).all():
-        required_codes.update(_codes_from_rule(group.rule or {}))
-    if not required_codes:
-        return []
-    return [record for record in records if _normalized_code(record.course_code) in required_codes]
+MCGA_DEFAULT_INCLUDED_CATEGORIES = frozenset({
+    "fundamental",
+    "major",
+    "major_required",
+    "major_elective",
+})
+
+
+def _requirement_group_counts_toward_mcga(group: CurriculumRequirementGroup) -> bool:
+    rule = group.rule or {}
+    explicit = rule.get("include_in_mcga")
+    if isinstance(explicit, bool):
+        return explicit
+    category = (group.category or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return category in MCGA_DEFAULT_INCLUDED_CATEGORIES
+
+
+def _mcga_requirement_groups(program: CurriculumProgram) -> list[CurriculumRequirementGroup]:
+    return [
+        group
+        for group in program.requirement_groups.order_by(CurriculumRequirementGroup.sort_order.asc()).all()
+        if _requirement_group_counts_toward_mcga(group)
+    ]
+
+
+def _mcga_metric(
+    records: list,
+    programs: list[CurriculumProgram],
+    catalog_by_code: dict[str, dict],
+) -> dict:
+    program_codes = [program.code for program in programs]
+    base = {
+        "status": "not_available",
+        "value": None,
+        "included_courses": 0,
+        "excluded_courses": 0,
+        "counted_course_codes": [],
+        "program_code": program_codes[0] if program_codes else None,
+        "program_codes": program_codes,
+        "is_estimate": True,
+    }
+    private_grade_records = [record for record in records if record.keep_grade and record.grade]
+    if not private_grade_records:
+        return {**base, "status": "not_uploaded"}
+    if not programs:
+        return base
+
+    eligible_records_by_code = {
+        _normalized_code(record.course_code): record
+        for record in private_grade_records
+        if record.status == UserCourseRecord.STATUS_COMPLETED
+        and (_grade_point(record.grade) or 0) > 0
+    }
+    shared_map = _shared_major_map(programs)
+    evaluation_courses = _evaluation_courses(eligible_records_by_code, catalog_by_code, shared_map)
+    for code, record in eligible_records_by_code.items():
+        if code in evaluation_courses:
+            evaluation_courses[code]["allocation_priority"] = _grade_point(record.grade)
+    counted_codes: set[str] = set()
+    candidate_codes: set[str] = set()
+
+    for program in programs:
+        groups = _mcga_requirement_groups(program)
+        if not groups:
+            continue
+        for group in groups:
+            candidate_codes.update(_codes_from_rule(group.rule or {}))
+        evaluated_groups = evaluate_requirement_program(
+            [
+                {
+                    "key": group.key,
+                    "rule": group.rule or {},
+                    "min_courses": group.min_courses,
+                    "min_credits": group.min_credits,
+                }
+                for group in groups
+            ],
+            evaluation_courses,
+            include_surplus=False,
+        )
+        for evaluated in evaluated_groups:
+            counted_codes.update(evaluated["current"]["counted_course_codes"])
+
+    counted_records = [
+        eligible_records_by_code[code]
+        for code in sorted(counted_codes)
+        if code in eligible_records_by_code
+    ]
+    credits_by_code = {
+        code: evaluation_courses.get(code, {}).get("credits")
+        for code in counted_codes
+    }
+    metric = _weighted_average_grade_points(counted_records, credits_by_code=credits_by_code)
+    excluded_codes = {
+        _normalized_code(record.course_code)
+        for record in private_grade_records
+        if _normalized_code(record.course_code) in candidate_codes
+        and _normalized_code(record.course_code) not in counted_codes
+    }
+    if metric["status"] != "available":
+        metric["status"] = "not_available"
+    metric["excluded_courses"] += len(excluded_codes)
+    return {
+        **base,
+        **metric,
+        "counted_course_codes": sorted(counted_codes),
+    }
 
 
 def _record_by_code(records: list) -> dict[str, UserCourseRecord]:
@@ -696,9 +814,13 @@ def _legacy_row_aliases(evaluated: dict) -> dict:
     }
 
 
-def _build_requirement_matrix(programs: list[CurriculumProgram], records: list[UserCourseRecord]) -> list[dict]:
+def _build_requirement_matrix(
+    programs: list[CurriculumProgram],
+    records: list[UserCourseRecord],
+    catalog_by_code: dict[str, dict] | None = None,
+) -> list[dict]:
     records_by_code = _record_by_code(records)
-    catalog_by_code = _catalog_by_code()
+    catalog_by_code = catalog_by_code if catalog_by_code is not None else _catalog_by_code()
     shared_map = _shared_major_map(programs)
     evaluation_courses = _evaluation_courses(records_by_code, catalog_by_code, shared_map)
     matrices = []
@@ -818,11 +940,11 @@ def build_academic_map_summary(user_id: int) -> dict:
     total_active = sum(_units(record) for record in active_records)
     total_minimum = primary_program.total_min_credits if primary_program else 120
     grade_uploaded = any(record.keep_grade and record.grade for record in records)
+    catalog_by_code = _catalog_by_code()
     ocga = _weighted_average_grade_points(records)
-    mcga = _weighted_average_grade_points(_major_grade_records(records, primary_program))
+    mcga = _mcga_metric(records, programs, catalog_by_code)
     if not grade_uploaded:
         ocga = {"status": "not_uploaded", "value": None, "included_courses": 0, "excluded_courses": 0}
-        mcga = {"status": "not_uploaded", "value": None, "included_courses": 0, "excluded_courses": 0}
 
     return {
         "profile": profile.to_dict(),
@@ -839,11 +961,10 @@ def build_academic_map_summary(user_id: int) -> dict:
             "ocga": ocga,
             "mcga": {
                 **mcga,
-                "program_code": primary_program.code if primary_program else None,
             },
         },
         "prerequisite_metrics": _build_prerequisite_metrics(records),
-        "requirement_matrix": _build_requirement_matrix(programs, records),
+        "requirement_matrix": _build_requirement_matrix(programs, records, catalog_by_code),
         "course_counts": {
             "imported": len(records),
             "completed": len(completed_records),

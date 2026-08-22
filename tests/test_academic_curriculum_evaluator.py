@@ -94,6 +94,31 @@ def test_evaluator_counts_surplus_courses_in_satisfied_choice_group():
     assert cells["UFUG1501"]["allocation_status"] == "counted"
 
 
+def test_evaluator_can_return_only_courses_needed_to_fulfill_a_choice_group():
+    rule = {
+        "rule_tree": {
+            "type": "choose",
+            "key": "major_electives",
+            "min_courses": 1,
+            "courses": ["AIAA2205", "AIAA3201"],
+        }
+    }
+    courses = {
+        "AIAA2205": _course("AIAA2205", "completed"),
+        "AIAA3201": _course("AIAA3201", "completed"),
+    }
+
+    result = evaluate_requirement_program(
+        [{"key": "major_electives", "rule": rule}],
+        courses,
+        include_surplus=False,
+    )[0]
+
+    assert len(result["current"]["counted_course_codes"]) == 1
+    assert set(result["current"]["counted_course_codes"]).issubset({"AIAA2205", "AIAA3201"})
+    assert result["current"]["counted_courses"] == 1
+
+
 def test_evaluator_does_not_reuse_one_course_across_two_choice_leaves():
     rule = {
         "rule_tree": {
