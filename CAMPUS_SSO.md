@@ -19,6 +19,12 @@ a random, hashed, single-use database ticket with a two-minute lifetime. The
 frontend exchanges that ticket once and then receives the normal UniKorn JWT
 pair.
 
+Campus SSO is the only supported end-user authentication method. Password
+login, self-registration, password recovery, and password changes return
+`410 sso_only`; the legacy `POST /api/users` account-creation alias is disabled
+as well. Existing password hashes remain stored for data compatibility but are
+not accepted by any authentication route.
+
 ## Account linking rules
 
 The stable identity key is `(issuer, sub)`, stored in
@@ -60,12 +66,9 @@ Never send `client_secret` to `/connect/authorize` or expose it to frontend
 code. It is used only by the backend at the token endpoint via
 `client_secret_basic`.
 
-The client secret may be staged in the GitHub `production` environment, but the
-deployment identity intentionally cannot rewrite the root-owned production
-`.env`. A privileged operator must install the settings above without logging
-the secret. Keep `CAMPUS_SSO_ENABLED=false` until the registered school domain
-resolves over HTTPS; set it to `true` and restart the production API only after
-DNS, TLS, and routing checks pass.
+The client secret must remain in the protected server environment and must
+never be committed or written into application logs. Restart the production
+API after changing any OIDC setting.
 
 ## Database migration
 
@@ -77,11 +80,12 @@ Revision `20260819_campus_oidc` merges the two existing Alembic heads and adds:
 The migration only adds tables and indexes. It does not update, replace, or
 delete existing user records. Downgrade removes the two new tables.
 
-## Remaining external prerequisites
+## Production verification
 
-- Make `unikorn.hkust-gz.edu.cn` resolve with a valid TLS certificate and route
+- Confirm `unikorn.hkust-gz.edu.cn` has a valid TLS certificate and routes
   `/api/*` to the Flask backend.
-- Set the production `CAMPUS_SSO_ENABLED` environment variable to `true` after
-  that domain passes DNS and TLS checks.
 - Run end-to-end login, account-linking, cancellation, expiry, and logout tests
-  with real school accounts before enabling SSO in production.
+  with real school accounts after each authentication release.
+- Confirm `/api/auth/oidc/status` reports the provider as available.
+- Confirm every legacy password route returns `410 sso_only` and that the login
+  page exposes no local-account controls.

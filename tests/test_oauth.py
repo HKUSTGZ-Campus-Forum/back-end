@@ -25,26 +25,15 @@ class OAuthTester:
         if self.debug:
             print(f"[{level}] {message}")
     
-    def test_user_login(self, username="testuser", password="testpass"):
-        """Test user login to get JWT token"""
-        self.log("🔐 Testing user login...")
-        
-        login_data = {
-            "username": username,
-            "password": password
-        }
-        
-        response = self.session.post(f"{self.base_url}/api/auth/login", json=login_data)
-        
-        if response.status_code == 200:
-            data = response.json()
-            self.user_jwt = data.get("access_token")
-            self.session.headers.update({"Authorization": f"Bearer {self.user_jwt}"})
-            self.log("✅ User login successful")
-            return True
-        else:
-            self.log(f"❌ User login failed: {response.status_code} - {response.text}", "ERROR")
+    def set_user_session(self, user_jwt):
+        """Attach a JWT obtained through the campus SSO flow."""
+        self.user_jwt = user_jwt.strip()
+        if not self.user_jwt:
+            self.log("❌ A campus SSO JWT is required", "ERROR")
             return False
+        self.session.headers.update({"Authorization": f"Bearer {self.user_jwt}"})
+        self.log("✅ Campus SSO user session attached")
+        return True
     
     def test_client_registration(self):
         """Test OAuth client registration (requires admin)"""
@@ -272,9 +261,9 @@ class OAuthTester:
         self.log("🚀 Starting OAuth2 Full Flow Test")
         self.log("=" * 50)
         
-        # Step 1: Login user
-        if not self.test_user_login():
-            self.log("❌ Cannot continue without user login", "ERROR")
+        # Step 1: Confirm that the caller attached an SSO-authenticated session.
+        if not self.user_jwt:
+            self.log("❌ Cannot continue without a campus SSO JWT", "ERROR")
             return False
         
         # Step 2: Register or get client
@@ -312,24 +301,20 @@ class OAuthTester:
 def main():
     print("OAuth2 Testing Script")
     print("Make sure your Flask development server is running on http://localhost:5000")
-    print("You need a test user account to run these tests.\n")
+    print("Complete campus SSO first and provide the resulting UniKorn JWT.\n")
     
     base_url = input("Base URL (default: http://localhost:5000): ").strip()
     if not base_url:
         base_url = "http://localhost:5000"
     
-    username = input("Test username (default: testuser): ").strip()
-    if not username:
-        username = "testuser"
-    
-    password = input("Test password (default: testpass): ").strip()
-    if not password:
-        password = "testpass"
+    from getpass import getpass
+
+    user_jwt = getpass("UniKorn JWT from campus SSO: ").strip()
     
     tester = OAuthTester(base_url=base_url, debug=True)
     
-    # Override login credentials
-    tester.test_user_login = lambda: tester.test_user_login(username, password)
+    if not tester.set_user_session(user_jwt):
+        return 1
     
     success = tester.run_full_test()
     

@@ -25,20 +25,23 @@ def client():
         yield client
 
 
-def test_register_and_login(client):
-    # Test user registration
-    response = client.post('/auth/register', json={
-        'username': 'testuser',
-        'password': 'testpass',
-        'email': 'test@connect.hkust-gz.edu.cn'
-    })
-    assert response.status_code == 201
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/auth/login",
+        "/auth/register",
+        "/auth/forgot-password",
+        "/auth/reset-password",
+        "/auth/change-password",
+        "/users",
+    ],
+)
+def test_password_authentication_endpoints_are_gone(client, path):
+    response = client.post(path, json={})
 
-    # Test user login
-    response = client.post('/auth/login', json={
-        'username': 'testuser',
-        'password': 'testpass'
-    })
-    data = response.get_json()
-    assert response.status_code == 200
-    assert 'access_token' in data
+    assert response.status_code == 410
+    assert response.get_json() == {
+        "code": "sso_only",
+        "msg": "Password authentication is no longer available. Use HKUST(GZ) SSO.",
+    }
+    assert response.headers["Cache-Control"] == "no-store"
