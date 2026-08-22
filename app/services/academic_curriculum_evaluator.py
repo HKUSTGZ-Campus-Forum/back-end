@@ -231,6 +231,21 @@ def _prioritized_codes(
     )
 
 
+def _allocation_priority_score(
+    selected: tuple[str, ...],
+    courses_by_code: dict[str, dict],
+) -> float:
+    weighted_score = 0.0
+    total_weight = 0.0
+    for code in selected:
+        course = courses_by_code[code]
+        priority = float(course.get("allocation_priority") or 0)
+        weight = float(course.get("credits") or 1)
+        weighted_score += priority * weight
+        total_weight += weight
+    return weighted_score / total_weight if total_weight else 0.0
+
+
 def _target_option_size(
     leaf: dict[str, Any],
     available_codes: list[str],
@@ -281,6 +296,7 @@ def _choose_options(
         key=lambda option: (
             _constraints_satisfied(leaf, option, courses_by_code),
             _leaf_progress_score(leaf, option, courses_by_code),
+            _allocation_priority_score(option, courses_by_code),
             -len(option),
         ),
         reverse=True,
@@ -366,7 +382,12 @@ def _assignment_score(
     )
 
 
-def _evaluate_view(leaves: list[dict[str, Any]], courses_by_code: dict[str, dict]) -> dict[str, Any]:
+def _evaluate_view(
+    leaves: list[dict[str, Any]],
+    courses_by_code: dict[str, dict],
+    *,
+    include_surplus: bool = True,
+) -> dict[str, Any]:
     allocations: dict[str, tuple[str, ...]] = {}
     reserved: set[str] = set()
     warnings = sorted(
@@ -414,7 +435,8 @@ def _evaluate_view(leaves: list[dict[str, Any]], courses_by_code: dict[str, dict
         if not leaf.get("allow_reuse"):
             used_codes.update(selected)
 
-    allocations = _expand_satisfied_allocations(leaves, allocations, courses_by_code)
+    if include_surplus:
+        allocations = _expand_satisfied_allocations(leaves, allocations, courses_by_code)
     satisfied_by_leaf = {
         leaf["_allocation_key"]: _constraints_satisfied(
             leaf,
@@ -445,6 +467,7 @@ def _view_for_group(view: dict[str, Any], group_leaves: list[dict[str, Any]]) ->
     return {
         "satisfied": all(view["satisfied_by_leaf"].get(key, False) for key in keys),
         "counted_courses": len(counted_codes),
+        "counted_course_codes": counted_codes,
         "required_courses": required_courses or None,
         "counted_credits": counted_credits,
         "required_credits": required_credits,
@@ -555,7 +578,10 @@ def _serialize_group(
 
 
 def evaluate_requirement_program(
-    groups: list[dict[str, Any]], courses_by_code: dict[str, dict]
+    groups: list[dict[str, Any]],
+    courses_by_code: dict[str, dict],
+    *,
+    include_surplus: bool = True,
 ) -> list[dict[str, Any]]:
     leaves = [
         {
@@ -566,10 +592,27 @@ def evaluate_requirement_program(
         for group in groups
         for leaf in _flatten_leaves(rule_tree_for(group))
     ]
-    current = _evaluate_view(leaves, _eligible_courses(courses_by_code, CURRENT_STATUSES))
-    projected = _evaluate_view(leaves, _eligible_courses(courses_by_code, PROJECTED_STATUSES))
+    current = _evaluate_view(
+        leaves,
+        _eligible_courses(courses_by_code, CURRENT_STATUSES),
+        include_surplus=include_surplus,
+    )
+    projected = _evaluate_view(
+        leaves,
+        _eligible_courses(courses_by_code, PROJECTED_STATUSES),
+        include_surplus=include_surplus,
+    )
     return [_serialize_group(group, leaves, courses_by_code, current, projected) for group in groups]
 
 
-def evaluate_requirement_group(rule: dict[str, Any], courses_by_code: dict[str, dict]) -> dict[str, Any]:
-    return evaluate_requirement_program([{"key": "group", "rule": rule}], courses_by_code)[0]
+def evaluate_requirement_group(
+    rule: dict[str, Any],
+    courses_by_code: dict[str, dict],
+    *,
+    include_surplus: bool = True,
+) -> dict[str, Any]:
+    return evaluate_requirement_program(
+        [{"key": "group", "rule": rule}],
+        courses_by_code,
+        include_surplus=include_surplus,
+    )[0]

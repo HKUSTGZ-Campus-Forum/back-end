@@ -241,6 +241,184 @@ def test_summary_weights_mcga_by_credits_within_primary_program(app):
     assert summary["grade_metrics"]["mcga"]["program_code"] == "AI"
 
 
+def test_summary_mcga_uses_only_electives_allocated_to_the_requirement(app):
+    with app.app_context():
+        create_user(118, "allocated_major_electives")
+        program = CurriculumProgram(code="AI", name_en="Artificial Intelligence", cohort="2025", total_min_credits=120)
+        db.session.add(program)
+        db.session.flush()
+        db.session.add(CurriculumRequirementGroup(
+            program_id=program.id,
+            key="major_electives",
+            name_en="Major Electives",
+            category="major_elective",
+            min_courses=1,
+            min_credits=3,
+            rule={
+                "rule_tree": {
+                    "type": "choose",
+                    "key": "major_electives",
+                    "min_courses": 1,
+                    "min_credits": 3,
+                    "courses": ["AIAA2205", "AIAA3201"],
+                }
+            },
+        ))
+        db.session.add(UserAcademicProfile(user_id=118, cohort="2025", target_majors=["AI"]))
+        add_record(118, "AIAA2205", units=3, grade="A", keep_grade=True)
+        add_record(118, "AIAA3201", units=3, grade="B", keep_grade=True)
+        db.session.commit()
+
+        summary = build_academic_map_summary(118)
+
+    assert summary["grade_metrics"]["mcga"]["value"] == 4.0
+    assert summary["grade_metrics"]["mcga"]["included_courses"] == 1
+    assert summary["grade_metrics"]["mcga"]["counted_course_codes"] == ["AIAA2205"]
+
+
+def test_summary_mcga_includes_fundamentals_but_excludes_common_core_and_options(app):
+    with app.app_context():
+        create_user(119, "official_major_scope")
+        program = CurriculumProgram(code="DSA", name_en="Data Science and Big Data Technology", cohort="2025", total_min_credits=120)
+        db.session.add(program)
+        db.session.flush()
+        groups = [
+            ("common_core", "common_core", "UCUG1000"),
+            ("fundamental", "fundamental", "UFUG2103"),
+            ("major_required", "major_required", "DSAA2011"),
+            ("embedded_option", "option", "DSAA4900"),
+        ]
+        for order, (key, category, code) in enumerate(groups):
+            db.session.add(CurriculumRequirementGroup(
+                program_id=program.id,
+                key=key,
+                name_en=key,
+                category=category,
+                rule={"required_courses": [code]},
+                sort_order=order,
+            ))
+        db.session.add(UserAcademicProfile(user_id=119, cohort="2025", target_majors=["DSA"]))
+        add_record(119, "UCUG1000", units=3, grade="A+", keep_grade=True)
+        add_record(119, "UFUG2103", units=4, grade="A", keep_grade=True)
+        add_record(119, "DSAA2011", units=2, grade="B", keep_grade=True)
+        add_record(119, "DSAA4900", units=3, grade="C", keep_grade=True)
+        db.session.commit()
+
+        summary = build_academic_map_summary(119)
+
+    assert summary["grade_metrics"]["mcga"]["value"] == 3.67
+    assert summary["grade_metrics"]["mcga"]["counted_course_codes"] == ["DSAA2011", "UFUG2103"]
+
+
+def test_summary_mcga_uses_union_of_all_target_major_requirements_in_profile_order(app):
+    with app.app_context():
+        create_user(120, "multiple_major_union")
+        ai = CurriculumProgram(code="AI", name_en="Artificial Intelligence", cohort="2025", total_min_credits=120)
+        dsa = CurriculumProgram(code="DSA", name_en="Data Science and Big Data Technology", cohort="2025", total_min_credits=120)
+        db.session.add_all([ai, dsa])
+        db.session.flush()
+        db.session.add(CurriculumRequirementGroup(
+            program_id=ai.id,
+            key="major_required",
+            name_en="AI Required",
+            category="major_required",
+            rule={"required_courses": ["AIAA2205"]},
+        ))
+        db.session.add(CurriculumRequirementGroup(
+            program_id=dsa.id,
+            key="major_required",
+            name_en="DSA Required",
+            category="major_required",
+            rule={"required_courses": ["DSAA2011"]},
+        ))
+        db.session.add(UserAcademicProfile(user_id=120, cohort="2025", target_majors=["DSA", "AI"]))
+        add_record(120, "AIAA2205", units=4, grade="A", keep_grade=True)
+        add_record(120, "DSAA2011", units=2, grade="B", keep_grade=True)
+        db.session.commit()
+
+        summary = build_academic_map_summary(120)
+
+    assert summary["grade_metrics"]["mcga"]["value"] == 3.67
+    assert summary["grade_metrics"]["mcga"]["program_code"] == "DSA"
+    assert summary["grade_metrics"]["mcga"]["program_codes"] == ["DSA", "AI"]
+    assert summary["grade_metrics"]["mcga"]["counted_course_codes"] == ["AIAA2205", "DSAA2011"]
+
+
+def test_summary_mcga_counts_a_course_shared_by_multiple_majors_only_once(app):
+    with app.app_context():
+        create_user(122, "shared_multiple_major_course")
+        ai = CurriculumProgram(code="AI", name_en="Artificial Intelligence", cohort="2025", total_min_credits=120)
+        dsa = CurriculumProgram(code="DSA", name_en="Data Science and Big Data Technology", cohort="2025", total_min_credits=120)
+        db.session.add_all([ai, dsa])
+        db.session.flush()
+        for program in (ai, dsa):
+            db.session.add(CurriculumRequirementGroup(
+                program_id=program.id,
+                key="major_required",
+                name_en="Major Required",
+                category="major_required",
+                rule={"required_courses": ["DSAA2011"]},
+            ))
+        db.session.add(UserAcademicProfile(user_id=122, cohort="2025", target_majors=["AI", "DSA"]))
+        add_record(122, "DSAA2011", units=3, grade="A", keep_grade=True)
+        db.session.commit()
+
+        summary = build_academic_map_summary(122)
+
+    assert summary["grade_metrics"]["mcga"]["value"] == 4.0
+    assert summary["grade_metrics"]["mcga"]["included_courses"] == 1
+    assert summary["grade_metrics"]["mcga"]["counted_course_codes"] == ["DSAA2011"]
+
+
+def test_summary_mcga_uses_catalog_credits_for_the_weighted_average(app):
+    with app.app_context():
+        create_user(123, "mcga_catalog_credits")
+        program = CurriculumProgram(code="AI", name_en="Artificial Intelligence", cohort="2025", total_min_credits=120)
+        db.session.add(program)
+        db.session.flush()
+        db.session.add(CurriculumRequirementGroup(
+            program_id=program.id,
+            key="major_required",
+            name_en="Major Required",
+            category="major_required",
+            rule={"required_courses": ["AIAA2205", "DSAA2011"]},
+        ))
+        add_record(123, "AIAA2205", units=3, grade="A", keep_grade=True)
+        add_record(123, "DSAA2011", units=3, grade="B", keep_grade=True)
+        Course.query.filter_by(code="AIAA2205").one().credits = 4
+        Course.query.filter_by(code="DSAA2011").one().credits = 2
+        db.session.add(UserAcademicProfile(user_id=123, cohort="2025", target_majors=["AI"]))
+        db.session.commit()
+
+        summary = build_academic_map_summary(123)
+
+    assert summary["grade_metrics"]["mcga"]["value"] == 3.67
+
+
+def test_summary_mcga_excludes_failed_courses_until_a_final_passing_grade_exists(app):
+    with app.app_context():
+        create_user(121, "failed_major_course")
+        program = CurriculumProgram(code="AI", name_en="Artificial Intelligence", cohort="2025", total_min_credits=120)
+        db.session.add(program)
+        db.session.flush()
+        db.session.add(CurriculumRequirementGroup(
+            program_id=program.id,
+            key="major_required",
+            name_en="AI Required",
+            category="major_required",
+            rule={"required_courses": ["AIAA2205"]},
+        ))
+        db.session.add(UserAcademicProfile(user_id=121, cohort="2025", target_majors=["AI"]))
+        add_record(121, "AIAA2205", units=3, grade="F", keep_grade=True)
+        db.session.commit()
+
+        summary = build_academic_map_summary(121)
+
+    assert summary["grade_metrics"]["mcga"]["status"] == "not_available"
+    assert summary["grade_metrics"]["mcga"]["value"] is None
+    assert summary["grade_metrics"]["mcga"]["included_courses"] == 0
+
+
 def test_summary_uses_domain_course_state_attempts_and_best_grade(app):
     with app.app_context():
         create_user(114, "domain_attempts")
