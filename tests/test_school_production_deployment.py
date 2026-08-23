@@ -125,8 +125,10 @@ def test_school_production_controller_has_fixed_trust_boundaries():
     assert "NoNewPrivileges=true" in service
     assert "PrivateTmp=true" in service
     assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK" in service
-    assert "RestrictSUIDSGID" not in service
-    assert "runuser" in verifier
+    assert "RestrictSUIDSGID=true" in service
+    assert "runuser" not in verifier
+    assert 'systemd-run --quiet --wait --collect --pipe' in verifier
+    assert '--uid=unikorn' in verifier
     assert "ss -ltnH" in verifier
     assert "OnUnitInactiveSec=2min" in timer
     assert "RandomizedDelaySec=15s" in timer

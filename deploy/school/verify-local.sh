@@ -78,7 +78,12 @@ for port in 3000 3002 6380 8001 8081; do
     fi
 done
 
-runuser -u unikorn -- psql --dbname=prod_unikorn --no-psqlrc \
+systemd-run --quiet --wait --collect --pipe \
+    --unit="unikorn-verify-db-$$" \
+    --uid=unikorn \
+    --property=NoNewPrivileges=true \
+    --property=PrivateTmp=true \
+    /usr/bin/psql --dbname=prod_unikorn --no-psqlrc \
     --tuples-only --no-align --command='SELECT current_database()' | \
     grep -qx 'prod_unikorn'
 redis-cli -h 127.0.0.1 -p 6380 ping | grep -qx PONG
