@@ -68,6 +68,10 @@ backend/frontend production-candidate tests. The school-host timer polls the
 fixed `school-production/validated` commit status. Only a successful status can
 activate the pair; missing, pending, cancelled or failed validation never deploys.
 
+The branch trigger delegates to the reusable validator on backend `main`. This
+keeps `school-production` manifest-only while allowing reviewed validation logic
+to evolve through the normal `main` pull-request flow.
+
 The root-owned controller additionally rejects non-manifest control-branch
 changes, backward SHA movement and unapproved changes below `migrations/` or
 `app/data/`. After the user has explicitly approved the required production

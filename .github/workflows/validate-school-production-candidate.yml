@@ -1,0 +1,208 @@
+name: Validate school production candidate
+
+on:
+  workflow_call:
+    inputs:
+      control_sha:
+        description: Full SHA of the school-production manifest commit
+        required: true
+        type: string
+
+jobs:
+  pending:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Publish pending validation status
+        env:
+          CONTROL_SHA: ${{ inputs.control_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/statuses/${CONTROL_SHA}" \
+            -f state=pending \
+            -f context='school-production/validated' \
+            -f description='Validating the paired school production release'
+
+  validate:
+    needs: pending
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16.14-bookworm@sha256:64154d0babcb1741988719e703419af0382b19953706149f9872fbd0f438efa8
+        env:
+          POSTGRES_DB: pristine_migrations
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pristine_migrations"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Checkout release control branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.control_sha }}
+          fetch-depth: 0
+          path: control
+
+      - name: Validate control branch and manifest
+        id: manifest
+        working-directory: control
+        run: |
+          set -Eeuo pipefail
+          git fetch --force --no-tags origin \
+            +refs/heads/main:refs/remotes/origin/main \
+            +refs/heads/school-production:refs/remotes/origin/school-production
+          test "$(git rev-parse refs/remotes/origin/school-production)" = \
+            "${{ inputs.control_sha }}"
+          merge_base="$(git merge-base HEAD refs/remotes/origin/main)"
+          mapfile -t changed_paths < <(git diff --name-only "$merge_base" HEAD)
+          test "${#changed_paths[@]}" -eq 1
+          test "${changed_paths[0]}" = deploy/school/school-production-release.json
+          python3 deploy/school/school-production-controller.py \
+            --validate-file deploy/school/school-production-release.json
+          python3 - "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import sys
+
+          with open("deploy/school/school-production-release.json", encoding="utf-8") as source:
+              manifest = json.load(source)
+          with open(sys.argv[1], "a", encoding="utf-8") as output:
+              output.write(f"backend_sha={manifest['backend_sha']}\n")
+              output.write(f"frontend_sha={manifest['frontend_sha']}\n")
+          PY
+
+      - name: Checkout backend candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.manifest.outputs.backend_sha }}
+          fetch-depth: 0
+          path: candidate/backend
+
+      - name: Checkout frontend candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: HKUSTGZ-Campus-Forum/front-end
+          ref: ${{ steps.manifest.outputs.frontend_sha }}
+          fetch-depth: 0
+          path: candidate/frontend
+
+      - name: Require both candidates to come from main
+        run: |
+          set -Eeuo pipefail
+          git -C candidate/backend fetch --force --no-tags origin \
+            +refs/heads/main:refs/remotes/origin/main
+          git -C candidate/frontend fetch --force --no-tags origin \
+            +refs/heads/main:refs/remotes/origin/main
+          git -C candidate/backend merge-base --is-ancestor \
+            "${{ steps.manifest.outputs.backend_sha }}" refs/remotes/origin/main
+          git -C candidate/frontend merge-base --is-ancestor \
+            "${{ steps.manifest.outputs.frontend_sha }}" refs/remotes/origin/main
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            candidate/backend/requirements.txt
+            candidate/backend/requirements-dev.txt
+
+      - name: Test backend candidate
+        working-directory: candidate/backend
+        run: |
+          set -Eeuo pipefail
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+          python -m pip check
+          python - <<'PY'
+          from alibabacloud_green20220302.client import Client  # noqa: F401
+          from alibabacloud_tea_openapi import models  # noqa: F401
+          PY
+          python -m pytest tests/ -q
+
+      - name: Verify backend migrations on pristine PostgreSQL
+        working-directory: candidate/backend
+        env:
+          AUTO_INIT_ON_STARTUP: 'false'
+          ENABLE_BACKGROUND_TASKS: 'false'
+          PRISTINE_POSTGRES_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/pristine_migrations
+        run: |
+          set -Eeuo pipefail
+          source .venv/bin/activate
+          python -m pytest tests/test_pristine_postgres_migrations.py -q -rs
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.3.1
+        with:
+          version: '0.10.8'
+          enable-cache: false
+
+      - name: Verify immutable backend runtime dependencies
+        working-directory: candidate/backend
+        run: |
+          set -Eeuo pipefail
+          uv pip compile requirements.txt \
+            --constraint requirements.lock \
+            --python-version 3.12 \
+            --python-platform x86_64-manylinux_2_28 \
+            --generate-hashes \
+            --no-annotate \
+            --custom-compile-command 'uv pip compile requirements.txt --constraint requirements.lock --python-version 3.12 --python-platform x86_64-manylinux_2_28 --generate-hashes --no-annotate --output-file requirements.lock' \
+            --output-file /tmp/requirements.lock
+          cmp requirements.lock /tmp/requirements.lock
+
+      - name: Set up production Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '20.19.6'
+          cache: npm
+          cache-dependency-path: candidate/frontend/package-lock.json
+
+      - name: Test and build frontend candidate
+        working-directory: candidate/frontend
+        env:
+          CI: '1'
+          NUXT_PUBLIC_API_BASE_URL: ''
+          NUXT_API_INTERNAL_BASE_URL: http://127.0.0.1:8081
+          NUXT_PUBLIC_APP_BUILD_VERSION: ${{ steps.manifest.outputs.frontend_sha }}
+        run: |
+          set -Eeuo pipefail
+          npm ci
+          npm run i18n:check
+          npm test
+          npm run build
+          test -f .output/server/index.mjs
+
+  publish:
+    if: always()
+    needs:
+      - pending
+      - validate
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Publish final validation status
+        env:
+          CONTROL_SHA: ${{ inputs.control_sha }}
+          GH_TOKEN: ${{ github.token }}
+          VALIDATION_RESULT: ${{ needs.validate.result }}
+        run: |
+          set -Eeuo pipefail
+          state=failure
+          description='School production candidate validation failed'
+          if [[ "$VALIDATION_RESULT" == success ]]; then
+            state=success
+            description='Paired school production release validated'
+          fi
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/statuses/${CONTROL_SHA}" \
+            -f state="$state" \
+            -f context='school-production/validated' \
+            -f description="$description"

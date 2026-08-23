@@ -13,6 +13,9 @@ WORKFLOW = ROOT / ".github" / "workflows" / "export-production-migration.yml"
 SCHOOL_RELEASE_WORKFLOW = (
     ROOT / ".github" / "workflows" / "validate-school-production-release.yml"
 )
+SCHOOL_CANDIDATE_WORKFLOW = (
+    ROOT / ".github" / "workflows" / "validate-school-production-candidate.yml"
+)
 
 
 def read(relative: str) -> str:
@@ -94,7 +97,9 @@ def test_school_production_controller_has_fixed_trust_boundaries():
     installer = read("install-school-production-controller.sh")
     service = read("systemd/unikorn-school-production-deploy.service")
     timer = read("systemd/unikorn-school-production-deploy.timer")
-    workflow = SCHOOL_RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    caller_workflow = SCHOOL_RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    candidate_workflow = SCHOOL_CANDIDATE_WORKFLOW.read_text(encoding="utf-8")
+    workflow = caller_workflow + candidate_workflow
 
     assert 'CONTROL_BRANCH = "school-production"' in controller
     assert 'STATUS_CONTEXT = "school-production/validated"' in controller
@@ -123,6 +128,8 @@ def test_school_production_controller_has_fixed_trust_boundaries():
     assert "branches:" in workflow and "school-production" in workflow
     assert "statuses: write" in workflow
     assert "school-production/validated" in workflow
+    assert "validate-school-production-candidate.yml@main" in caller_workflow
+    assert "workflow_call:" in candidate_workflow
     backend_test_step = workflow.split("- name: Test backend candidate", 1)[1].split(
         "- name: Verify backend migrations on pristine PostgreSQL", 1
     )[0]

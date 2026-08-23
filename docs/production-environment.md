@@ -96,6 +96,9 @@ root-owned copy of `deploy-release.sh` only after success. It rejects version
 downgrades, pauses and restores SISN sync timers around the release, verifies a
 database backup, runs Alembic, atomically switches `current`, preserves
 `previous`, restarts both applications, and checks local plus public health.
+The manifest-only trigger calls the reusable validator from backend `main`, so
+validator updates are reviewed on `main` instead of copied onto the control
+branch.
 
 If the transition changes `migrations/` or `app/data/`, the release remains
 blocked until the user has explicitly approved the documented migration/data
