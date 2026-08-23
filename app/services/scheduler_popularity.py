@@ -24,6 +24,7 @@ from app.models.scheduler_popularity import (
     SchedulerPopularitySectionSnapshot,
     SchedulerPopularitySnapshotRun,
 )
+from app.models.scheduler_plan import SchedulerPlan, SchedulerPlanCourse
 from app.models.user import User
 from app.services.course_domain import normalize_course_code
 from app.services.institutional_email import (
@@ -214,20 +215,43 @@ def is_canonical_popularity_user(user: User | None) -> bool:
     return canonical is not None and canonical.id == user.id
 
 
-def _canonical_contributor_ids(offering_ids: list[int]) -> set[int]:
+def _canonical_contributor_ids(
+    offering_ids: list[int],
+    *,
+    saved_plan_course_codes: list[str] | None = None,
+    saved_plan_semester_id: str | None = None,
+) -> set[int]:
     if not offering_ids:
         return set()
 
-    relevant_users = (
-        User.query
-        .join(UserOfferingCart, UserOfferingCart.user_id == User.id)
-        .filter(
-            UserOfferingCart.offering_id.in_(offering_ids),
-            User.is_deleted.is_(False),
-            User.email_verified.is_(True),
-        )
+    relevant_user_ids = {
+        user_id
+        for user_id, in db.session.query(UserOfferingCart.user_id)
+        .filter(UserOfferingCart.offering_id.in_(offering_ids))
+        .distinct()
         .all()
-    )
+    }
+    if saved_plan_course_codes and saved_plan_semester_id:
+        relevant_user_ids.update(
+            owner_id
+            for owner_id, in db.session.query(SchedulerPlan.owner_id)
+            .join(SchedulerPlanCourse, SchedulerPlanCourse.plan_id == SchedulerPlan.id)
+            .filter(
+                SchedulerPlanCourse.normalized_course_code.in_(saved_plan_course_codes),
+                SchedulerPlan.semester_id == saved_plan_semester_id,
+                SchedulerPlan.is_deleted.is_(False),
+            )
+            .distinct()
+            .all()
+        )
+    if not relevant_user_ids:
+        return set()
+
+    relevant_users = User.query.filter(
+        User.id.in_(relevant_user_ids),
+        User.is_deleted.is_(False),
+        User.email_verified.is_(True),
+    ).all()
     normalized_emails = {
         normalize_email(user.email)
         for user in relevant_users
@@ -309,94 +333,65 @@ def build_popularity_snapshot(
         return empty
 
     offering_ids = [offering.id for _, offering, _ in target_rows]
-    sections = (
-        CourseSection.query
-        .filter(
-            CourseSection.offering_id.in_(offering_ids),
-            CourseSection.status == "active",
-        )
-        .order_by(CourseSection.offering_id, CourseSection.layer, CourseSection.bundle, CourseSection.source_section_id)
-        .all()
-    )
-    sections_by_offering: dict[int, list[CourseSection]] = {}
-    for section in sections:
-        sections_by_offering.setdefault(section.offering_id, []).append(section)
-
     output_by_offering: dict[int, dict] = {}
-    section_output_by_id: dict[int, dict] = {}
+    output_by_course_code: dict[str, dict] = {}
     courses = []
     for _, offering, course in target_rows:
+        normalized_code = normalize_course_code(course.code)
         output = {
             "course_code": course.code,
-            "looking_count": 0,
-            "scheduling_count": 0,
-            "sections": [],
+            "cart_count": 0,
+            "saved_plan_count": 0,
         }
-        for section in sections_by_offering.get(offering.id, []):
-            section_output = {
-                "section_id": section.source_section_id,
-                "looking_count": 0,
-                "scheduling_count": 0,
-            }
-            output["sections"].append(section_output)
-            section_output_by_id[section.id] = section_output
         courses.append(output)
         output_by_offering[offering.id] = output
+        output_by_course_code[normalized_code] = output
 
-    canonical_ids = _canonical_contributor_ids(offering_ids)
+    canonical_ids = _canonical_contributor_ids(
+        offering_ids,
+        saved_plan_course_codes=list(output_by_course_code),
+        saved_plan_semester_id=semester_id,
+    )
     if canonical_ids:
-        course_counts = (
+        cart_counts = (
             db.session.query(
                 UserOfferingCart.offering_id,
-                UserOfferingCart.enabled,
                 func.count(func.distinct(UserOfferingCart.user_id)),
             )
             .filter(
                 UserOfferingCart.offering_id.in_(offering_ids),
                 UserOfferingCart.user_id.in_(canonical_ids),
             )
-            .group_by(UserOfferingCart.offering_id, UserOfferingCart.enabled)
+            .group_by(UserOfferingCart.offering_id)
             .all()
         )
-        for offering_id, enabled, count in course_counts:
+        for offering_id, count in cart_counts:
             output = output_by_offering.get(offering_id)
             if output is not None:
-                key = "scheduling_count" if enabled else "looking_count"
-                output[key] = count
+                output["cart_count"] = count
 
-        section_counts = (
+        saved_plan_counts = (
             db.session.query(
-                UserSectionSelection.section_id,
-                UserOfferingCart.enabled,
-                func.count(func.distinct(UserSectionSelection.user_id)),
+                SchedulerPlanCourse.normalized_course_code,
+                func.count(func.distinct(SchedulerPlan.owner_id)),
             )
             .join(
-                UserOfferingCart,
-                and_(
-                    UserOfferingCart.user_id == UserSectionSelection.user_id,
-                    UserOfferingCart.offering_id == UserSectionSelection.offering_id,
-                ),
-            )
-            .join(
-                CourseSection,
-                and_(
-                    CourseSection.id == UserSectionSelection.section_id,
-                    CourseSection.offering_id == UserSectionSelection.offering_id,
-                ),
+                SchedulerPlan,
+                SchedulerPlan.id == SchedulerPlanCourse.plan_id,
             )
             .filter(
-                UserSectionSelection.offering_id.in_(offering_ids),
-                UserSectionSelection.user_id.in_(canonical_ids),
-                UserSectionSelection.enabled.is_(True),
+                SchedulerPlanCourse.normalized_course_code.in_(output_by_course_code),
+                SchedulerPlan.owner_id.in_(canonical_ids),
+                SchedulerPlan.semester_id == semester_id,
+                SchedulerPlan.is_deleted.is_(False),
             )
-            .group_by(UserSectionSelection.section_id, UserOfferingCart.enabled)
+            .group_by(SchedulerPlanCourse.normalized_course_code)
             .all()
         )
-        for section_id, enabled, count in section_counts:
-            output = section_output_by_id.get(section_id)
+        for normalized_code, count in saved_plan_counts:
+            output = output_by_course_code.get(normalized_code)
             if output is not None:
-                key = "scheduling_count" if enabled else "looking_count"
-                output[key] = count
+                output["saved_plan_count"] = count
 
     return {
         "semester_id": semester_id,

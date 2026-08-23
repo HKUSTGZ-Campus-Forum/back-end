@@ -509,7 +509,7 @@ def _parse_popularity_history_timestamp(name):
 @bp.route('/popularity/<semester>', methods=['GET'])
 @jwt_required()
 def get_popularity(semester):
-    """Return anonymous current planner counts for courses in the viewer's cart."""
+    """Return anonymous cart and saved-plan user counts for the viewer's courses."""
     viewer = _request_user()
     if viewer is None or viewer.is_deleted:
         return jsonify({'error': 'Authenticated user not found'}), 401
