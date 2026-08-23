@@ -26,7 +26,6 @@ from app.models.scheduler_popularity import (
     SchedulerPopularitySectionSnapshot,
     SchedulerPopularitySnapshotRun,
 )
-from app.models.scheduler_plan import SchedulerPlan, SchedulerPlanCourse
 from app.models.user import User
 from app.models.user_role import UserRole
 from app.services.scheduler_popularity import (
@@ -230,26 +229,6 @@ def add_cart(user, offering, sections, *, enabled=False, selected=(True, True)):
         ))
 
 
-def add_saved_plan(user, offering, *, name="Saved plan", deleted=False):
-    plan = SchedulerPlan(
-        owner_id=user.id,
-        semester_id=offering.semester_id,
-        name=name,
-        description="",
-        visibility=SchedulerPlan.VISIBILITY_PRIVATE,
-        private_constraints={},
-        is_deleted=deleted,
-    )
-    plan.courses.append(SchedulerPlanCourse(
-        offering_id=offering.id,
-        normalized_course_code=offering.offering_code.replace(" ", "").upper(),
-        display_order=0,
-        snapshot={},
-    ))
-    db.session.add(plan)
-    return plan
-
-
 def test_popularity_requires_authenticated_verified_canonical_institutional_viewer(client, app):
     assert client.get("/scheduler/popularity/2530?course_codes=POP1001").status_code == 401
 
@@ -274,13 +253,14 @@ def test_popularity_requires_authenticated_verified_canonical_institutional_view
     assert client.get("/scheduler/popularity/2530", headers=oldest_headers).status_code == 200
 
 
-def test_popularity_counts_distinct_cart_and_saved_plan_users(client, app):
+def test_popularity_counts_distinct_cart_users_and_suppresses_small_cohorts(client, app):
     with app.app_context():
         _, offering, sections = create_offering()
         _, hidden_offering, hidden_sections = create_offering("POP2001")
         viewer = create_user("viewer", "viewer@hkust-gz.edu.cn")
         looking = create_user("looking", "looking@connect.hkust-gz.edu.cn")
         scheduling = create_user("scheduling", "scheduling@hkust-gz.edu.cn")
+        threshold = create_user("threshold", "threshold@hkust-gz.edu.cn")
         unverified = create_user("unverified_count", "uv@hkust-gz.edu.cn", verified=False)
         external = create_user("external_count", "outside@example.com")
         deleted = create_user("deleted_count", "deleted@hkust-gz.edu.cn", deleted=True)
@@ -299,12 +279,10 @@ def test_popularity_counts_distinct_cart_and_saved_plan_users(client, app):
             "duplicate_with_cart",
             " NO_CART@HKUST-GZ.EDU.CN ",
         )
-        plan_only = create_user("plan_only", "plan_only@hkust-gz.edu.cn")
-        deleted_plan_owner = create_user("deleted_plan_owner", "deleted_plan@hkust-gz.edu.cn")
-
         add_cart(viewer, offering, sections, selected=(False, False))
         add_cart(looking, offering, sections, enabled=False, selected=(True, False))
         add_cart(scheduling, offering, sections, enabled=True, selected=(True, True))
+        add_cart(threshold, offering, sections, enabled=True, selected=(True, True))
         add_cart(unverified, offering, sections)
         add_cart(external, offering, sections)
         add_cart(deleted, offering, sections)
@@ -312,15 +290,6 @@ def test_popularity_counts_distinct_cart_and_saved_plan_users(client, app):
         add_cart(duplicate, offering, sections, enabled=True, selected=(True, True))
         add_cart(duplicate_with_cart, offering, sections, enabled=True, selected=(True, True))
         add_cart(looking, hidden_offering, hidden_sections)
-        add_saved_plan(viewer, offering, name="Viewer plan")
-        add_saved_plan(scheduling, offering, name="Scheduling plan one")
-        add_saved_plan(scheduling, offering, name="Scheduling plan two")
-        add_saved_plan(plan_only, offering, name="Plan-only user")
-        add_saved_plan(duplicate, offering, name="Duplicate account plan")
-        add_saved_plan(unverified, offering, name="Unverified plan")
-        add_saved_plan(external, offering, name="External plan")
-        add_saved_plan(deleted, offering, name="Deleted owner plan")
-        add_saved_plan(deleted_plan_owner, offering, name="Deleted saved plan", deleted=True)
         db.session.commit()
         viewer_headers = headers_for(viewer)
 
@@ -337,18 +306,17 @@ def test_popularity_counts_distinct_cart_and_saved_plan_users(client, app):
     assert data["semester_id"] == "2530"
     assert len(data["courses"]) == 1
     course = data["courses"][0]
-    assert set(course) == {"course_code", "cart_count", "saved_plan_count"}
+    assert set(course) == {"course_code", "cart_count", "cart_count_suppressed"}
     assert course["course_code"] == "POP1001"
     # Enabled and disabled carts both count. Duplicate and ineligible accounts do not.
-    assert course["cart_count"] == 4
-    # Multiple plans from one owner count once; plan-only owners count; deleted plans do not.
-    assert course["saved_plan_count"] == 3
+    assert course["cart_count"] == 5
+    assert course["cart_count_suppressed"] is False
     serialized = str(data).lower()
     for private_key in ("user_id", "username", "email", "event", "offering_id"):
         assert private_key not in serialized
 
 
-def test_popularity_ignores_section_state_and_initializes_zero_saved_plan_count(client, app):
+def test_popularity_ignores_section_state_and_suppresses_small_cart_count(client, app):
     with app.app_context():
         _, offering, sections = create_offering()
         _, other_offering, other_sections = create_offering("POP3001")
@@ -375,8 +343,8 @@ def test_popularity_ignores_section_state_and_initializes_zero_saved_plan_count(
         "/scheduler/popularity/2530?course_codes=POP1001",
         headers=viewer_headers,
     ).get_json()["courses"][0]
-    assert course["cart_count"] == 2
-    assert course["saved_plan_count"] == 0
+    assert course["cart_count"] is None
+    assert course["cart_count_suppressed"] is True
 
 
 def test_popularity_empty_filter_limit_and_archived_cart_scope(client, app):

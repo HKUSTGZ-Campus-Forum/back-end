@@ -24,7 +24,6 @@ from app.models.scheduler_popularity import (
     SchedulerPopularitySectionSnapshot,
     SchedulerPopularitySnapshotRun,
 )
-from app.models.scheduler_plan import SchedulerPlan, SchedulerPlanCourse
 from app.models.user import User
 from app.services.course_domain import normalize_course_code
 from app.services.institutional_email import (
@@ -35,6 +34,7 @@ from app.services.institutional_email import (
 
 
 POPULARITY_STATES = {"looking", "scheduling"}
+POPULARITY_MINIMUM_DISPLAY_COUNT = 5
 POPULARITY_HISTORY_SEMESTER = "2610"
 POPULARITY_HISTORY_INTERVAL_SECONDS = 300
 POPULARITY_HISTORY_START_AT = datetime(2026, 7, 31, 16, 0, tzinfo=timezone.utc)
@@ -217,9 +217,6 @@ def is_canonical_popularity_user(user: User | None) -> bool:
 
 def _canonical_contributor_ids(
     offering_ids: list[int],
-    *,
-    saved_plan_course_codes: list[str] | None = None,
-    saved_plan_semester_id: str | None = None,
 ) -> set[int]:
     if not offering_ids:
         return set()
@@ -231,19 +228,6 @@ def _canonical_contributor_ids(
         .distinct()
         .all()
     }
-    if saved_plan_course_codes and saved_plan_semester_id:
-        relevant_user_ids.update(
-            owner_id
-            for owner_id, in db.session.query(SchedulerPlan.owner_id)
-            .join(SchedulerPlanCourse, SchedulerPlanCourse.plan_id == SchedulerPlan.id)
-            .filter(
-                SchedulerPlanCourse.normalized_course_code.in_(saved_plan_course_codes),
-                SchedulerPlan.semester_id == saved_plan_semester_id,
-                SchedulerPlan.is_deleted.is_(False),
-            )
-            .distinct()
-            .all()
-        )
     if not relevant_user_ids:
         return set()
 
@@ -334,24 +318,17 @@ def build_popularity_snapshot(
 
     offering_ids = [offering.id for _, offering, _ in target_rows]
     output_by_offering: dict[int, dict] = {}
-    output_by_course_code: dict[str, dict] = {}
     courses = []
     for _, offering, course in target_rows:
-        normalized_code = normalize_course_code(course.code)
         output = {
             "course_code": course.code,
             "cart_count": 0,
-            "saved_plan_count": 0,
+            "cart_count_suppressed": False,
         }
         courses.append(output)
         output_by_offering[offering.id] = output
-        output_by_course_code[normalized_code] = output
 
-    canonical_ids = _canonical_contributor_ids(
-        offering_ids,
-        saved_plan_course_codes=list(output_by_course_code),
-        saved_plan_semester_id=semester_id,
-    )
+    canonical_ids = _canonical_contributor_ids(offering_ids)
     if canonical_ids:
         cart_counts = (
             db.session.query(
@@ -368,30 +345,12 @@ def build_popularity_snapshot(
         for offering_id, count in cart_counts:
             output = output_by_offering.get(offering_id)
             if output is not None:
-                output["cart_count"] = count
-
-        saved_plan_counts = (
-            db.session.query(
-                SchedulerPlanCourse.normalized_course_code,
-                func.count(func.distinct(SchedulerPlan.owner_id)),
-            )
-            .join(
-                SchedulerPlan,
-                SchedulerPlan.id == SchedulerPlanCourse.plan_id,
-            )
-            .filter(
-                SchedulerPlanCourse.normalized_course_code.in_(output_by_course_code),
-                SchedulerPlan.owner_id.in_(canonical_ids),
-                SchedulerPlan.semester_id == semester_id,
-                SchedulerPlan.is_deleted.is_(False),
-            )
-            .group_by(SchedulerPlanCourse.normalized_course_code)
-            .all()
-        )
-        for normalized_code, count in saved_plan_counts:
-            output = output_by_course_code.get(normalized_code)
-            if output is not None:
-                output["saved_plan_count"] = count
+                normalized_count = int(count)
+                if 0 < normalized_count < POPULARITY_MINIMUM_DISPLAY_COUNT:
+                    output["cart_count"] = None
+                    output["cart_count_suppressed"] = True
+                else:
+                    output["cart_count"] = normalized_count
 
     return {
         "semester_id": semester_id,
