@@ -10,11 +10,11 @@ that directory.
 |---|---|---|---|
 | Local frontend | `http://localhost:3000` | UI/API development | local Nuxt and usually local Flask `:8000` |
 | Shared development | `https://dev.unikorn.axfff.com` | Integration testing | frontend and backend `main` GitHub Actions |
-| Active production | `https://unikorn.hkust-gz.edu.cn` | User-facing UniKorn | exact-SHA joint release on the school host |
+| Active production | `https://unikorn.hkust-gz.edu.cn` | User-facing UniKorn | validated paired-SHA manifest on backend `school-production` |
 | Independent CoursePlan | `https://scheduler.unikorn.hkust-gz.edu.cn` | School scheduler and official SISN fetcher | separate service on the same host |
 | Former axfff production | `https://unikorn.axfff.com` | Preserved migration-era stack | not the current production target |
 
-The repository still contains `production`-branch workflows and operations for
+The repository still contains manually dispatched `production`-branch workflows and operations for
 the former axfff host. Their `production` label does not mean school production.
 Do not run them for a normal release to `unikorn.hkust-gz.edu.cn`.
 
@@ -71,28 +71,53 @@ runtime.
 - Password login, registration, recovery, reset, and password changes remain
   disabled. See `CAMPUS_SSO.md` for identity linking and onboarding rules.
 
-## Exact-commit release
+## Automated exact-commit release
 
 1. Verify frontend and backend locally and through the shared dev environment.
 2. Merge reviewed changes to both repositories' `main` branches.
 3. Fetch `origin` and record both full 40-character `origin/main` SHAs.
-4. Prepare clean committed checkouts matching those SHAs on the school host.
-5. Run through interactive sudo:
+4. Switch to the backend repository's `school-production` control branch without
+   merging or rebasing `main`, then update its only mutable file:
 
 ```bash
-sudo deploy/school/deploy-release.sh \
-  --backend-source /absolute/staging/back-end \
-  --frontend-source /absolute/staging/front-end \
+python tools/update_school_production_release.py \
   --backend-sha FULL_BACKEND_SHA \
-  --frontend-sha FULL_FRONTEND_SHA \
-  --activate
+  --frontend-sha FULL_FRONTEND_SHA
+git add deploy/school/school-production-release.json
+git commit -m "release: deploy paired school production SHAs"
+git push origin school-production
 ```
 
-The controller verifies both source trees, builds one immutable release, creates
-and verifies a database backup, runs Alembic through a systemd oneshot, switches
-`current`, preserves `previous`, restarts both applications, and checks backend
-readiness plus the exact frontend SHA. A failed migration does not change
-`current`; do not bypass this gate.
+The branch may change only the manifest. GitHub workflow
+`validate-school-production-release.yml` verifies that both SHAs are reachable
+from their repository's `main`, then runs the backend and frontend test/build
+gates. The school-host timer polls the validation status and invokes a trusted,
+root-owned copy of `deploy-release.sh` only after success. It rejects version
+downgrades, pauses and restores SISN sync timers around the release, verifies a
+database backup, runs Alembic, atomically switches `current`, preserves
+`previous`, restarts both applications, and checks local plus public health.
+
+If the transition changes `migrations/` or `app/data/`, the release remains
+blocked until the user has explicitly approved the documented migration/data
+plan. After that approval only, include its durable reference:
+
+```bash
+python tools/update_school_production_release.py \
+  --backend-sha FULL_BACKEND_SHA \
+  --frontend-sha FULL_FRONTEND_SHA \
+  --database-change-approval-reference 'approved plan/PR reference'
+```
+
+Install or update the root-owned controller from a reviewed checkout through
+interactive sudo:
+
+```bash
+sudo deploy/school/install-school-production-controller.sh
+```
+
+Manual `deploy-release.sh --activate` remains a recovery path, not the normal
+release trigger. A failed migration does not change `current`; do not bypass
+this gate or automatically downgrade schema.
 
 Run `sudo deploy/school/activate-nginx.sh` only for reviewed Nginx template
 changes, first activation, or removal of an explicitly approved migration gate.
@@ -154,4 +179,4 @@ Do not hardcode a mutable current release SHA here. Inspect
 `/srv/unikorn/current/release.json`, `/health`, and both repositories'
 `origin/main` whenever exact versions matter.
 
-Last reconciled: 2026-08-22.
+Last reconciled: 2026-08-23.

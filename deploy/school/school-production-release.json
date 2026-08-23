@@ -1,0 +1,9 @@
+{
+  "backend_sha": "fd623f1ccd10857a224bf6b93b379da3e59d9c70",
+  "database_change": {
+    "approval_reference": null,
+    "approved": false
+  },
+  "frontend_sha": "fd42d6e0fdcf948baaddad27ff567f894430c905",
+  "schema_version": 1
+}

@@ -1,9 +1,6 @@
 name: Deploy Backend to Production
 
 on:
-  push:
-    branches:
-      - production
   workflow_dispatch:
 
 permissions:

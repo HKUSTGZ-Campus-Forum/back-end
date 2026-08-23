@@ -6,6 +6,7 @@ umask 027
 readonly app_root="/srv/unikorn"
 readonly releases_root="${app_root}/releases"
 readonly node_bin="/opt/node-v20.19.6-linux-x64/bin/node"
+readonly deployment_lock="/run/lock/unikorn-school-production-deploy.lock"
 
 backend_source=""
 frontend_source=""
@@ -33,6 +34,8 @@ while (($#)); do
 done
 
 [[ "${EUID}" -eq 0 ]] || fail "run as root through interactive sudo"
+exec 9>"${deployment_lock}"
+flock -n 9 || fail "another school production deployment is active"
 [[ "${backend_sha}" =~ ^[0-9a-f]{40}$ && "${frontend_sha}" =~ ^[0-9a-f]{40}$ ]] || \
     fail "full 40-character commit SHAs are required"
 [[ "${backend_source}" == /* && -d "${backend_source}" && ! -L "${backend_source}" ]] || \

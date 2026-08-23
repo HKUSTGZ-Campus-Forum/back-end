@@ -1,0 +1,12 @@
+[Unit]
+Description=Poll the UniKorn school-production release branch
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+RandomizedDelaySec=15s
+Persistent=true
+Unit=unikorn-school-production-deploy.service
+
+[Install]
+WantedBy=timers.target
