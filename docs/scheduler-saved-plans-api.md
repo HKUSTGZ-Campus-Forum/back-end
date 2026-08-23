@@ -2,6 +2,8 @@
 
 Saved plans are named, concrete timetable snapshots. They are independent of the mutable scheduler cart: creating, reading, publishing, and cloning a plan never changes popularity. Applying a plan atomically replaces the user's cart for that semester and records the resulting popularity transitions.
 
+Saved plans are excluded from anonymous course popularity counts regardless of visibility. Current course popularity is derived only from verified institutional users' carts, deduplicated by canonical email; counts from 1 through 4 are suppressed by the API.
+
 ## Visibility and privacy
 
 - `private`: owner only; other viewers receive `404`.
