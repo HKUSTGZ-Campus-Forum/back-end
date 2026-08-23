@@ -136,27 +136,36 @@ def ensure_bare_repository(path: Path, url: str) -> None:
         raise ReleaseBlocked(f"unexpected Git remote for {path.name}")
 
 
-def fetch_repositories(backend: Path, frontend: Path) -> None:
-    git(
+def fetch_repository(repository: Path, *refspecs: str) -> None:
+    try:
+        git(
+            repository,
+            "fetch",
+            "--force",
+            "--prune",
+            "--no-tags",
+            "origin",
+            *refspecs,
+            capture=False,
+        )
+    except subprocess.CalledProcessError as error:
+        raise ReleaseWaiting(
+            f"GitHub fetch for {repository.name} is temporarily unavailable"
+        ) from error
+
+
+def fetch_backend_repository(backend: Path) -> None:
+    fetch_repository(
         backend,
-        "fetch",
-        "--force",
-        "--prune",
-        "--no-tags",
-        "origin",
         "+refs/heads/main:refs/remotes/origin/main",
         f"+refs/heads/{CONTROL_BRANCH}:refs/remotes/origin/{CONTROL_BRANCH}",
-        capture=False,
     )
-    git(
+
+
+def fetch_frontend_repository(frontend: Path) -> None:
+    fetch_repository(
         frontend,
-        "fetch",
-        "--force",
-        "--prune",
-        "--no-tags",
-        "origin",
         "+refs/heads/main:refs/remotes/origin/main",
-        capture=False,
     )
 
 
@@ -346,10 +355,8 @@ def deploy_if_ready() -> None:
             raise ReleaseWaiting("another production controller run is active") from error
 
         backend = STATE_ROOT / "backend.git"
-        frontend = STATE_ROOT / "frontend.git"
         ensure_bare_repository(backend, BACKEND_URL)
-        ensure_bare_repository(frontend, FRONTEND_URL)
-        fetch_repositories(backend, frontend)
+        fetch_backend_repository(backend)
         control_sha = git(backend, "rev-parse", f"refs/remotes/origin/{CONTROL_BRANCH}")
         success_path = STATE_ROOT / "last-success.json"
         if success_path.exists():
@@ -358,6 +365,9 @@ def deploy_if_ready() -> None:
                 print(f"school production manifest {control_sha} is already active")
                 return
 
+        frontend = STATE_ROOT / "frontend.git"
+        ensure_bare_repository(frontend, FRONTEND_URL)
+        fetch_frontend_repository(frontend)
         verify_control_branch(backend, control_sha)
         manifest_text = git(backend, "show", f"{control_sha}:{MANIFEST_PATH}")
         manifest = parse_manifest_text(manifest_text)

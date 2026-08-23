@@ -112,6 +112,9 @@ def test_school_production_controller_has_fixed_trust_boundaries():
     assert "/usr/local/libexec/unikorn-school-deploy-release" in controller
     assert "eval(" not in controller
     assert "shell=True" not in controller
+    assert controller.index("success.get(\"control_sha\")") < controller.index(
+        "fetch_frontend_repository(frontend)"
+    )
 
     assert "install -o root -g root -m 0755" in installer
     assert "systemd-analyze verify" in installer
@@ -140,6 +143,36 @@ def test_school_production_controller_has_fixed_trust_boundaries():
     assert "npm test" in workflow
     assert "python -m pytest tests/ -q" in workflow
     assert "merge-base --is-ancestor" in workflow
+
+
+def test_school_production_git_fetch_failure_is_retryable(monkeypatch, tmp_path):
+    controller = load_school_controller()
+
+    def fail_fetch(*_arguments, **_keywords):
+        raise subprocess.CalledProcessError(128, ["git", "fetch"])
+
+    monkeypatch.setattr(controller, "git", fail_fetch)
+    with __import__("pytest").raises(controller.ReleaseWaiting):
+        controller.fetch_repository(tmp_path / "backend.git", "refs/heads/main")
+
+
+def test_active_manifest_skips_frontend_fetch(monkeypatch, tmp_path):
+    controller = load_school_controller()
+    control_sha = "a" * 40
+    (tmp_path / "last-success.json").write_text(
+        json.dumps({"control_sha": control_sha}), encoding="utf-8"
+    )
+    monkeypatch.setattr(controller, "STATE_ROOT", tmp_path)
+    monkeypatch.setattr(controller.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(controller, "ensure_bare_repository", lambda *_args: None)
+    monkeypatch.setattr(controller, "fetch_backend_repository", lambda *_args: None)
+    monkeypatch.setattr(controller, "git", lambda *_args, **_kwargs: control_sha)
+
+    def unexpected_frontend_fetch(*_arguments):
+        raise AssertionError("an already-active manifest must not fetch the frontend")
+
+    monkeypatch.setattr(controller, "fetch_frontend_repository", unexpected_frontend_fetch)
+    controller.deploy_if_ready()
 
 
 def test_school_release_update_helper_writes_exact_manifest(tmp_path):
