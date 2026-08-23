@@ -95,6 +95,7 @@ def test_school_production_manifest_is_strict_and_paired():
 def test_school_production_controller_has_fixed_trust_boundaries():
     controller = read("school-production-controller.py")
     installer = read("install-school-production-controller.sh")
+    verifier = read("verify-local.sh")
     service = read("systemd/unikorn-school-production-deploy.service")
     timer = read("systemd/unikorn-school-production-deploy.timer")
     caller_workflow = SCHOOL_RELEASE_WORKFLOW.read_text(encoding="utf-8")
@@ -123,7 +124,10 @@ def test_school_production_controller_has_fixed_trust_boundaries():
     assert "ConditionPathIsExecutable" not in service
     assert "NoNewPrivileges=true" in service
     assert "PrivateTmp=true" in service
-    assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" in service
+    assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK" in service
+    assert "RestrictSUIDSGID" not in service
+    assert "runuser" in verifier
+    assert "ss -ltnH" in verifier
     assert "OnUnitInactiveSec=2min" in timer
     assert "RandomizedDelaySec=15s" in timer
     assert "Persistent=true" in timer
