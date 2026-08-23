@@ -277,9 +277,18 @@ does not guess their identities.
    all consistency checks pass.
 5. Run the full acceptance matrix and watch logs/metrics.
 6. Switch the school gateway/DNS. Do not reopen old writes.
-7. After the observation gate, install `nginx/old-site-redirect.conf` on the old
-   TLS endpoint, retaining its certificate directives. The `308` preserves the
-   original path and query string.
+7. After the observation gate, copy `nginx/old-site-notice.html` to
+   `/var/www/unikorn-migration/` and install `nginx/old-site-redirect.conf` on
+   the old TLS endpoint for both `unikorn.axfff.com` and
+   `scheduler.unikorn.axfff.com`, retaining its certificate directives. Both
+   retired hosts serve the migration and campus-network/VPN notice, then send
+   browsers to `https://unikorn.hkust-gz.edu.cn/` after 10 seconds.
+
+`deploy-old-site-notice-pm2.sh` is the unprivileged old-host fallback when the
+notice must go live before an interactive Nginx change can be scheduled. It
+atomically switches only the legacy forum and CoursePlan browser release links
+and records both rollback targets. It does not replace the final Nginx cutover,
+because the old forum's separate `/api/` proxy remains outside those PM2 apps.
 
 ## Rollback
 

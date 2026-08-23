@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="10;url=https://unikorn.hkust-gz.edu.cn/">
+  <title>UniKorn 已迁移 | UniKorn has moved</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --page-start: #eef5ff;
+      --page-end: #f7faff;
+      --surface: rgba(255, 255, 255, 0.94);
+      --text: #15233d;
+      --muted: #51627e;
+      --brand: #1456a0;
+      --brand-hover: #0d447f;
+      --notice: #fff7dd;
+      --notice-border: #f0ce66;
+      --divider: #dbe5f2;
+      --shadow: 0 24px 70px rgba(28, 66, 112, 0.16);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background:
+        radial-gradient(circle at top left, rgba(72, 143, 218, 0.18), transparent 42%),
+        linear-gradient(145deg, var(--page-start), var(--page-end));
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.65;
+    }
+
+    main {
+      width: min(680px, 100%);
+      padding: clamp(28px, 6vw, 52px);
+      border: 1px solid rgba(255, 255, 255, 0.9);
+      border-radius: 24px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .brand {
+      margin: 0 0 14px;
+      color: var(--brand);
+      font-size: 0.88rem;
+      font-weight: 750;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2rem, 7vw, 3.4rem);
+      line-height: 1.12;
+      letter-spacing: -0.035em;
+    }
+
+    .lead {
+      margin: 20px 0;
+      font-size: clamp(1.06rem, 2.8vw, 1.24rem);
+    }
+
+    .destination {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 52px;
+      margin: 4px 0 22px;
+      padding: 12px 18px;
+      border-radius: 12px;
+      background: var(--brand);
+      color: #fff;
+      font-weight: 720;
+      text-align: center;
+      text-decoration: none;
+      overflow-wrap: anywhere;
+      transition: background 160ms ease, transform 160ms ease;
+    }
+
+    .destination:hover,
+    .destination:focus-visible {
+      background: var(--brand-hover);
+      transform: translateY(-1px);
+    }
+
+    .network-notice {
+      margin: 0;
+      padding: 15px 17px;
+      border: 1px solid var(--notice-border);
+      border-radius: 12px;
+      background: var(--notice);
+      font-weight: 650;
+    }
+
+    .redirect-note {
+      margin: 20px 0 0;
+      color: var(--muted);
+      font-size: 0.94rem;
+    }
+
+    .english {
+      margin-top: 26px;
+      padding-top: 24px;
+      border-top: 1px solid var(--divider);
+      color: var(--muted);
+    }
+
+    .english h2 {
+      margin: 0 0 10px;
+      color: var(--text);
+      font-size: 1.22rem;
+    }
+
+    .english p {
+      margin: 8px 0 0;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .destination {
+        transition: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="brand">UniKorn · 科广汇</p>
+    <h1>我们已迁移至校内地址</h1>
+    <p class="lead">UniKorn 论坛及排课工具现已迁移至学校地址。论坛与排课工具均可从新站进入：</p>
+    <a class="destination" href="https://unikorn.hkust-gz.edu.cn/">
+      https://unikorn.hkust-gz.edu.cn/
+    </a>
+    <p class="network-notice" role="note">
+      目前新站仅可在校园网内访问，或通过学校 VPN 访问。
+    </p>
+    <p class="redirect-note">本页将在 10 秒后自动跳转；如未跳转，请点击上方链接。</p>
+
+    <section class="english" lang="en">
+      <h2>UniKorn has moved</h2>
+      <p>The UniKorn forum and course scheduler have moved to the school address above.</p>
+      <p><strong>The new site is currently available only on the campus network or through the campus VPN.</strong></p>
+      <p>This page will redirect automatically in 10 seconds.</p>
+    </section>
+  </main>
+</body>
+</html>

@@ -328,16 +328,26 @@ def test_nginx_splits_hosts_strips_api_prefix_and_sanitizes_proxy_headers():
     assert "reloaded Nginx did not serve both host routes" in activation
 
 
-def test_access_logs_exclude_queries_and_redirect_preserves_them():
+def test_access_logs_exclude_queries_and_old_hosts_serve_migration_notice():
     shared = read("nginx/00-unikorn-shared.conf")
     gunicorn = read("gunicorn.conf.py")
     redirect = read("nginx/old-site-redirect.conf")
+    notice = read("nginx/old-site-notice.html")
     assert "$uri" in shared
     assert "$request_uri" not in shared
     assert "%(U)s" in gunicorn
     assert "%(q)s" not in gunicorn
-    assert "https://unikorn.hkust-gz.edu.cn$request_uri" in redirect
-    assert "return 308" in redirect
+    assert "unikorn.axfff.com" in redirect
+    assert "scheduler.unikorn.axfff.com" in redirect
+    assert "try_files /old-site-notice.html =404" in redirect
+    assert "charset utf-8" in redirect
+    assert 'Cache-Control "no-store, max-age=0"' in redirect
+    assert 'Refresh "10; url=https://unikorn.hkust-gz.edu.cn/"' in redirect
+    assert "$request_uri" not in redirect
+    assert "return 308" not in redirect
+    assert 'content="10;url=https://unikorn.hkust-gz.edu.cn/"' in notice
+    assert "目前新站仅可在校园网内访问，或通过学校 VPN 访问" in notice
+    assert "currently available only on the campus network or through the campus VPN" in notice
 
 
 def test_environment_values_are_never_shell_sourced():

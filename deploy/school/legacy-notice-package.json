@@ -1,0 +1,8 @@
+{
+  "name": "unikorn-legacy-migration-notice",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}
