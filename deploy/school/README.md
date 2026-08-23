@@ -4,7 +4,7 @@ This directory is the current production deployment runbook for
 `https://unikorn.hkust-gz.edu.cn` on `10.121.15.221`. It never proxies the school
 domain to the former axfff host and does not modify `/srv/course-scheduler` or
 `courseplan.service`. The migration sections below remain for recovery and audit;
-routine releases normally use the exact-commit deployment and verification steps.
+routine releases are triggered by the backend `school-production` control branch.
 The stable environment map and legacy-host boundary are summarized in
 [`docs/production-environment.md`](../../docs/production-environment.md).
 
@@ -25,8 +25,10 @@ same public path contract.
 
 ## Safety invariants
 
-1. Run host-changing scripts only through interactive `sudo`; never put a sudo
-   password in an argument, file, CI secret, or log.
+1. Install or update root-owned host controllers only through interactive
+   `sudo`; never put a sudo password in an argument, file, CI secret, or log.
+   The installed `unikorn-school-production-deploy.service` oneshot is the sole
+   exception: it automatically executes the trusted installed release controller.
 2. `bootstrap-host.sh` verifies CoursePlan before and after its work. It creates
    a migration RSA private key on the school server; the private key must never
    leave `/etc/unikorn/migration-private.key`.
@@ -41,6 +43,50 @@ same public path contract.
    counts, Alembic heads, extensions, and foreign-key validation, then rename the
    databases. The replaced school DB remains offline as a rollback database.
 7. No database is ever dual-written.
+
+## Routine branch-triggered release
+
+The backend `school-production` branch is a release-control branch, not a source
+branch. It must diverge from a reviewed `main` commit only through
+`deploy/school/school-production-release.json`; never merge or rebase `main`
+into it. The manifest pairs one backend `main` SHA with one frontend `main` SHA.
+
+From a checkout of the control branch, prepare a release:
+
+```bash
+python tools/update_school_production_release.py \
+  --backend-sha FULL_BACKEND_MAIN_SHA \
+  --frontend-sha FULL_FRONTEND_MAIN_SHA
+git add deploy/school/school-production-release.json
+git commit -m "release: deploy paired school production SHAs"
+git push origin school-production
+```
+
+That push runs `.github/workflows/validate-school-production-release.yml`, which
+requires both commits to be reachable from their `main` branches and reruns the
+backend/frontend production-candidate tests. The school-host timer polls the
+fixed `school-production/validated` commit status. Only a successful status can
+activate the pair; missing, pending, cancelled or failed validation never deploys.
+
+The root-owned controller additionally rejects non-manifest control-branch
+changes, backward SHA movement and unapproved changes below `migrations/` or
+`app/data/`. After the user has explicitly approved the required production
+migration/data plan, record a durable reference with
+`--database-change-approval-reference`. Agents must never invent this approval.
+
+Useful read-only status commands:
+
+```bash
+systemctl status unikorn-school-production-deploy.timer --no-pager
+journalctl -u unikorn-school-production-deploy.service --since '-30 minutes' --no-pager
+sudo cat /var/lib/unikorn-school-deploy/last-success.json
+```
+
+The controller pauses active SISN sync timers, waits for in-flight sync services
+to finish, runs the immutable release, restores those timers, performs
+`verify-local.sh --require-oidc`, and checks the public frontend, backend and OIDC
+JSON responses. `deploy-release.sh` also serializes all automatic and manual
+releases with `/run/lock/unikorn-school-production-deploy.lock`.
 
 ## Ordered runbook
 
@@ -73,9 +119,25 @@ only for reviewed topology/proxy and rotated SSO settings. Keep
 `CAMPUS_SSO_ENABLED=false` until the school rotates the previously exposed
 client secret and supplies it safely.
 
-### 3. Build and activate the exact commits
+### 3. Install the automatic controller (requires interactive sudo)
 
-Both source directories must be clean, committed worktrees. Use full SHAs:
+Install from the same reviewed checkout used to create the control branch:
+
+```bash
+sudo deploy/school/install-school-production-controller.sh
+```
+
+The installer copies the controller, release script and verifier to root-owned
+`/usr/local/libexec` paths, installs the systemd service/timer, and runs the
+controller once. Application source is never executed from the manifest branch;
+the controller checks out only the exact paired commits from the two `main`
+histories. Re-run the installer after a reviewed controller or release-script
+change. Ordinary application releases do not require reinstalling it.
+
+### 3.1 Manual exact-commit fallback
+
+If the automatic controller is unavailable, both source directories must be
+clean, committed worktrees. Use full SHAs through interactive sudo:
 
 ```bash
 sudo deploy/school/deploy-release.sh \
@@ -86,7 +148,7 @@ sudo deploy/school/deploy-release.sh \
   --activate
 ```
 
-The script builds immutable dependencies, applies Alembic through a systemd
+The same trusted script builds immutable dependencies, applies Alembic through a systemd
 oneshot unit, atomically changes `current`, restarts both services, verifies the
 exact frontend version, and reverts the application symlink on failed health.
 It takes a verified DB backup before replacing an existing release. Schema

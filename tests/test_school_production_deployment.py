@@ -1,4 +1,5 @@
 from pathlib import Path
+import importlib.util
 import json
 import os
 import re
@@ -9,6 +10,9 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 SCHOOL = ROOT / "deploy" / "school"
 WORKFLOW = ROOT / ".github" / "workflows" / "export-production-migration.yml"
+SCHOOL_RELEASE_WORKFLOW = (
+    ROOT / ".github" / "workflows" / "validate-school-production-release.yml"
+)
 
 
 def read(relative: str) -> str:
@@ -53,6 +57,205 @@ def test_release_build_is_noninteractive_and_survives_atomic_stage_rename():
     assert "export NUXT_TELEMETRY_DISABLED=1" in deploy
     assert 'mv -T -- "${stage_path}" "${release_path}"' in deploy
     assert deploy.count("GIT_OPTIONAL_LOCKS=0 git -C") == 2
+    assert "/run/lock/unikorn-school-production-deploy.lock" in deploy
+    assert "another school production deployment is active" in deploy
+
+
+def load_school_controller():
+    path = SCHOOL / "school-production-controller.py"
+    spec = importlib.util.spec_from_file_location("school_production_controller", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_school_production_manifest_is_strict_and_paired():
+    controller = load_school_controller()
+    manifest = json.loads(read("school-production-release.json"))
+    assert controller.parse_manifest_text(json.dumps(manifest)) == manifest
+    assert re.fullmatch(r"[0-9a-f]{40}", manifest["backend_sha"])
+    assert re.fullmatch(r"[0-9a-f]{40}", manifest["frontend_sha"])
+
+    unexpected = {**manifest, "command": "whoami"}
+    with __import__("pytest").raises(controller.ReleaseBlocked):
+        controller.parse_manifest_text(json.dumps(unexpected))
+
+    approved_without_reference = {
+        **manifest,
+        "database_change": {"approved": True, "approval_reference": None},
+    }
+    with __import__("pytest").raises(controller.ReleaseBlocked):
+        controller.parse_manifest_text(json.dumps(approved_without_reference))
+
+
+def test_school_production_controller_has_fixed_trust_boundaries():
+    controller = read("school-production-controller.py")
+    installer = read("install-school-production-controller.sh")
+    service = read("systemd/unikorn-school-production-deploy.service")
+    timer = read("systemd/unikorn-school-production-deploy.timer")
+    workflow = SCHOOL_RELEASE_WORKFLOW.read_text(encoding="utf-8")
+
+    assert 'CONTROL_BRANCH = "school-production"' in controller
+    assert 'STATUS_CONTEXT = "school-production/validated"' in controller
+    assert 'SENSITIVE_PREFIXES = ("migrations/", "app/data/")' in controller
+    assert "merge-base" in controller
+    assert "--is-ancestor" in controller
+    assert "school-production may change only the release manifest" in controller
+    assert "database-change approval is set" in controller
+    assert "pause_sisn_timers" in controller
+    assert "/usr/local/libexec/unikorn-school-deploy-release" in controller
+    assert "eval(" not in controller
+    assert "shell=True" not in controller
+
+    assert "install -o root -g root -m 0755" in installer
+    assert "systemd-analyze verify" in installer
+    assert "systemctl is-active --quiet courseplan.service" in installer
+    assert "NoNewPrivileges=true" in service
+    assert "PrivateTmp=true" in service
+    assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" in service
+    assert "OnUnitInactiveSec=2min" in timer
+    assert "RandomizedDelaySec=15s" in timer
+    assert "Persistent=true" in timer
+
+    assert "branches:" in workflow and "school-production" in workflow
+    assert "statuses: write" in workflow
+    assert "school-production/validated" in workflow
+    assert "npm run i18n:check" in workflow
+    assert "npm test" in workflow
+    assert "python -m pytest tests/ -q" in workflow
+    assert "merge-base --is-ancestor" in workflow
+
+
+def test_school_release_update_helper_writes_exact_manifest(tmp_path):
+    output = tmp_path / "release.json"
+    backend_sha = "a" * 40
+    frontend_sha = "b" * 40
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "tools" / "update_school_production_release.py"),
+            "--backend-sha",
+            backend_sha,
+            "--frontend-sha",
+            frontend_sha,
+            "--output",
+            str(output),
+        ],
+        check=True,
+    )
+    assert json.loads(output.read_text(encoding="utf-8")) == {
+        "backend_sha": backend_sha,
+        "database_change": {"approval_reference": None, "approved": False},
+        "frontend_sha": frontend_sha,
+        "schema_version": 1,
+    }
+
+
+def git_commit(repository: Path, message: str) -> str:
+    subprocess.run(["git", "-C", str(repository), "add", "-A"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repository),
+            "-c",
+            "user.name=UniKorn Test",
+            "-c",
+            "user.email=unikorn-test@example.invalid",
+            "commit",
+            "-m",
+            message,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return subprocess.run(
+        ["git", "-C", str(repository), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def test_school_controller_blocks_non_manifest_control_changes(tmp_path):
+    controller = load_school_controller()
+    repository = tmp_path / "backend"
+    repository.mkdir()
+    subprocess.run(["git", "-C", str(repository), "init", "-b", "main"], check=True)
+    (repository / "README.md").write_text("base\n", encoding="utf-8")
+    base = git_commit(repository, "base")
+    subprocess.run(
+        ["git", "-C", str(repository), "update-ref", "refs/remotes/origin/main", base],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repository), "switch", "-c", "school-production"],
+        check=True,
+        capture_output=True,
+    )
+    manifest = repository / "deploy" / "school" / "school-production-release.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{}\n", encoding="utf-8")
+    valid_control = git_commit(repository, "release")
+    controller.verify_control_branch(repository, valid_control)
+
+    (repository / "README.md").write_text("changed\n", encoding="utf-8")
+    invalid_control = git_commit(repository, "change control code")
+    with __import__("pytest").raises(
+        controller.ReleaseBlocked,
+        match="may change only the release manifest",
+    ):
+        controller.verify_control_branch(repository, invalid_control)
+
+
+def test_school_controller_requires_database_approval_and_forward_motion(tmp_path):
+    controller = load_school_controller()
+    backend = tmp_path / "backend"
+    frontend = tmp_path / "frontend"
+    for repository in (backend, frontend):
+        repository.mkdir()
+        subprocess.run(["git", "-C", str(repository), "init", "-b", "main"], check=True)
+        (repository / "README.md").write_text("base\n", encoding="utf-8")
+    backend_old = git_commit(backend, "backend base")
+    frontend_sha = git_commit(frontend, "frontend base")
+    migration = backend / "migrations" / "versions" / "release.py"
+    migration.parent.mkdir(parents=True)
+    migration.write_text("revision = 'release'\n", encoding="utf-8")
+    backend_new = git_commit(backend, "add migration")
+    for repository, sha in ((backend, backend_new), (frontend, frontend_sha)):
+        subprocess.run(
+            ["git", "-C", str(repository), "update-ref", "refs/remotes/origin/main", sha],
+            check=True,
+        )
+
+    manifest = {
+        "schema_version": 1,
+        "backend_sha": backend_new,
+        "frontend_sha": frontend_sha,
+        "database_change": {"approved": False, "approval_reference": None},
+    }
+    current = {"backend_sha": backend_old, "frontend_sha": frontend_sha}
+    with __import__("pytest").raises(controller.ReleaseBlocked, match="without recorded approval"):
+        controller.validate_transition(backend, frontend, manifest, current)
+
+    manifest["database_change"] = {
+        "approved": True,
+        "approval_reference": "approved migration plan #123",
+    }
+    assert controller.validate_transition(backend, frontend, manifest, current) == [
+        "migrations/versions/release.py"
+    ]
+
+    manifest["backend_sha"] = backend_old
+    with __import__("pytest").raises(controller.ReleaseBlocked, match="backend transition"):
+        controller.validate_transition(
+            backend,
+            frontend,
+            manifest,
+            {"backend_sha": backend_new, "frontend_sha": frontend_sha},
+        )
 
 
 def test_nginx_splits_hosts_strips_api_prefix_and_sanitizes_proxy_headers():
@@ -95,7 +298,10 @@ def test_environment_values_are_never_shell_sourced():
     assert ". /etc/unikorn/unikorn.env" not in scripts
     assert "--property=EnvironmentFile=/etc/unikorn/unikorn.env" in read("deploy-release.sh")
     for unit in (SCHOOL / "systemd").glob("*.service"):
-        if unit.name != "unikorn-redis.service":
+        if unit.name not in {
+            "unikorn-redis.service",
+            "unikorn-school-production-deploy.service",
+        }:
             assert "EnvironmentFile=/etc/unikorn/unikorn.env" in unit.read_text(encoding="utf-8")
 
 

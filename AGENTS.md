@@ -22,9 +22,26 @@ production data.
 
 - Release only clean committed frontend and backend checkouts identified by full
   40-character SHAs. Never publish a dirty local worktree.
-- Use `deploy/school/deploy-release.sh --activate` through interactive `sudo`.
-  It owns the verified backup, Alembic, immutable release, `current`/`previous`
-  switch, service restart and health gates; do not bypass those protections.
+- Routine production releases are controlled by the backend repository's
+  `school-production` branch. That branch may change only
+  `deploy/school/school-production-release.json`, which pairs one backend `main`
+  SHA with one frontend `main` SHA. Never merge or rebase `main` into the control
+  branch and never treat a push to either repository's `main` as production approval.
+- Update the manifest with `tools/update_school_production_release.py`, commit it
+  on `school-production`, and push. GitHub validates both candidates; the
+  root-owned school-host controller deploys only a successful validation and
+  only forward-moving SHAs. Do not manually manufacture the validation status.
+- Agents must not set `database_change.approved=true` or supply an approval
+  reference unless the user has explicitly approved the required production
+  migration/data plan in the current task. Changes below `migrations/` or
+  `app/data/` are blocked otherwise.
+- The installed controller is the only exception to the interactive-sudo rule:
+  its root-owned systemd oneshot may invoke the trusted installed copy of
+  `deploy-release.sh`. Installing/updating the controller, manual fallback
+  releases, Nginx changes, restores and rollback remain interactive-sudo actions.
+- `deploy-release.sh --activate` owns the verified backup, Alembic, immutable
+  release, `current`/`previous` switch, service restart and health gates; do not
+  bypass those protections.
 - Run `deploy/school/activate-nginx.sh` only when reviewed Nginx templates changed
   or a specifically approved migration gate must be removed. It creates a
   rollback snapshot before reloading.
@@ -32,7 +49,8 @@ production data.
   `/api/auth/oidc/status`, and every newly changed proxy/write route, plus a
   check that `courseplan.service` remains active. `systemctl active` alone is
   not sufficient evidence.
-- Host-changing scripts and formal `verify-local.sh` checks require interactive
+- Except for the installed production-controller oneshot described above,
+  host-changing scripts and formal `verify-local.sh` checks require interactive
   `sudo`. Never put a sudo password in arguments, files, logs, CI, or chat.
 
 ## Database and product data

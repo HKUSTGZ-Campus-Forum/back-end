@@ -33,4 +33,4 @@ pytest -q
 - [学校 SSO](CAMPUS_SSO.md)
 - [仓库协作规范](AGENTS.md)
 
-正式服发布必须使用前后端 `main` 的精确、干净 SHA，通过 `deploy/school/deploy-release.sh` 完成备份、迁移、健康检查和原子切换。不要使用旧 axfff production workflow 代替学校正式服发布流程。
+正式服由后端仓库的 `school-production` 发布控制分支触发。该分支只修改 `deploy/school/school-production-release.json`，成对指定已经进入各自 `main` 的前后端完整 SHA；GitHub 验证通过后，学校服务器控制器会调用 `deploy/school/deploy-release.sh` 完成备份、迁移、健康检查和原子切换。包含 migration 或 `app/data` 产品数据变化时，manifest 必须记录用户已明确批准的迁移计划。不要使用旧 axfff production workflow 代替学校正式服发布流程。

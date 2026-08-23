@@ -1,0 +1,30 @@
+[Unit]
+Description=Activate the validated UniKorn school-production release
+Wants=network-online.target
+After=network-online.target postgresql.service unikorn-redis.service courseplan.service
+ConditionPathIsExecutable=/usr/local/libexec/unikorn-school-production-controller
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=HOME=/var/lib/unikorn-school-deploy/home
+Environment=XDG_CACHE_HOME=/var/lib/unikorn-school-deploy/cache
+Environment=PIP_NO_INPUT=1
+ExecStart=/usr/local/libexec/unikorn-school-production-controller
+TimeoutStartSec=60min
+UMask=0027
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
