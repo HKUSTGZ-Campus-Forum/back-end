@@ -350,6 +350,16 @@ def test_access_logs_exclude_queries_and_old_hosts_serve_migration_notice():
     assert "currently available only on the campus network or through the campus VPN" in notice
 
 
+def test_old_site_notice_fallback_verifies_forward_and_rollback_health():
+    deploy = read("deploy-old-site-notice-pm2.sh")
+    assert "wait_for_notice http://127.0.0.1:3000/" in deploy
+    assert "wait_for_notice http://127.0.0.1:3002/" in deploy
+    assert "wait_for_http http://127.0.0.1:3000/" in deploy
+    assert "wait_for_http http://127.0.0.1:3002/" in deploy
+    assert "ROLLBACK FAILED; PM2 state was not saved" in deploy
+    assert "Rollback restored and verified both legacy applications" in deploy
+
+
 def test_environment_values_are_never_shell_sourced():
     scripts = "\n".join(path.read_text(encoding="utf-8") for path in SCHOOL.glob("*.sh"))
     assert "source /etc/unikorn/unikorn.env" not in scripts

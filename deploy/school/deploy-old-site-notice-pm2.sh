@@ -106,20 +106,50 @@ wait_for_notice() {
     return 1
 }
 
+wait_for_http() {
+    local url=$1
+    local attempt
+
+    for attempt in {1..15}; do
+        if curl -fsS --max-time 5 --output /dev/null "${url}" 2>/dev/null; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
 rollback() {
     local exit_code=$?
+    local rollback_failed=false
     trap - ERR INT TERM
     set +e
     printf 'Notice health check failed; restoring both legacy applications.\n' >&2
     if [[ ${scheduler_switched} == true ]]; then
-        switch_link "${scheduler_current}" "${scheduler_previous}"
-        pm2 restart courseplan --update-env >&2
+        if ! switch_link "${scheduler_current}" "${scheduler_previous}" \
+            || ! pm2 restart courseplan --update-env >&2 \
+            || ! wait_for_http http://127.0.0.1:3002/; then
+            rollback_failed=true
+            printf 'Scheduler rollback did not recover a healthy HTTP service.\n' >&2
+        fi
     fi
     if [[ ${forum_switched} == true ]]; then
-        switch_link "${forum_current}" "${forum_previous}"
-        pm2 restart prod-unikorn-frontend --update-env >&2
+        if ! switch_link "${forum_current}" "${forum_previous}" \
+            || ! pm2 restart prod-unikorn-frontend --update-env >&2 \
+            || ! wait_for_http http://127.0.0.1:3000/; then
+            rollback_failed=true
+            printf 'Forum rollback did not recover a healthy HTTP service.\n' >&2
+        fi
     fi
-    pm2 save --force >&2
+    if [[ ${rollback_failed} == true ]]; then
+        printf 'ROLLBACK FAILED; PM2 state was not saved. Manual recovery is required.\n' >&2
+        exit 70
+    fi
+    if ! pm2 save --force >&2; then
+        printf 'Rollback recovered both services, but persisting PM2 state failed.\n' >&2
+        exit 71
+    fi
+    printf 'Rollback restored and verified both legacy applications.\n' >&2
     exit "${exit_code}"
 }
 trap rollback ERR INT TERM
