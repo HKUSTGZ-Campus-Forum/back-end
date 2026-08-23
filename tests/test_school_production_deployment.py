@@ -123,6 +123,12 @@ def test_school_production_controller_has_fixed_trust_boundaries():
     assert "branches:" in workflow and "school-production" in workflow
     assert "statuses: write" in workflow
     assert "school-production/validated" in workflow
+    backend_test_step = workflow.split("- name: Test backend candidate", 1)[1].split(
+        "- name: Verify backend migrations on pristine PostgreSQL", 1
+    )[0]
+    assert "PRISTINE_POSTGRES_DATABASE_URL" not in backend_test_step
+    assert "Verify backend migrations on pristine PostgreSQL" in workflow
+    assert "Verify immutable backend runtime dependencies" in workflow
     assert "npm run i18n:check" in workflow
     assert "npm test" in workflow
     assert "python -m pytest tests/ -q" in workflow

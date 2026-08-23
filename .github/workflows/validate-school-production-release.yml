@@ -116,10 +116,6 @@ jobs:
 
       - name: Test backend candidate
         working-directory: candidate/backend
-        env:
-          AUTO_INIT_ON_STARTUP: 'false'
-          ENABLE_BACKGROUND_TASKS: 'false'
-          PRISTINE_POSTGRES_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/pristine_migrations
         run: |
           set -Eeuo pipefail
           python -m venv .venv
@@ -127,8 +123,42 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
           python -m pip check
+          python - <<'PY'
+          from alibabacloud_green20220302.client import Client  # noqa: F401
+          from alibabacloud_tea_openapi import models  # noqa: F401
+          PY
           python -m pytest tests/ -q
+
+      - name: Verify backend migrations on pristine PostgreSQL
+        working-directory: candidate/backend
+        env:
+          AUTO_INIT_ON_STARTUP: 'false'
+          ENABLE_BACKGROUND_TASKS: 'false'
+          PRISTINE_POSTGRES_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/pristine_migrations
+        run: |
+          set -Eeuo pipefail
+          source .venv/bin/activate
           python -m pytest tests/test_pristine_postgres_migrations.py -q -rs
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.3.1
+        with:
+          version: '0.10.8'
+          enable-cache: false
+
+      - name: Verify immutable backend runtime dependencies
+        working-directory: candidate/backend
+        run: |
+          set -Eeuo pipefail
+          uv pip compile requirements.txt \
+            --constraint requirements.lock \
+            --python-version 3.12 \
+            --python-platform x86_64-manylinux_2_28 \
+            --generate-hashes \
+            --no-annotate \
+            --custom-compile-command 'uv pip compile requirements.txt --constraint requirements.lock --python-version 3.12 --python-platform x86_64-manylinux_2_28 --generate-hashes --no-annotate --output-file requirements.lock' \
+            --output-file /tmp/requirements.lock
+          cmp requirements.lock /tmp/requirements.lock
 
       - name: Set up production Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
