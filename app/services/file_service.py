@@ -53,6 +53,19 @@ class OSSService:
         return Bucket(auth, endpoint, bucket_name)
 
     @staticmethod
+    def object_exists(object_name):
+        """Check whether a browser-uploaded object is present in OSS."""
+        if not object_name:
+            return False
+        try:
+            return bool(OSSService._create_upload_bucket().object_exists(object_name))
+        except Exception as e:
+            current_app.logger.error(
+                f"Failed to verify OSS object '{object_name}': {e}"
+            )
+            return False
+
+    @staticmethod
     def get_available_token(min_validity_seconds=900):
         if not OSSService._has_sts_config():
             current_app.logger.info('STS configuration incomplete, skipping STS token pool lookup.')

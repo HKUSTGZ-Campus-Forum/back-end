@@ -4,6 +4,7 @@ from app.services.file_service import OSSService
 from app.models.user import User
 from app.models.file import File
 from app.models.token import STSTokenPool
+from app.extensions import db
 from datetime import datetime, timezone, timedelta
 import os
 
@@ -339,13 +340,14 @@ def get_file_route(file_id):
     if not file_record:
         return jsonify({"error": "File not found or you don't have permission"}), 404
     
-    # For files without callback, automatically mark as uploaded if they're still pending
-    # This is a temporary workaround while callback is disabled
+    # Browser PUT uploads currently have no OSS callback. Confirm the object exists
+    # before promoting the database record; a failed CORS/network upload must remain
+    # pending instead of looking successful to the client.
     if file_record.status == 'pending':
         try:
-            file_record.status = 'uploaded'
-            from app.extensions import db
-            db.session.commit()
+            if OSSService.object_exists(file_record.object_name):
+                file_record.status = 'uploaded'
+                db.session.commit()
         except Exception as e:
             current_app.logger.error(f"Error updating file status for file_id {file_id}: {e}")
             db.session.rollback()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from sqlalchemy import func
@@ -484,13 +484,55 @@ def can_view_plan(plan: SchedulerPlan | None, viewer_id: int | None) -> bool:
     }
 
 
+def _meeting_date_ranges(meeting: CourseMeeting) -> list[tuple[date, date]] | None:
+    """Return validated inclusive ranges, or None when timing is not safely bounded."""
+    raw_ranges = meeting.date_ranges
+    if not isinstance(raw_ranges, list) or not raw_ranges:
+        return None
+
+    ranges: list[tuple[date, date]] = []
+    for raw_range in raw_ranges:
+        if not isinstance(raw_range, dict):
+            return None
+        try:
+            start = date.fromisoformat(str(raw_range.get("start_date") or ""))
+            end = date.fromisoformat(str(raw_range.get("end_date") or ""))
+        except ValueError:
+            return None
+        if start > end:
+            return None
+        ranges.append((start, end))
+    return ranges
+
+
+def _meetings_overlap(left: CourseMeeting, right: CourseMeeting) -> bool:
+    if (
+        left.day != right.day
+        or left.start_time >= right.end_time
+        or left.end_time <= right.start_time
+    ):
+        return False
+
+    left_ranges = _meeting_date_ranges(left)
+    right_ranges = _meeting_date_ranges(right)
+    if left_ranges is None or right_ranges is None:
+        # Older and hand-authored data has no reliable date bounds. Preserve the
+        # conservative weekly-conflict behavior for those records.
+        return True
+    return any(
+        left_start <= right_end and right_start <= left_end
+        for left_start, left_end in left_ranges
+        for right_start, right_end in right_ranges
+    )
+
+
 def _validate_apply_plan(
     plan: SchedulerPlan,
     *,
     include_private_constraints: bool,
 ) -> dict[int, set[int]]:
     selected_by_offering: dict[int, set[int]] = {}
-    meeting_slots: list[tuple[int, int, int, str]] = []
+    meeting_slots: list[tuple[int, CourseMeeting, str]] = []
     banned = (
         (plan.private_constraints or {}).get("banned_periods")
         if include_private_constraints
@@ -515,8 +557,10 @@ def _validate_apply_plan(
                 raise PlanConflictError("A section in this plan is no longer available", "plan_unavailable")
             section_ids.add(section.id)
             for meeting in section.meetings.order_by(CourseMeeting.id).all():
-                for day, start, end, label in meeting_slots:
-                    if meeting.day == day and meeting.start_time < end and meeting.end_time > start:
+                for prior_section_id, prior_meeting, label in meeting_slots:
+                    # Multiple rows can describe one atomic section across room or
+                    # teaching-date changes. They are not alternative classes.
+                    if prior_section_id != section.id and _meetings_overlap(meeting, prior_meeting):
                         raise PlanConflictError(
                             f"Updated section times now conflict: {label}",
                             "updated_plan_conflict",
@@ -531,7 +575,7 @@ def _validate_apply_plan(
                             "Updated section times overlap a blocked period",
                             "updated_plan_conflict",
                         )
-                meeting_slots.append((meeting.day, meeting.start_time, meeting.end_time, section.source_section_id))
+                meeting_slots.append((section.id, meeting, section.source_section_id))
         selected_by_offering[offering.id] = section_ids
     return selected_by_offering
 

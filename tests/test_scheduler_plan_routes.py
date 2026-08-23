@@ -160,6 +160,58 @@ def create_plan(client, headers, **overrides):
     return response.get_json()
 
 
+def add_course_with_meeting(app, *, code, start_time, end_time, date_ranges):
+    with app.app_context():
+        course = Course(
+            code=code,
+            normalized_code=code,
+            display_code=code,
+            name=f"{code} Testing",
+            canonical_title=f"{code} Testing",
+            credits=3,
+            subject="TEST",
+        )
+        db.session.add(course)
+        db.session.flush()
+        offering = CourseOffering(
+            course_id=course.id,
+            semester_id="2610",
+            offering_code=code,
+            title_snapshot=f"{code} Testing",
+            credits_snapshot=3,
+            source="test",
+            status="offered",
+        )
+        db.session.add(offering)
+        db.session.flush()
+        section = CourseSection(
+            offering_id=offering.id,
+            source_section_id=f"{code}-L01",
+            name="L01",
+            section_type="L",
+            bundle=1,
+            layer=0,
+            quota=30,
+            enrol=12,
+            avail=18,
+            wait=0,
+            is_main=True,
+            status="active",
+        )
+        db.session.add(section)
+        db.session.flush()
+        db.session.add(CourseMeeting(
+            section_id=section.id,
+            day=1,
+            start_time=start_time,
+            end_time=end_time,
+            room="Room 202",
+            instructor_text="Dr Second",
+            date_ranges=date_ranges,
+        ))
+        db.session.commit()
+
+
 def test_plan_routes_require_authentication(client):
     assert client.post("/scheduler/plans", json=plan_payload()).status_code == 401
     assert client.get("/scheduler/plans/mine").status_code == 401
@@ -290,6 +342,78 @@ def test_apply_and_new_workspace_replace_then_clear_cart(client, app, auth):
     with app.app_context():
         assert UserOfferingCart.query.filter_by(user_id=app.config["OWNER_ID"]).count() == 0
         assert UserSectionSelection.query.filter_by(user_id=app.config["OWNER_ID"]).count() == 0
+
+
+def test_apply_allows_same_section_meetings_with_changed_room_and_date(client, app, auth):
+    with app.app_context():
+        first = CourseMeeting.query.filter_by(section_id=app.config["SECTION_ID"]).one()
+        first.date_ranges = [{"start_date": "2026-09-07", "end_date": "2026-09-13"}]
+        db.session.add(CourseMeeting(
+            section_id=app.config["SECTION_ID"],
+            day=1,
+            start_time=900,
+            end_time=1030,
+            room="Room 102",
+            instructor_text="Dr Test",
+            date_ranges=[{"start_date": "2026-09-14", "end_date": "2026-12-07"}],
+        ))
+        db.session.commit()
+
+    plan = create_plan(client, auth["owner"])
+    response = client.post(f"/scheduler/plans/{plan['public_id']}/apply", headers=auth["owner"])
+    assert response.status_code == 200
+
+
+def test_apply_allows_different_sections_with_disjoint_teaching_dates(client, app, auth):
+    with app.app_context():
+        first = CourseMeeting.query.filter_by(section_id=app.config["SECTION_ID"]).one()
+        first.date_ranges = [{"start_date": "2026-09-07", "end_date": "2026-09-13"}]
+        db.session.commit()
+    add_course_with_meeting(
+        app,
+        code="TEST1002",
+        start_time=900,
+        end_time=1030,
+        date_ranges=[{"start_date": "2026-09-14", "end_date": "2026-12-07"}],
+    )
+    plan = create_plan(client, auth["owner"], courses=[
+        {"course_code": "TEST1001", "selections": [{"bundle_id": 1, "layer": 0}]},
+        {"course_code": "TEST1002", "selections": [{"bundle_id": 1, "layer": 0}]},
+    ])
+
+    response = client.post(f"/scheduler/plans/{plan['public_id']}/apply", headers=auth["owner"])
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "second_ranges",
+    [
+        [{"start_date": "2026-09-13", "end_date": "2026-10-01"}],
+        [],
+    ],
+)
+def test_apply_rejects_overlapping_or_unbounded_teaching_dates(
+    client, app, auth, second_ranges,
+):
+    with app.app_context():
+        first = CourseMeeting.query.filter_by(section_id=app.config["SECTION_ID"]).one()
+        first.date_ranges = [{"start_date": "2026-09-07", "end_date": "2026-09-13"}]
+        db.session.commit()
+    add_course_with_meeting(
+        app,
+        code="TEST1002",
+        start_time=900,
+        end_time=1030,
+        date_ranges=second_ranges,
+    )
+    plan = create_plan(client, auth["owner"], courses=[
+        {"course_code": "TEST1001", "selections": [{"bundle_id": 1, "layer": 0}]},
+        {"course_code": "TEST1002", "selections": [{"bundle_id": 1, "layer": 0}]},
+    ])
+
+    response = client.post(f"/scheduler/plans/{plan['public_id']}/apply", headers=auth["owner"])
+    assert response.status_code == 409
+    assert response.get_json()["code"] == "updated_plan_conflict"
 
 
 def test_applying_shared_plan_does_not_use_owner_private_blocked_periods(client, app, auth):
