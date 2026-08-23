@@ -128,7 +128,32 @@ def user_lookup_callback(_jwt_header, jwt_data):
 @jwt.token_in_blocklist_loader
 def check_if_token_revoked(jwt_header, jwt_payload):
     jti = jwt_payload["jti"]
-    return TokenBlacklist.is_token_revoked(jti)
+    if TokenBlacklist.is_token_revoked(jti):
+        return True
+
+    try:
+        user_id = int(str(jwt_payload.get("sub", "")))
+    except (TypeError, ValueError):
+        return False
+
+    user = db.session.get(User, user_id)
+    cutoff = user.auth_valid_after if user else None
+    if cutoff is None:
+        return False
+    if cutoff.tzinfo is None:
+        cutoff = cutoff.replace(tzinfo=timezone.utc)
+
+    try:
+        issued_at = int(jwt_payload.get("iat"))
+    except (TypeError, ValueError):
+        # Once an account has a cutoff, tokens without a trustworthy issue time
+        # cannot prove that they were minted after recovery.
+        return True
+
+    # JWT ``iat`` is second-resolution. Accept a replacement token issued in
+    # the same second as the cutoff, but reject every older access or refresh
+    # token for this account.
+    return issued_at < int(cutoff.timestamp())
 
 @bp.post('/register')
 @bp.post('/login')

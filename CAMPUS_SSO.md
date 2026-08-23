@@ -40,6 +40,14 @@ The stable identity key is `(issuer, sub)`, stored in
    initial suggestion; the account must confirm its public profile before using
    the rest of the product.
 
+Legacy unverified campus-email accounts are not made claimable by weakening the
+OIDC rule above. Operators use the reviewed, dry-runnable
+`app.scripts.recover_legacy_oidc_accounts` command after a verified backup. The
+command accepts only unambiguous, active, unlinked institutional-email owners,
+clears expired verification material, and sets `auth_valid_after` so every JWT
+issued before recovery is rejected. The real OIDC subject is still written only
+after the school provider authenticates the user on their next login.
+
 ## First-login profile confirmation
 
 Only accounts newly provisioned by SSO require onboarding. Own-user responses
@@ -109,21 +117,29 @@ was grandfathered when the feature shipped; it does not pretend that the user
 completed a flow before it existed. Future SSO-provisioned accounts leave the
 column null until profile confirmation. Downgrade removes only this column.
 
-Before applying this revision outside a local test database, record the target
-environment and current `users` row count, take a database backup, run the
-migration in the development environment, and verify that the number of null
-values equals only the new accounts intentionally awaiting onboarding. The dev
-workflow creates and verifies this backup automatically, disables application
+Revision `20260823_auth_valid_after` adds nullable
+`users.auth_valid_after`. Access and refresh JWTs issued before a user's cutoff
+are rejected. The schema migration does not select or update recovery targets;
+the separately reviewed recovery command remains dry-run by default and requires
+an exact plan digest, candidate count, database name, verified backup digest,
+and confirmation phrase before it can mutate accounts.
+
+Before applying these account-state revisions outside a local test database,
+record the target environment and current `users` row count, take a database
+backup, run the migrations in development, and verify both the onboarding null
+count and that `auth_valid_after` remains null until an approved recovery. The
+dev workflow creates and verifies its backup automatically, disables application
 initializers while Alembic runs, and refuses to restart unless the database
 reaches the release's single migration head.
 
-Do not downgrade the column while code that maps it is running. The preferred
-application rollback is to restore the previous backend while leaving the
-additive nullable column in place. If the database itself must be reversed,
-stop writes, restore the previous backend first, and only then downgrade or
-restore the verified backup. Production remains forward-only after its recorded
-migration boundary. No production migration or backfill should run without
-explicit approval.
+Do not downgrade either column while code that maps it is running. Before the
+recovery command changes account state, an application-only rollback may leave
+the additive nullable columns in place. After recovery, rolling back only the
+backend would stop enforcing the per-account token cutoffs and is unsafe; stop
+writes and restore the verified pre-recovery database backup together with the
+matching application release. Production remains forward-only after its
+recorded migration boundary. No production migration or backfill should run
+without explicit approval.
 
 ## Production verification
 
