@@ -26,6 +26,7 @@ class User(db.Model):
     updated_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
                           onupdate=lambda: datetime.now(timezone.utc), nullable=False)
     last_active_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    auth_valid_after = db.Column(db.DateTime(timezone=True), nullable=True)
     onboarding_completed_at = db.Column(db.DateTime(timezone=True), nullable=True)
     display_identity_id = db.Column(db.Integer, db.ForeignKey('user_identities.id'), nullable=True)
 
