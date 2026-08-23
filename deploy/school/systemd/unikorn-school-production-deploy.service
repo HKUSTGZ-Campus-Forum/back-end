@@ -2,7 +2,7 @@
 Description=Activate the validated UniKorn school-production release
 Wants=network-online.target
 After=network-online.target postgresql.service unikorn-redis.service courseplan.service
-ConditionPathIsExecutable=/usr/local/libexec/unikorn-school-production-controller
+ConditionPathExists=/usr/local/libexec/unikorn-school-production-controller
 
 [Service]
 Type=oneshot

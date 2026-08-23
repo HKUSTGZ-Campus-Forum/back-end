@@ -111,6 +111,8 @@ def test_school_production_controller_has_fixed_trust_boundaries():
     assert "install -o root -g root -m 0755" in installer
     assert "systemd-analyze verify" in installer
     assert "systemctl is-active --quiet courseplan.service" in installer
+    assert "ConditionPathExists=/usr/local/libexec/unikorn-school-production-controller" in service
+    assert "ConditionPathIsExecutable" not in service
     assert "NoNewPrivileges=true" in service
     assert "PrivateTmp=true" in service
     assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" in service
