@@ -365,6 +365,69 @@ def test_adapter_records_moes_source_coverage_and_omission_reasons():
     }]
 
 
+def test_adapter_uses_reviewed_cq_section_identity_for_temporary_moes_fallback():
+    payload = _payload()
+    cq_class = _api_class(
+        "6965",
+        "E",
+        "L01",
+        1,
+        [_schedule(1, "18:00", "20:50", "Rm 101, E1")],
+    )
+    cq_class["scheduleSource"] = "cq-public-fallback"
+    cq_class["schedules"][0]["source"] = "cq-public-fallback"
+    payload["courses"].append({
+        "crseCode": "MOES1001",
+        "subject": "MOES",
+        "catalogNbr": "1001",
+        "crseDesc": "Ideological course",
+        "longDesc": "SISN-owned course with temporary CQ schedule data",
+        "credit": 3,
+        "preReq": "",
+        "coReq": "",
+        "exclusion": "",
+        "attributes": [],
+        "prevCrseCode": "",
+        "classes": [cq_class],
+    })
+
+    adapted = adapt_proxy_envelope(
+        _envelope(payload),
+        term="2610",
+        baseline=_baseline(),
+        baseline_label="reviewed-baseline.json",
+    )
+
+    moes = next(
+        course
+        for course in adapted.snapshot["courses"]
+        if course["course_code"] == "MOES1001"
+    )
+    assert moes["sections"][0]["name"] == "L01"
+    assert moes["sections"][0]["section_type"] == "L"
+    assert moes["sections"][0]["bundle"] == 1
+    assert adapted.counts["cq_public_fallback_classes"] == 1
+    assert adapted.counts["fallback_main_classes"] == 0
+    assert adapted.snapshot["provenance"]["cq_public_fallback_classes"] == ["6965"]
+    assert "used CQ public fallback schedules for 1 MOES class" in adapted.warnings
+
+
+def test_adapter_rejects_cq_fallback_provenance_outside_moes():
+    payload = _payload()
+    payload["courses"][0]["classes"][0]["scheduleSource"] = "cq-public-fallback"
+    payload["courses"][0]["classes"][0]["schedules"][0]["source"] = (
+        "cq-public-fallback"
+    )
+
+    with pytest.raises(SisnMappingError, match="outside MOES"):
+        adapt_proxy_envelope(
+            _envelope(payload),
+            term="2610",
+            baseline=_baseline(),
+            baseline_label="reviewed-baseline.json",
+        )
+
+
 def test_adapter_rejects_non_pe_moes_from_klms_preservation_lane():
     baseline = _baseline()
     baseline["courses"].append(_klms_course("MOES1001", "9001"))

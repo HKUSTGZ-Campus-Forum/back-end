@@ -17,6 +17,8 @@ CLASS_TYPE_MAIN = "E"
 CLASS_TYPE_ASSOCIATED = "N"
 SUPPORTED_CLASS_TYPES = {CLASS_TYPE_MAIN, CLASS_TYPE_ASSOCIATED}
 SEMESTER_RE = re.compile(r"^\d{4}$")
+CQ_PUBLIC_FALLBACK_SOURCE = "cq-public-fallback"
+CQ_SECTION_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
 
 
 class SisnPayloadError(RuntimeError):
@@ -159,6 +161,48 @@ def _normalize_reserve_cap(value: Any, context: str) -> list[dict[str, Any]]:
             ),
         })
     return rows
+
+
+def _cq_fallback_section(
+    api_class: dict[str, Any],
+    *,
+    code: str,
+    class_number: str,
+    schedules: list[dict[str, Any]],
+    context: str,
+) -> tuple[str, str, int] | None:
+    source = _string(
+        api_class.get("scheduleSource"),
+        f"{context}.scheduleSource",
+        allow_empty=True,
+    )
+    if source != CQ_PUBLIC_FALLBACK_SOURCE:
+        return None
+    if not code.startswith("MOES"):
+        raise SisnMappingError(
+            f"class {class_number} uses the CQ fallback outside MOES"
+        )
+    if not schedules or any(
+        not isinstance(schedule, dict)
+        or schedule.get("source") != CQ_PUBLIC_FALLBACK_SOURCE
+        for schedule in schedules
+    ):
+        raise SisnMappingError(
+            f"class {class_number} has inconsistent CQ fallback provenance"
+        )
+    section_name = _string(api_class.get("section"), f"{context}.section").upper()
+    match = CQ_SECTION_RE.fullmatch(section_name)
+    if match is None:
+        raise SisnMappingError(
+            f"CQ fallback class {class_number} has unsupported section label {section_name!r}"
+        )
+    section_type, bundle_text = match.groups()
+    bundle = int(bundle_text)
+    if bundle < 1:
+        raise SisnMappingError(
+            f"CQ fallback class {class_number} has invalid bundle {bundle}"
+        )
+    return section_type, section_name, bundle
 
 
 def _meetings(
@@ -337,6 +381,7 @@ def adapt_proxy_envelope(
     mapped_baseline_classes: set[str] = set()
     omitted_unscheduled: list[str] = []
     fallback_main_classes: list[str] = []
+    cq_public_fallback_classes: list[str] = []
     baseline_meeting_fallbacks: list[dict[str, Any]] = []
     warnings: list[str] = []
     output_courses = []
@@ -387,6 +432,15 @@ def adapt_proxy_envelope(
                 raise SisnMappingError(f"unsupported classType {class_type!r}")
             schedules = api_class.get("schedules") or []
             raw_schedule_count += len(schedules) if isinstance(schedules, list) else 0
+            cq_fallback_section = _cq_fallback_section(
+                api_class,
+                code=code,
+                class_number=class_number,
+                schedules=schedules,
+                context=class_context,
+            )
+            if cq_fallback_section is not None:
+                cq_public_fallback_classes.append(class_number)
             reserve_cap = _normalize_reserve_cap(
                 api_class.get("reserveCap"),
                 f"{class_context}.reserveCap",
@@ -431,16 +485,24 @@ def adapt_proxy_envelope(
                     raise SisnMappingError(
                         f"scheduled associated class {class_number} has no reviewed WCQ mapping"
                     )
-                while next_fallback_bundle in used_main_bundles:
-                    next_fallback_bundle += 1
-                bundle = next_fallback_bundle
-                used_main_bundles.add(bundle)
-                next_fallback_bundle += 1
                 layer = 0
                 is_main = True
-                section_type = fallback_type
-                section_name = f"{fallback_type}{bundle:02d}"
-                fallback_main_classes.append(class_number)
+                if cq_fallback_section is not None:
+                    section_type, section_name, bundle = cq_fallback_section
+                    if bundle in used_main_bundles:
+                        raise SisnMappingError(
+                            f"CQ fallback class {class_number} reuses reviewed main bundle {bundle}"
+                        )
+                    used_main_bundles.add(bundle)
+                else:
+                    while next_fallback_bundle in used_main_bundles:
+                        next_fallback_bundle += 1
+                    bundle = next_fallback_bundle
+                    used_main_bundles.add(bundle)
+                    next_fallback_bundle += 1
+                    section_type = fallback_type
+                    section_name = f"{fallback_type}{bundle:02d}"
+                    fallback_main_classes.append(class_number)
 
             quota = _integer(api_class.get("enrlCap"), f"{class_context}.enrlCap")
             enrol = _integer(api_class.get("enrlTot"), f"{class_context}.enrlTot")
@@ -609,6 +671,13 @@ def adapt_proxy_envelope(
         warnings.append(
             f"generated conservative main-section labels for {len(fallback_main_classes)} new classes"
         )
+    if cq_public_fallback_classes:
+        cq_count = len(cq_public_fallback_classes)
+        cq_class_label = "class" if cq_count == 1 else "classes"
+        warnings.append(
+            "used CQ public fallback schedules for "
+            f"{cq_count} MOES {cq_class_label}"
+        )
     if omitted_unscheduled:
         warnings.append(
             f"omitted {len(omitted_unscheduled)} unmapped classes without schedules"
@@ -640,6 +709,7 @@ def adapt_proxy_envelope(
             "fetched_at": fetched_at.isoformat(),
             "baseline": baseline_label,
             "fallback_main_classes": sorted(fallback_main_classes),
+            "cq_public_fallback_classes": sorted(cq_public_fallback_classes),
             "omitted_unscheduled_classes": sorted(omitted_unscheduled),
             "missing_baseline_classes": missing_baseline_classes,
             "baseline_meeting_fallbacks": baseline_meeting_fallbacks,
@@ -667,6 +737,7 @@ def adapt_proxy_envelope(
         "source_moes_classes": sum(item["source_classes"] for item in moes_diagnostics),
         "candidate_moes_sections": sum(item["candidate_sections"] for item in moes_diagnostics),
         "fallback_main_classes": len(fallback_main_classes),
+        "cq_public_fallback_classes": len(cq_public_fallback_classes),
         "omitted_unscheduled_classes": len(omitted_unscheduled),
         "missing_baseline_classes": len(missing_baseline_classes),
         "baseline_meeting_fallback_sections": len(baseline_meeting_fallbacks),
