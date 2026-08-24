@@ -12,15 +12,22 @@ reviewing a newly generated package.
 
 ## 2026-27 Fall scheduler (2610)
 
-The current snapshot was generated from all 29 subjects advertised by the
-official HKUST-GZ Class Schedule & Quota page. It contains 383 offered courses,
-801 schedulable sections, and 820 canonical weekly meetings. Two additional
-official TBA rows (`UFUG1301/6951` and `UFUG1302/6952`) cannot be represented
-faithfully by the current layer/bundle model, so they are excluded from the
-scheduler while every source field and the reviewed reason are retained in
-provenance. The source HTML hashes and 2026-08-10 retrieval timestamp are
-embedded in the JSON. Date-specific schedule rows and three A/B-lab grouping
-approximations are also retained as explicit provenance.
+The current snapshot combines all 29 subjects advertised by the official
+HKUST-GZ Class Schedule & Quota page with three reviewed modular courses from
+the authenticated KLMS Course Market. It contains 384 offered courses, 884
+schedulable sections, and 932 canonical weekly meetings. The KLMS rows replace
+the unscheduled SISN placeholders for `UCUG1000` and `UCUG1002`, and add
+`MOES1104`; their authenticated read-only capture date, source URL, and exact
+course/section/meeting totals are retained in provenance. SISN refreshes must
+carry these `klms_course` records forward verbatim because they are not
+available from the SISN feed.
+
+Two additional official TBA rows (`UFUG1301/6951` and `UFUG1302/6952`) cannot
+be represented faithfully by the current layer/bundle model, so they are
+excluded from the scheduler while every source field and the reviewed reason
+are retained in provenance. The WCQ source HTML hashes and 2026-08-10 retrieval
+timestamp are embedded in the JSON. Date-specific schedule rows and three
+A/B-lab grouping approximations are also retained as explicit provenance.
 
 To reproduce the package from freshly fetched official pages (this only writes
 pending JSON and never connects to a database):
@@ -35,11 +42,11 @@ Review and dry-run the captured package:
 ```bash
 python -m app.scripts.import_pending_academic_data scheduler \
   --file app/data/pending/scheduler_offerings/26-27fall.json \
-  --expected-sha256 4ec2cb305a31348944cba064dba9435825f19d5c1b99f9e2e8177e233eddfbff \
-  --expected-courses 383 \
-  --expected-offered-courses 383 \
-  --expected-sections 801 \
-  --expected-lectures 820
+  --expected-sha256 410c436add4bdf33b739b6c8eb6f344fb73a07aa9c55a80d5493ec1002fbcf83 \
+  --expected-courses 384 \
+  --expected-offered-courses 384 \
+  --expected-sections 884 \
+  --expected-lectures 932
 ```
 
 If that dry-run reports ambiguous whitespace variants of the same course code,
@@ -65,7 +72,7 @@ python -m app.scripts.reconcile_course_duplicates \
 ```
 
 Rerun both reconciliation and scheduler dry-runs after the repair. The former
-must report zero pairs and the latter must retain the reviewed `383/383/801/820`
+must report zero pairs and the latter must retain the reviewed `384/384/884/932`
 control totals with no omitted imported offerings, sections, or meetings. The
 two reviewed provenance-only TBA rows must remain absent from imported sections.
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import re
@@ -547,7 +548,38 @@ def adapt_proxy_envelope(
             ) or None,
         })
 
+    # KLMS offerings are absent from SISN (or represented only by unscheduled
+    # placeholders). They are reviewed scheduler product data, so carry them
+    # forward verbatim on every SISN refresh instead of archiving their
+    # offerings and cancelling their module sections.
+    preserved_klms_codes: list[str] = []
+    output_index_by_code = {
+        normalize_course_code(course.get("course_code")): index
+        for index, course in enumerate(output_courses)
+    }
+    for code, baseline_course in baseline_by_course.items():
+        if not bool(baseline_course.get("klms_course", False)):
+            continue
+        preserved_course = copy.deepcopy(baseline_course)
+        existing_index = output_index_by_code.get(code)
+        if existing_index is None:
+            output_index_by_code[code] = len(output_courses)
+            output_courses.append(preserved_course)
+        else:
+            output_courses[existing_index] = preserved_course
+        for section in preserved_course.get("sections") or []:
+            mapped_baseline_classes.add(
+                _string(section.get("section_id"), f"baseline KLMS {code} section_id")
+            )
+        preserved_klms_codes.append(code)
+
     missing_baseline_classes = sorted(set(baseline_by_class) - mapped_baseline_classes)
+    if preserved_klms_codes:
+        count = len(preserved_klms_codes)
+        noun = "course" if count == 1 else "courses"
+        warnings.append(
+            f"preserved {count} reviewed KLMS {noun} from the scheduler baseline"
+        )
     if fallback_main_classes:
         warnings.append(
             f"generated conservative main-section labels for {len(fallback_main_classes)} new classes"
@@ -586,6 +618,7 @@ def adapt_proxy_envelope(
             "omitted_unscheduled_classes": sorted(omitted_unscheduled),
             "missing_baseline_classes": missing_baseline_classes,
             "baseline_meeting_fallbacks": baseline_meeting_fallbacks,
+            "preserved_klms_course_codes": preserved_klms_codes,
         },
         "courses": output_courses,
     }
@@ -602,6 +635,7 @@ def adapt_proxy_envelope(
             for course in output_courses
             for section in course["sections"]
         ),
+        "preserved_klms_courses": len(preserved_klms_codes),
         "fallback_main_classes": len(fallback_main_classes),
         "omitted_unscheduled_classes": len(omitted_unscheduled),
         "missing_baseline_classes": len(missing_baseline_classes),

@@ -107,7 +107,7 @@ EXPECTED_COUNTS = CurriculumExpectations(
 
 PENDING_DATA_DIR = Path(__file__).resolve().parents[1] / "app" / "data" / "pending"
 REVIEWED_SCHEDULER_SHA256 = (
-    "4ec2cb305a31348944cba064dba9435825f19d5c1b99f9e2e8177e233eddfbff"
+    "410c436add4bdf33b739b6c8eb6f344fb73a07aa9c55a80d5493ec1002fbcf83"
 )
 REVIEWED_CURRICULUM_SHA256 = (
     "a99cbe5c120ba5fcd707651f4609a6ca08e6d5bfa205734979ad6d9739f6b056"
@@ -126,9 +126,31 @@ def test_reviewed_pending_scheduler_package_matches_locked_controls():
 
     assert file_sha256(path) == REVIEWED_SCHEDULER_SHA256
     snapshot = load_offerings_file(path, "2610")
-    assert snapshot_counts(snapshot) == SnapshotExpectations(383, 383, 801, 820)
+    assert snapshot_counts(snapshot) == SnapshotExpectations(384, 384, 884, 932)
 
     raw_snapshot = json.loads(path.read_text(encoding="utf-8"))
+    klms_courses = {
+        course["course_code"]: course
+        for course in raw_snapshot["courses"]
+        if course.get("klms_course") is True
+    }
+    assert set(klms_courses) == {"MOES1104", "UCUG1000", "UCUG1002"}
+    assert {
+        code: (
+            len(course["sections"]),
+            sum(len(section["lectures"]) for section in course["sections"]),
+        )
+        for code, course in klms_courses.items()
+    } == {
+        "MOES1104": (51, 51),
+        "UCUG1000": (24, 51),
+        "UCUG1002": (10, 10),
+    }
+    assert raw_snapshot["provenance"]["klms_capture"]["course_codes"] == [
+        "MOES1104",
+        "UCUG1000",
+        "UCUG1002",
+    ]
     unscheduled = raw_snapshot["provenance"]["unscheduled_sections"]
     assert [
         (section["course_code"], section["section_id"])

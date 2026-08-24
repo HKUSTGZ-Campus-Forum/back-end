@@ -74,8 +74,8 @@ TARGET_CONFIRMATIONS = {
 CAMPUS_OPERATION_ALLOWLIST = frozenset(
     {
         ("verify-release", "dry-run", ""),
-        ("scheduler-import", "dry-run", "scheduler-2610-v1"),
-        ("scheduler-import", "apply", "scheduler-2610-v1"),
+        ("scheduler-import", "dry-run", "scheduler-2610-v2"),
+        ("scheduler-import", "apply", "scheduler-2610-v2"),
         ("curriculum-sync", "dry-run", "curriculum-2026-v1"),
         ("curriculum-sync", "apply", "curriculum-2026-v1"),
     }
@@ -1096,11 +1096,11 @@ def _verify_release() -> dict[str, Any]:
         "provenance_only_tba_rows_present": int(tba_rows or 0),
     }
     expected = {
-        "offered_courses": 383,
-        "domain_sections": 801,
-        "domain_meetings": 820,
-        "legacy_sections": 801,
-        "legacy_meetings": 820,
+        "offered_courses": 384,
+        "domain_sections": 884,
+        "domain_meetings": 932,
+        "legacy_sections": 884,
+        "legacy_meetings": 932,
         "curriculum_programs": 8,
         "curriculum_groups": 32,
         "duplicate_course_groups": 0,
