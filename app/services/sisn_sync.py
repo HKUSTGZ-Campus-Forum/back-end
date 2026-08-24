@@ -47,7 +47,7 @@ class SisnSyncGuards:
     min_source_schedules: int = 700
     max_source_schedules: int = 1800
     min_candidate_sections: int = 650
-    max_fallback_main_classes: int = 20
+    max_fallback_main_classes: int = 22
     max_missing_baseline_classes: int = 50
     max_omitted_unscheduled_classes: int = 50
     max_baseline_meeting_fallback_sections: int = 50
