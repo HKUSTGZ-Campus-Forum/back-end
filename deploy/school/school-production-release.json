@@ -1,8 +1,8 @@
 {
   "backend_sha": "a8f5fc702351d17fc26339ced1f2e25a10733983",
   "database_change": {
-    "approval_reference": "User approval 2026-08-24: \u5df2\u7ecf\u4e0a\u7ebf\u6b63\u5f0f\u670d\u4e86\uff0c\u5982\u679c\u6ca1\u4e0a\u7ebf\uff0c\u4e0a\u7ebf\u8fd0\u884c; plan COURSE_RELATIONSHIP_SOURCE_OF_TRUTH.md",
-    "approved": true
+    "approval_reference": null,
+    "approved": false
   },
   "frontend_sha": "ad08d2ba8b81a18c14646e550837f4208660ef00",
   "schema_version": 1
