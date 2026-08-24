@@ -375,6 +375,7 @@ def test_adapter_uses_reviewed_cq_section_identity_for_temporary_moes_fallback()
         [_schedule(1, "18:00", "20:50", "Rm 101, E1")],
     )
     cq_class["scheduleSource"] = "cq-public-fallback"
+    cq_class["scheduleFallbackSection"] = "L01"
     cq_class["schedules"][0]["source"] = "cq-public-fallback"
     payload["courses"].append({
         "crseCode": "MOES1001",

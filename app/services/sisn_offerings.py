@@ -190,7 +190,10 @@ def _cq_fallback_section(
         raise SisnMappingError(
             f"class {class_number} has inconsistent CQ fallback provenance"
         )
-    section_name = _string(api_class.get("section"), f"{context}.section").upper()
+    section_name = _string(
+        api_class.get("scheduleFallbackSection"),
+        f"{context}.scheduleFallbackSection",
+    ).upper()
     match = CQ_SECTION_RE.fullmatch(section_name)
     if match is None:
         raise SisnMappingError(
