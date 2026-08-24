@@ -1,6 +1,7 @@
 from aliyunsdkcore.client import AcsClient
 from aliyunsdksts.request.v20150401 import AssumeRoleRequest
 from oss2 import Auth, StsAuth, Bucket
+from sqlalchemy import and_, or_
 from app.models.token import STSTokenPool
 from app.extensions import db
 from datetime import datetime, timedelta, timezone
@@ -461,12 +462,24 @@ class OSSService:
 
     @staticmethod
     def cleanup_stale_unbound_uploads(max_age_hours=24):
-        """Remove abandoned pending/error objects that were never attached."""
+        """Remove abandoned objects that were never attached.
+
+        Pending and failed uploads are always eligible. Verified forum uploads are
+        also eligible because a user can remove them from an unpublished draft
+        while the immediate OSS cleanup request is unavailable.
+        """
         cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
         stale_files = File.query.filter(
             File.entity_id.is_(None),
             File.is_deleted.is_(False),
-            File.status.in_(('pending', 'error')),
+            or_(
+                File.status.in_(('pending', 'error')),
+                and_(
+                    File.status == 'uploaded',
+                    File.entity_type == 'post',
+                    File.file_type.in_((File.POST_IMAGE, File.POST_ATTACHMENT)),
+                ),
+            ),
             File.created_at < cutoff,
         ).limit(200).all()
         if not stale_files:

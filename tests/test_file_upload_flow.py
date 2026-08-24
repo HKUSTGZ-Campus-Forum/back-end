@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -123,6 +124,36 @@ def test_complete_upload_rejects_oversize_video(upload_client):
     with client.application.app_context():
         assert db.session.get(File, file_id).status == "error"
     assert f"user_upload/{user_id}/test-object" in bucket.deleted
+
+
+def test_cleanup_removes_stale_verified_forum_draft(upload_client):
+    client, _headers, user_id, bucket = upload_client
+    with client.application.app_context():
+        file_id = _pending_file(user_id)
+        record = db.session.get(File, file_id)
+        record.status = "uploaded"
+        record.created_at = datetime.now(timezone.utc) - timedelta(hours=25)
+        object_name = record.object_name
+        db.session.commit()
+
+        assert OSSService.cleanup_stale_unbound_uploads(max_age_hours=24) == 1
+        record = db.session.get(File, file_id)
+        assert record.is_deleted is True
+        assert record.deleted_at is not None
+        assert object_name in bucket.deleted
+
+
+def test_cleanup_keeps_recent_verified_forum_draft(upload_client):
+    client, _headers, user_id, bucket = upload_client
+    with client.application.app_context():
+        file_id = _pending_file(user_id)
+        record = db.session.get(File, file_id)
+        record.status = "uploaded"
+        db.session.commit()
+
+        assert OSSService.cleanup_stale_unbound_uploads(max_age_hours=24) == 0
+        assert db.session.get(File, file_id).is_deleted is False
+        assert bucket.deleted == []
 
 
 def test_public_serializer_does_not_expose_storage_fields(upload_client):
