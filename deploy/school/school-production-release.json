@@ -1,8 +1,8 @@
 {
-  "backend_sha": "7a873791d74c11d350e00f4569afebd12c0f6178",
+  "backend_sha": "70724f1ef2315a52b9b8b00d279b2ebad96fc8aa",
   "database_change": {
-    "approval_reference": null,
-    "approved": false
+    "approval_reference": "User approval in Codex task on 2026-08-24: deploy KLMS 2610 courses to school production",
+    "approved": true
   },
   "frontend_sha": "5a0e5768d8e91211fb9a218b06a23d9d01db39c4",
   "schema_version": 1
