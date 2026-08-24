@@ -153,6 +153,51 @@ def _baseline():
     }
 
 
+def _klms_course(code, section_id):
+    return {
+        "course_code": code,
+        "course_title": f"{code} KLMS course",
+        "course_desc": "Reviewed KLMS description",
+        "credit": 1,
+        "subject": code[:4],
+        "catalog_number": code[4:],
+        "pg_course": False,
+        "klms_course": True,
+        "sections": [
+            {
+                "course_code": code,
+                "section_id": section_id,
+                "section_type": "M01",
+                "name": "L01",
+                "bundle": 1,
+                "semester_id": "2610",
+                "layer": 0,
+                "quota": 20,
+                "enrol": 0,
+                "avail": 20,
+                "wait": 0,
+                "is_main": True,
+                "lectures": [
+                    {
+                        "day": 2,
+                        "start_time": "0900",
+                        "end_time": "1020",
+                        "room": "KLMS Room",
+                        "instructor": "KLMS Instructor",
+                        "date_ranges": [
+                            {
+                                "start_date": "2026-09-01",
+                                "end_date": "2026-10-30",
+                                "facility_id": None,
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
 class FakeClient:
     def __init__(self, envelope):
         self.envelope = envelope
@@ -230,6 +275,52 @@ def test_adapter_preserves_reviewed_grouping_and_uses_official_live_fields():
         "end_date": "2026-12-20",
         "facility_id": "FAC-A101",
     }]
+
+
+def test_adapter_preserves_reviewed_klms_courses_across_sisn_sync():
+    baseline = _baseline()
+    overlapping_klms = _klms_course("TEST2001", "2001")
+    klms_only = _klms_course("TEST3001", "3001")
+    baseline["courses"].extend([overlapping_klms, klms_only])
+
+    payload = _payload()
+    overlapping_api = json.loads(json.dumps(payload["courses"][0]))
+    overlapping_api.update(
+        {
+            "crseCode": "TEST2001",
+            "catalogNbr": "2001",
+            "crseDesc": "SISN placeholder that must not replace KLMS",
+            "classes": [
+                _api_class("2999", "E", "G1", 1, []),
+            ],
+        }
+    )
+    payload["courses"].append(overlapping_api)
+
+    adapted = adapt_proxy_envelope(
+        _envelope(payload),
+        term="2610",
+        baseline=baseline,
+        baseline_label="reviewed-baseline.json",
+    )
+
+    courses = {
+        course["course_code"]: course
+        for course in adapted.snapshot["courses"]
+    }
+    assert courses["TEST2001"] == overlapping_klms
+    assert courses["TEST3001"] == klms_only
+    assert adapted.counts["preserved_klms_courses"] == 2
+    assert adapted.counts["candidate_courses"] == 3
+    assert adapted.snapshot["provenance"]["preserved_klms_course_codes"] == [
+        "TEST2001",
+        "TEST3001",
+    ]
+    assert adapted.snapshot["provenance"]["missing_baseline_classes"] == []
+    assert adapted.warnings == [
+        "preserved 2 reviewed KLMS courses from the scheduler baseline",
+        "omitted 1 unmapped classes without schedules",
+    ]
 
 
 def test_adapter_preserves_reviewed_meeting_when_sisn_schedule_is_empty():

@@ -33,7 +33,7 @@ gh workflow run backend-operations.yml \
   -f target=production \
   -f operation=scheduler-import \
   -f mode=dry-run \
-  -f package_id=scheduler-2610-v1 \
+  -f package_id=scheduler-2610-v2 \
   -f request_id=scheduler-2610-production-dry-run-1
 ```
 
@@ -46,7 +46,7 @@ The equivalent REST body is:
     "target": "production",
     "operation": "scheduler-import",
     "mode": "dry-run",
-    "package_id": "scheduler-2610-v1",
+    "package_id": "scheduler-2610-v2",
     "request_id": "scheduler-2610-production-dry-run-1"
   }
 }
@@ -68,7 +68,7 @@ GitHub workflow route and therefore cannot report a false success.
 The initial operation allowlist is:
 
 - `verify-release` in `dry-run` mode;
-- `scheduler-import` with committed package `scheduler-2610-v1`;
+- `scheduler-import` with committed package `scheduler-2610-v2`;
 - `curriculum-sync` with committed package `curriculum-2026-v1`;
 - `course-duplicates` in dry-run or exact-control apply mode;
 - `database-upgrade-heads` in apply mode, fixed to Alembic `heads`.
@@ -81,7 +81,7 @@ verified backup digest, and a matching campus dry-run report; `APPLY_DEV` and
 `APPLY_PRODUCTION` are not interchangeable with it.
 
 The exact campus tuples are fixed in code: release verification is dry-run
-only; scheduler package `scheduler-2610-v1` and curriculum package
+only; scheduler package `scheduler-2610-v2` and curriculum package
 `curriculum-2026-v1` each support dry-run and apply. Adding a later semester or
 cohort to the package registry does not automatically enable it for campus.
 

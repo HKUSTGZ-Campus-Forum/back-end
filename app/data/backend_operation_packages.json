@@ -12,16 +12,16 @@
         "unique_course_codes": 292
       }
     },
-    "scheduler-2610-v1": {
+    "scheduler-2610-v2": {
       "kind": "scheduler",
       "path": "app/data/pending/scheduler_offerings/26-27fall.json",
-      "sha256": "4ec2cb305a31348944cba064dba9435825f19d5c1b99f9e2e8177e233eddfbff",
+      "sha256": "410c436add4bdf33b739b6c8eb6f344fb73a07aa9c55a80d5493ec1002fbcf83",
       "semester_id": "2610",
       "expected": {
-        "courses": 383,
-        "offered_courses": 383,
-        "sections": 801,
-        "lectures": 820
+        "courses": 384,
+        "offered_courses": 384,
+        "sections": 884,
+        "lectures": 932
       }
     }
   }

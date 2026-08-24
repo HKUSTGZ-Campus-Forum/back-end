@@ -64,7 +64,7 @@ def _args(*extra):
             "--actor",
             "test-actor",
             "--package-id",
-            "scheduler-2610-v1",
+            "scheduler-2610-v2",
             *extra,
         ]
     )
@@ -232,16 +232,16 @@ def _write_approved_report(request_id, result):
 def test_committed_operation_packages_match_reviewed_files():
     registry = operations._load_registry()
 
-    scheduler = operations._resolve_package("scheduler-2610-v1", "scheduler")
+    scheduler = operations._resolve_package("scheduler-2610-v2", "scheduler")
     assert scheduler["resolved_path"] == (
         ROOT / "app/data/pending/scheduler_offerings/26-27fall.json"
     ).resolve()
-    assert scheduler["sha256"] == "4ec2cb305a31348944cba064dba9435825f19d5c1b99f9e2e8177e233eddfbff"
+    assert scheduler["sha256"] == "410c436add4bdf33b739b6c8eb6f344fb73a07aa9c55a80d5493ec1002fbcf83"
     assert scheduler["expected"] == {
-        "courses": 383,
-        "offered_courses": 383,
-        "sections": 801,
-        "lectures": 820,
+        "courses": 384,
+        "offered_courses": 384,
+        "sections": 884,
+        "lectures": 932,
     }
 
     curriculum = operations._resolve_package("curriculum-2026-v1", "curriculum")
@@ -252,7 +252,7 @@ def test_committed_operation_packages_match_reviewed_files():
         "requirement_groups": 32,
         "unique_course_codes": 292,
     }
-    assert set(registry) == {"scheduler-2610-v1", "curriculum-2026-v1"}
+    assert set(registry) == {"scheduler-2610-v2", "curriculum-2026-v1"}
 
 
 def test_parser_exposes_only_allowlisted_operations():
@@ -293,7 +293,7 @@ def test_scheduler_dry_run_request_uses_committed_package():
 
     package = operations._validate_args(args)
 
-    assert package["id"] == "scheduler-2610-v1"
+    assert package["id"] == "scheduler-2610-v2"
     assert package["semester_id"] == "2610"
 
 
@@ -301,7 +301,7 @@ def test_scheduler_dry_run_request_uses_committed_package():
     ("operation", "package_id"),
     [
         ("verify-release", None),
-        ("scheduler-import", "scheduler-2610-v1"),
+        ("scheduler-import", "scheduler-2610-v2"),
         ("curriculum-sync", "curriculum-2026-v1"),
     ],
 )
@@ -367,9 +367,9 @@ def test_campus_target_rejects_non_academic_operations(operation):
     ("operation", "mode", "package_id"),
     [
         ("verify-release", "apply", None),
-        ("verify-release", "dry-run", "scheduler-2610-v1"),
+        ("verify-release", "dry-run", "scheduler-2610-v2"),
         ("scheduler-import", "dry-run", "curriculum-2026-v1"),
-        ("curriculum-sync", "dry-run", "scheduler-2610-v1"),
+        ("curriculum-sync", "dry-run", "scheduler-2610-v2"),
     ],
 )
 def test_campus_operation_mode_and_package_allowlist_is_exact(
@@ -430,8 +430,8 @@ def test_campus_apply_is_bound_to_campus_dry_run_and_verified_backup(
         "mode": "dry-run",
         "target": "campus",
         "release_sha": "a" * 40,
-        "package_id": "scheduler-2610-v1",
-        "package_sha256": "4ec2cb305a31348944cba064dba9435825f19d5c1b99f9e2e8177e233eddfbff",
+        "package_id": "scheduler-2610-v2",
+        "package_sha256": "410c436add4bdf33b739b6c8eb6f344fb73a07aa9c55a80d5493ec1002fbcf83",
         "status": "dry-run",
         "result": {"status": "dry-run"},
     }
@@ -452,7 +452,7 @@ def test_campus_apply_is_bound_to_campus_dry_run_and_verified_backup(
 
     package = operations._validate_args(args)
 
-    assert package["id"] == "scheduler-2610-v1"
+    assert package["id"] == "scheduler-2610-v2"
 
     args.target = "production"
     with pytest.raises(operations.OperationBlocked, match="APPLY_PRODUCTION"):
@@ -463,7 +463,7 @@ def test_github_app_actor_is_accepted():
     args = _args()
     args.actor = "course-loader[bot]"
 
-    assert operations._validate_args(args)["id"] == "scheduler-2610-v1"
+    assert operations._validate_args(args)["id"] == "scheduler-2610-v2"
 
 
 def test_apply_requires_confirmation_backup_and_approved_dry_run(monkeypatch, tmp_path):
@@ -492,8 +492,8 @@ def test_apply_is_bound_to_matching_dry_run_release_and_package(monkeypatch, tmp
         "mode": "dry-run",
         "target": "dev",
         "release_sha": "a" * 40,
-        "package_id": "scheduler-2610-v1",
-        "package_sha256": "4ec2cb305a31348944cba064dba9435825f19d5c1b99f9e2e8177e233eddfbff",
+        "package_id": "scheduler-2610-v2",
+        "package_sha256": "410c436add4bdf33b739b6c8eb6f344fb73a07aa9c55a80d5493ec1002fbcf83",
         "status": "dry-run",
         "result": {"status": "dry-run"},
     }
@@ -511,7 +511,7 @@ def test_apply_is_bound_to_matching_dry_run_release_and_package(monkeypatch, tmp
     )
 
     package = operations._validate_args(args)
-    assert package["id"] == "scheduler-2610-v1"
+    assert package["id"] == "scheduler-2610-v2"
 
     args.release_sha = "c" * 40
     with pytest.raises(operations.OperationBlocked, match="release_sha"):
@@ -533,7 +533,7 @@ def test_operation_reports_are_immutable(monkeypatch, tmp_path):
 
 def test_request_idempotency_ignores_execution_evidence():
     args = _args()
-    package = operations._resolve_package("scheduler-2610-v1", "scheduler")
+    package = operations._resolve_package("scheduler-2610-v2", "scheduler")
     first = operations._request_fields(args, package)
     second = {
         **first,
@@ -631,7 +631,7 @@ def test_data_apply_replans_under_lock_and_matches_approved_result(monkeypatch, 
         "--approved-dry-run-id",
         "scheduler-approved",
     )
-    package = operations._resolve_package("scheduler-2610-v1", "scheduler")
+    package = operations._resolve_package("scheduler-2610-v2", "scheduler")
     monkeypatch.setattr(
         operations,
         "_scheduler_operation",

@@ -136,7 +136,7 @@ jobs:
           esac
 
           case "$operation:$package_id" in
-            scheduler-import:scheduler-2610-v1|curriculum-sync:curriculum-2026-v1|verify-release:|course-duplicates:|database-upgrade-heads:|oauth-redirect:) ;;
+            scheduler-import:scheduler-2610-v2|curriculum-sync:curriculum-2026-v1|verify-release:|course-duplicates:|database-upgrade-heads:|oauth-redirect:) ;;
             *) echo "Operation/package pair is not allowlisted" >&2; exit 2 ;;
           esac
 
