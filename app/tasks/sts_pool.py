@@ -69,6 +69,12 @@ def init_pool_maintenance(app):
         except Exception as e:
             app.logger.warning(f"Could not initialize embedding maintenance: {e}")
 
+        try:
+            from app.tasks.course_catalog_sync import init_course_catalog_sync
+            init_course_catalog_sync(app, unified_scheduler)
+        except Exception as e:
+            app.logger.warning(f"Could not initialize official course catalog sync: {e}")
+
         unified_scheduler.start()
         app.logger.info("Unified background task scheduler started with STS and embedding maintenance.")
     else:

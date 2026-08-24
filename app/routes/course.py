@@ -28,6 +28,10 @@ from app.services.course_domain import (
     display_course_code,
     normalize_course_code,
 )
+from app.services.course_relationships import (
+    build_relationship_graph,
+    relationship_summary,
+)
 
 bp = Blueprint('course', __name__, url_prefix='/courses')
 COURSE_REVIEW_TAG = "course-review"
@@ -40,25 +44,6 @@ def _compact_course_code(value):
 
 def _display_course_code(value):
     return display_course_code(value)
-
-
-def _base_catalog_code_for_course(course):
-    subject = (course.subject or "").strip().upper()
-    catalog_number = (course.catalog_number or "").strip().upper()
-    if len(subject) != 4 or not subject.isalpha():
-        return None
-    match = re.fullmatch(r"(\d{4})[A-Z]", catalog_number)
-    return f"{subject}{match.group(1)}" if match else None
-
-
-def _base_catalog_course_for_course(course):
-    base_code = _base_catalog_code_for_course(course)
-    if not base_code:
-        return None
-    base_course = _find_course_by_identifier(base_code)
-    if not base_course or base_course.id == course.id:
-        return None
-    return base_course
 
 
 def _parse_scheduler_semester_id(semester_id):
@@ -170,25 +155,6 @@ def _version_value(version, field_name, fallback):
             return value
     return fallback
 
-
-def _rule_value(version, base_version, base_course, field_name, fallback):
-    value = _version_value(version, field_name, fallback)
-    if value:
-        return value
-    if base_version is not None:
-        base_value = getattr(base_version, field_name)
-        if base_value:
-            return base_value
-    if base_course is not None:
-        course_field_name = {
-            "pre_requirement_raw": "pre_requirement",
-            "co_requirement_raw": "co_requirement",
-            "exclusion_raw": "exclusion",
-        }.get(field_name)
-        base_course_value = getattr(base_course, course_field_name, None)
-        if base_course_value:
-            return base_course_value
-    return value
 
 def admin_required(fn):
     """Decorator to ensure the user has admin privileges"""
@@ -513,9 +479,11 @@ def get_course_overview(code):
         if version and isinstance(version.source_metadata, dict)
         else {}
     )
-    base_course = _base_catalog_course_for_course(course)
-    base_version = current_catalog_version(base_course) if base_course else None
     compact_code = _compact_course_code(course.normalized_code or course.code)
+    relationships = relationship_summary(course)
+    requirement_by_type = {
+        item["relation_type"]: item for item in relationships["requirements"]
+    }
     return jsonify({
         "course": {
             "id": course.id,
@@ -527,9 +495,9 @@ def get_course_overview(code):
             "subject": course.subject,
             "catalog_number": course.catalog_number,
             "course_title_abbr": _version_value(version, "title_abbr", course.course_title_abbr),
-            "pre_requirement": _rule_value(version, base_version, base_course, "pre_requirement_raw", course.pre_requirement),
-            "co_requirement": _rule_value(version, base_version, base_course, "co_requirement_raw", course.co_requirement),
-            "exclusion": _rule_value(version, base_version, base_course, "exclusion_raw", course.exclusion),
+            "pre_requirement": requirement_by_type.get("prerequisite", {}).get("raw_text"),
+            "co_requirement": requirement_by_type.get("corequisite", {}).get("raw_text"),
+            "exclusion": requirement_by_type.get("exclusion", {}).get("raw_text"),
             "pg_course": _version_value(version, "pg_course", course.pg_course),
             "klms_course": _version_value(version, "klms_course", course.klms_course),
             "attributes": source_metadata.get("attributes", []),
@@ -539,14 +507,21 @@ def get_course_overview(code):
         "offerings": _serialize_course_overview_offerings(course, language),
         "academic_record": academic_record,
         "requirement_hits": [],
+        "relationships": relationships,
         "prerequisite_summary": {
             "missing": [],
-            "downstream": [],
+            "downstream": relationships["downstream"],
         },
         "links": {
-            "universe_focus": f"/courses?focus={compact_code}",
+            "universe_focus": f"/courses/graph?focus={compact_code}",
         },
     }), 200
+
+
+@bp.route('/relationships/graph', methods=['GET'])
+def get_course_relationship_graph():
+    """Return the graph derived from the same normalized rules as course detail."""
+    return jsonify(build_relationship_graph()), 200
 
 
 @bp.route('/<int:course_id>', methods=['GET'])

@@ -229,6 +229,23 @@ class Config:
     SISN_SYNC_MAX_BASELINE_MEETING_FALLBACK_SECTIONS = int(
         os.getenv('SISN_SYNC_MAX_BASELINE_MEETING_FALLBACK_SECTIONS', '50')
     )
+
+    # Authoritative catalog rules are deliberately synchronized separately from
+    # SISN offering/quota snapshots. Enabling apply is an operator decision
+    # because the first run creates product catalog data.
+    COURSE_CATALOG_SYNC_URL = os.getenv(
+        'COURSE_CATALOG_SYNC_URL',
+        'https://pcc.hkust-gz.edu.cn/api/bdp/pg-course-catalog',
+    ).strip()
+    COURSE_CATALOG_SYNC_TERM = os.getenv(
+        'COURSE_CATALOG_SYNC_TERM', SISN_SYNC_TERM
+    ).strip()
+    COURSE_CATALOG_SYNC_CAREER = os.getenv('COURSE_CATALOG_SYNC_CAREER', 'UG').strip()
+    COURSE_CATALOG_SYNC_TIMEOUT_SECONDS = int(os.getenv('COURSE_CATALOG_SYNC_TIMEOUT_SECONDS', '30'))
+    COURSE_CATALOG_SYNC_MIN_COURSES = int(os.getenv('COURSE_CATALOG_SYNC_MIN_COURSES', '150'))
+    COURSE_CATALOG_SYNC_MAX_COURSES = int(os.getenv('COURSE_CATALOG_SYNC_MAX_COURSES', '500'))
+    COURSE_CATALOG_SYNC_ENABLED = get_env_bool('COURSE_CATALOG_SYNC_ENABLED', False)
+    COURSE_CATALOG_SYNC_INTERVAL_HOURS = int(os.getenv('COURSE_CATALOG_SYNC_INTERVAL_HOURS', '6'))
     # The school network cannot be reached from the public UniKorn hosts. The
     # allowlisted school server therefore pushes signed snapshots outward.
     # Production is fail-closed unless explicitly enabled by its operators.
