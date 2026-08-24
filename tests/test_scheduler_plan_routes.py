@@ -212,6 +212,55 @@ def add_course_with_meeting(app, *, code, start_time, end_time, date_ranges):
         db.session.commit()
 
 
+def add_ctdl_module_course(app):
+    with app.app_context():
+        course = Course.query.filter_by(normalized_code="UCUG1000").first()
+        if course is None:
+            course = Course(code="UCUG1000", normalized_code="UCUG1000")
+            db.session.add(course)
+        course.display_code = "UCUG 1000"
+        course.name = "Critical Thinking and Data Literacy"
+        course.canonical_title = course.name
+        course.credits = 3
+        course.subject = "UCUG"
+        course.klms_course = True
+        db.session.flush()
+        offering = CourseOffering.query.filter_by(
+            course_id=course.id,
+            semester_id="2610",
+        ).first()
+        if offering is None:
+            offering = CourseOffering(course_id=course.id, semester_id="2610")
+            db.session.add(offering)
+        offering.offering_code = "UCUG1000"
+        offering.title_snapshot = course.name
+        offering.credits_snapshot = 3
+        offering.source = "klms"
+        offering.status = "offered"
+        db.session.flush()
+        for module_code, bundle, layer in (
+            ("M01", 1, 0),
+            ("M05", 1, 2),
+            ("M06", 2, 2),
+        ):
+            db.session.add(CourseSection(
+                offering_id=offering.id,
+                source_section_id=f"{module_code}-L01",
+                name="L01",
+                section_type=module_code,
+                bundle=bundle,
+                layer=layer,
+                quota=30,
+                enrol=0,
+                avail=30,
+                wait=0,
+                is_main=True,
+                status="active",
+                remarks=f"{module_code} title · KLMS module credit: 1",
+            ))
+        db.session.commit()
+
+
 def test_plan_routes_require_authentication(client):
     assert client.post("/scheduler/plans", json=plan_payload()).status_code == 401
     assert client.get("/scheduler/plans/mine").status_code == 401
@@ -231,6 +280,30 @@ def test_owner_can_create_list_and_read_exact_schedule(client, auth):
     assert [item["public_id"] for item in listed["plans"]] == [plan["public_id"]]
     read = client.get(f"/scheduler/plans/{plan['public_id']}", headers=auth["owner"])
     assert read.status_code == 200
+
+
+def test_saved_ctdl_plan_allows_two_electives_from_the_same_teaching_layer(client, auth, app):
+    add_ctdl_module_course(app)
+    response = client.post(
+        "/scheduler/plans",
+        headers=auth["owner"],
+        json=plan_payload(courses=[{
+            "course_code": "UCUG1000",
+            "selections": [
+                {"bundle_id": 1, "layer": 0},
+                {"bundle_id": 1, "layer": 2},
+                {"bundle_id": 2, "layer": 2},
+            ],
+        }]),
+    )
+
+    assert response.status_code == 201
+    data = response.get_json()
+    assert data["selections"] == [
+        {"courseIndex": 0, "bundleId": 1, "layer": 0},
+        {"courseIndex": 0, "bundleId": 1, "layer": 2},
+        {"courseIndex": 0, "bundleId": 2, "layer": 2},
+    ]
 
 
 def test_visibility_matrix_and_public_discovery(client, auth):

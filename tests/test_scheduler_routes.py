@@ -214,6 +214,25 @@ def test_search_courses_preserves_zero_catalog_credit(client, app):
     assert data['items'][0]['credit'] == 0
 
 
+def test_search_courses_marks_moes_credit_as_excluded_from_term_load(client, app):
+    with app.app_context():
+        db.session.add(Course(
+            code="MOES1001",
+            name="Ideological Course",
+            credits=3,
+            subject="MOES",
+        ))
+        db.session.commit()
+
+    resp = client.get('/scheduler/courses/search?query=MOES1001')
+
+    assert resp.status_code == 200
+    item = resp.get_json()['items'][0]
+    assert item['credit'] == 3
+    assert item['counts_toward_term_load'] is False
+    assert item['term_load_credit'] == 0
+
+
 def test_search_courses_ignores_legacy_scheduler_only_semester_rows(client, app):
     with app.app_context():
         course = Course(code="OLD1001", name="Legacy Only", credits=3)

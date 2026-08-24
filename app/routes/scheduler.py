@@ -31,6 +31,7 @@ from app.services.scheduler_popularity import (
     record_popularity_transition,
 )
 from app.services.scheduler_plans import clear_workspace
+from app.services.scheduler_policy import course_credit_policy, course_selection_policy
 from app.services.sisn_push_auth import (
     SisnPushAuthenticationError,
     verify_push_request,
@@ -163,6 +164,10 @@ def _course_credit(course):
     if version is not None and version.credits is not None:
         return version.credits
     return course.credits
+
+
+def _course_credit_fields(course):
+    return course_credit_policy(course.subject, _course_credit(course))
 
 
 def _course_title_abbr(course):
@@ -373,8 +378,8 @@ def search_courses():
         'items': [{
             'course_code': c.code,
             'course_title': _course_title(c),
-            'credit': _course_credit(c),
             'subject': c.subject,
+            **_course_credit_fields(c),
         } for c in items],
     })
 
@@ -457,8 +462,8 @@ def get_course_detail(code):
             'course_code': course.code,
             'course_title': _course_title(course),
             'course_title_abbr': _course_title_abbr(course),
-            'credit': _course_credit(course),
             'subject': course.subject,
+            **_course_credit_fields(course),
             'catalog_number': course.catalog_number,
             'course_desc': (current_catalog_version(course).description if current_catalog_version(course) else None) or course.description,
             'pre_requirement': _course_requirement(course, "pre_requirement"),
@@ -468,6 +473,7 @@ def get_course_detail(code):
             'klms_course': _course_flag(course, "klms_course"),
             'attributes': source_metadata.get('attributes', []),
             'previous_course_code': source_metadata.get('previous_course_code'),
+            'selection_policy': course_selection_policy(course.code, domain_sections),
             'sections': section_data,
         })
 
@@ -476,8 +482,8 @@ def get_course_detail(code):
         'course_code': course.code,
         'course_title': _course_title(course),
         'course_title_abbr': _course_title_abbr(course),
-        'credit': _course_credit(course),
         'subject': course.subject,
+        **_course_credit_fields(course),
         'catalog_number': course.catalog_number,
         'course_desc': (current_catalog_version(course).description if current_catalog_version(course) else None) or course.description,
         'pre_requirement': _course_requirement(course, "pre_requirement"),
@@ -487,6 +493,7 @@ def get_course_detail(code):
         'klms_course': _course_flag(course, "klms_course"),
         'attributes': source_metadata.get('attributes', []),
         'previous_course_code': source_metadata.get('previous_course_code'),
+        'selection_policy': course_selection_policy(course.code, []),
         'sections': [],
     })
 
@@ -643,11 +650,12 @@ def _serialize_domain_cart_item(cart_item):
     return {
         'course_code': course.code,
         'course_title': _course_title(course),
-        'credit': _course_credit(course),
         'subject': course.subject,
+        **_course_credit_fields(course),
         'pg_course': _course_flag(course, "pg_course"),
         'klms_course': _course_flag(course, "klms_course"),
         'enabled': cart_item.enabled,
+        'selection_policy': course_selection_policy(course.code, _domain_sections_for_offering(offering)),
         'layers': layers,
     }
 

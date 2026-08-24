@@ -23,6 +23,11 @@ from app.services.scheduler_popularity import (
     popularity_state,
     record_popularity_transition,
 )
+from app.services.scheduler_policy import (
+    course_credit_policy,
+    course_selection_policy,
+    module_code_for_sections,
+)
 
 
 MAX_PLAN_NAME = 80
@@ -142,13 +147,19 @@ def _section_schedule_identity(snapshot: dict) -> dict:
 
 def _course_snapshot(offering: CourseOffering) -> dict:
     course = offering.course
+    active_sections = (
+        CourseSection.query.filter_by(offering_id=offering.id, status="active")
+        .order_by(CourseSection.layer, CourseSection.bundle, CourseSection.source_section_id)
+        .all()
+    )
     return {
         "course_code": course.code,
         "course_title": offering.title_snapshot,
-        "credit": offering.credits_snapshot,
         "subject": course.subject,
+        **course_credit_policy(course.subject, offering.credits_snapshot),
         "pg_course": bool(course.pg_course),
         "klms_course": bool(course.klms_course),
+        "selection_policy": course_selection_policy(course.code, active_sections),
     }
 
 
@@ -189,7 +200,14 @@ def _resolve_plan_courses(semester_id: Any, course_payloads: Any) -> list[dict]:
                 "selections_required",
             )
         selected_sections: list[CourseSection] = []
+        policy = course_selection_policy(
+            normalized_code,
+            CourseSection.query.filter_by(offering_id=offering.id, status="active").all(),
+        )
+        is_modular = policy["kind"] == "module"
         seen_layers: set[int] = set()
+        seen_selection_keys: set[tuple[int, int]] = set()
+        selected_module_codes: set[str] = set()
         for selection in selections:
             if not isinstance(selection, dict):
                 raise PlanValidationError("Each section selection must be an object")
@@ -199,7 +217,13 @@ def _resolve_plan_courses(semester_id: Any, course_payloads: Any) -> list[dict]:
                 raise PlanValidationError("Bundle id must be an integer", "invalid_bundle")
             if isinstance(layer, bool) or not isinstance(layer, int):
                 raise PlanValidationError("Layer must be an integer", "invalid_layer")
-            if layer in seen_layers:
+            if (layer, bundle) in seen_selection_keys:
+                raise PlanValidationError(
+                    f"{normalized_code} contains a duplicate section group",
+                    "duplicate_section_group",
+                )
+            seen_selection_keys.add((layer, bundle))
+            if not is_modular and layer in seen_layers:
                 raise PlanValidationError(
                     f"{normalized_code} can select only one bundle per layer",
                     "duplicate_layer",
@@ -220,7 +244,29 @@ def _resolve_plan_courses(semester_id: Any, course_payloads: Any) -> list[dict]:
                     f"Selected section group for {normalized_code} is unavailable",
                     "section_group_unavailable",
                 )
+            if is_modular:
+                module_code = module_code_for_sections(sections)
+                if module_code is None:
+                    raise PlanValidationError(
+                        f"Selected section group for {normalized_code} is not a valid module",
+                        "invalid_module_group",
+                    )
+                if module_code in selected_module_codes:
+                    raise PlanValidationError(
+                        f"{normalized_code} can select only one section for {module_code}",
+                        "duplicate_module",
+                    )
+                selected_module_codes.add(module_code)
             selected_sections.extend(sections)
+
+        if is_modular:
+            for group in policy["groups"]:
+                selected_count = len(selected_module_codes.intersection(group["module_codes"]))
+                if not group["min_select"] <= selected_count <= group["max_select"]:
+                    raise PlanValidationError(
+                        f"{normalized_code} has an invalid {group['id']} module selection",
+                        "invalid_module_selection",
+                    )
 
         resolved.append({
             "offering": offering,
@@ -394,6 +440,10 @@ def _plan_timetable(plan: SchedulerPlan) -> tuple[list[dict], list[dict], str]:
     availability = "current"
     for course_index, plan_course in enumerate(plan.courses):
         snapshot = dict(plan_course.snapshot or {})
+        credit_fields = course_credit_policy(
+            snapshot.get("subject"),
+            snapshot.get("credit", 0),
+        )
         layers: dict[int, list[dict]] = defaultdict(list)
         grouped_sections: dict[tuple[int, int], list[dict]] = defaultdict(list)
         for saved_section in plan_course.sections:
@@ -420,11 +470,16 @@ def _plan_timetable(plan: SchedulerPlan) -> tuple[list[dict], list[dict], str]:
         courses.append({
             "course_code": snapshot.get("course_code", plan_course.normalized_course_code),
             "course_title": snapshot.get("course_title", plan_course.normalized_course_code),
-            "credit": snapshot.get("credit", 0),
+            **credit_fields,
             "subject": snapshot.get("subject"),
             "pg_course": bool(snapshot.get("pg_course")),
             "klms_course": bool(snapshot.get("klms_course")),
             "enabled": True,
+            "selection_policy": snapshot.get("selection_policy") or {
+                "kind": "layer",
+                "groups": [],
+                "modules": [],
+            },
             "layers": dict(layers),
         })
     return courses, selections, availability
@@ -447,7 +502,16 @@ def serialize_plan(
         "availability": "current",
         "course_codes": [course.normalized_course_code for course in plan.courses],
         "course_count": len(plan.courses),
-        "total_credits": sum(int((course.snapshot or {}).get("credit") or 0) for course in plan.courses),
+        "total_credits": sum(
+            int(
+                course_credit_policy(
+                    (course.snapshot or {}).get("subject"),
+                    (course.snapshot or {}).get("credit") or 0,
+                )["term_load_credit"]
+                or 0
+            )
+            for course in plan.courses
+        ),
         "author": {
             "id": plan.owner.id,
             "username": plan.owner.username,

@@ -323,6 +323,61 @@ def test_adapter_preserves_reviewed_klms_courses_across_sisn_sync():
     ]
 
 
+def test_adapter_records_moes_source_coverage_and_omission_reasons():
+    payload = _payload()
+    payload["courses"].append({
+        "crseCode": "MOES1001",
+        "subject": "MOES",
+        "catalogNbr": "1001",
+        "crseDesc": "Ideological course",
+        "longDesc": "SISN-owned MOES course",
+        "credit": 3,
+        "preReq": "",
+        "coReq": "",
+        "exclusion": "",
+        "attributes": [],
+        "prevCrseCode": "",
+        "classes": [
+            _api_class("9001", "E", "G1", 1, [_schedule(2, "10:30", "11:50", "B101")]),
+            _api_class("9002", "E", "G2", 1, []),
+        ],
+    })
+    envelope = _envelope(payload)
+    envelope["coverage"] = {"subjects": ["MOES"], "targeted_course_count": 1}
+
+    adapted = adapt_proxy_envelope(
+        envelope,
+        term="2610",
+        baseline=_baseline(),
+        baseline_label="reviewed-baseline.json",
+    )
+
+    assert adapted.counts["source_moes_courses"] == 1
+    assert adapted.counts["source_moes_classes"] == 2
+    assert adapted.counts["candidate_moes_sections"] == 1
+    assert adapted.snapshot["provenance"]["sisn_coverage"] == envelope["coverage"]
+    assert adapted.snapshot["provenance"]["moes_source_diagnostics"] == [{
+        "course_code": "MOES1001",
+        "source_classes": 2,
+        "source_scheduled_classes": 1,
+        "candidate_sections": 1,
+        "omitted_unscheduled_classes": ["9002"],
+    }]
+
+
+def test_adapter_rejects_non_pe_moes_from_klms_preservation_lane():
+    baseline = _baseline()
+    baseline["courses"].append(_klms_course("MOES1001", "9001"))
+
+    with pytest.raises(SisnMappingError, match="only MOES1104"):
+        adapt_proxy_envelope(
+            _envelope(),
+            term="2610",
+            baseline=baseline,
+            baseline_label="reviewed-baseline.json",
+        )
+
+
 def test_adapter_preserves_reviewed_meeting_when_sisn_schedule_is_empty():
     payload = _payload()
     payload["courses"][0]["classes"][1]["schedules"] = []

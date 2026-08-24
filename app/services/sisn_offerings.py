@@ -344,6 +344,7 @@ def adapt_proxy_envelope(
     raw_schedule_count = 0
     raw_reserve_class_count = 0
     transform_stats: Counter[str] = Counter()
+    moes_diagnostics: list[dict[str, Any]] = []
 
     for course_index, api_course in enumerate(api_courses):
         context = f"courses[{course_index}]"
@@ -547,6 +548,23 @@ def adapt_proxy_envelope(
                 allow_empty=True,
             ) or None,
         })
+        if output_courses[-1]["subject"].strip().upper() == "MOES":
+            class_numbers = {
+                str(api_class.get("classNbr") or "").strip()
+                for api_class in classes
+                if isinstance(api_class, dict)
+            }
+            moes_diagnostics.append({
+                "course_code": code,
+                "source_classes": len(classes),
+                "source_scheduled_classes": sum(
+                    1
+                    for api_class in classes
+                    if isinstance(api_class, dict) and (api_class.get("schedules") or [])
+                ),
+                "candidate_sections": len(output_sections),
+                "omitted_unscheduled_classes": sorted(class_numbers.intersection(omitted_unscheduled)),
+            })
 
     # KLMS offerings are absent from SISN (or represented only by unscheduled
     # placeholders). They are reviewed scheduler product data, so carry them
@@ -560,6 +578,13 @@ def adapt_proxy_envelope(
     for code, baseline_course in baseline_by_course.items():
         if not bool(baseline_course.get("klms_course", False)):
             continue
+        if (
+            str(baseline_course.get("subject") or "").strip().upper() == "MOES"
+            and code != "MOES1104"
+        ):
+            raise SisnMappingError(
+                f"{code} is marked as KLMS, but only MOES1104 may use the reviewed PE source"
+            )
         preserved_course = copy.deepcopy(baseline_course)
         existing_index = output_index_by_code.get(code)
         if existing_index is None:
@@ -619,6 +644,8 @@ def adapt_proxy_envelope(
             "missing_baseline_classes": missing_baseline_classes,
             "baseline_meeting_fallbacks": baseline_meeting_fallbacks,
             "preserved_klms_course_codes": preserved_klms_codes,
+            "sisn_coverage": envelope.get("coverage") if isinstance(envelope, dict) else None,
+            "moes_source_diagnostics": moes_diagnostics,
         },
         "courses": output_courses,
     }
@@ -636,6 +663,9 @@ def adapt_proxy_envelope(
             for section in course["sections"]
         ),
         "preserved_klms_courses": len(preserved_klms_codes),
+        "source_moes_courses": len(moes_diagnostics),
+        "source_moes_classes": sum(item["source_classes"] for item in moes_diagnostics),
+        "candidate_moes_sections": sum(item["candidate_sections"] for item in moes_diagnostics),
         "fallback_main_classes": len(fallback_main_classes),
         "omitted_unscheduled_classes": len(omitted_unscheduled),
         "missing_baseline_classes": len(missing_baseline_classes),
