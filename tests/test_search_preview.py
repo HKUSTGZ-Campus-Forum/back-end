@@ -63,3 +63,26 @@ def test_global_search_limits_post_preview_to_two(client):
     assert response.status_code == 200
     payload = response.get_json()
     assert len(payload["results"]["posts"]) == 2
+
+
+def test_global_search_escapes_untrusted_title_before_highlighting(client):
+    with client.application.app_context():
+        user = User.query.filter_by(username="preview-author").one()
+        db.session.add(Post(
+            user_id=user.id,
+            title='<img src=x onerror=alert(1)> XSS <script>alert(2)</script>',
+            content="stored XSS regression payload",
+        ))
+        db.session.commit()
+
+    response = client.get("/search/global", query_string={"q": "xss"})
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    result = payload["results"]["posts"][0]
+    assert result["title_highlighted"] == (
+        "&lt;img src=x onerror=alert(1)&gt; <mark>XSS</mark> "
+        "&lt;script&gt;alert(2)&lt;/script&gt;"
+    )
+    assert "<img" not in result["title_highlighted"]
+    assert "<script" not in result["title_highlighted"]

@@ -1,3 +1,7 @@
+import html
+import re
+from datetime import datetime, timezone
+
 from flask import Blueprint, request, jsonify
 from app.models.post import Post
 from app.models.comment import Comment
@@ -6,8 +10,6 @@ from app.models.tag import Tag, TagType
 from app.models.course import Course
 from app.extensions import db
 from sqlalchemy import func, desc, and_, or_, case
-from datetime import datetime, timezone
-import re
 
 bp = Blueprint('search', __name__, url_prefix='/search')
 
@@ -423,20 +425,26 @@ def get_content_excerpt(content, query, max_length=200):
 
 def highlight_text(text, query):
     """
-    Add highlighting markers around query matches in text.
-    Returns text with <mark></mark> tags around matches.
+    Add highlighting markers around query matches in untrusted text.
+
+    All source text is escaped before the generated ``mark`` elements are
+    inserted so legacy clients that render this field as HTML cannot turn a
+    stored title, username, tag, or course field into executable markup.
     """
-    if not text or not query:
-        return text
-    
-    # Escape special regex characters in query
-    escaped_query = re.escape(query)
-    
-    # Use regex to find and replace matches (case insensitive)
-    pattern = re.compile(escaped_query, re.IGNORECASE)
-    highlighted = pattern.sub(lambda m: f"<mark>{m.group()}</mark>", text)
-    
-    return highlighted
+    source = str(text or "")
+    needle = str(query or "")
+    if not source or not needle:
+        return html.escape(source)
+
+    pattern = re.compile(re.escape(needle), re.IGNORECASE)
+    parts = []
+    cursor = 0
+    for match in pattern.finditer(source):
+        parts.append(html.escape(source[cursor:match.start()]))
+        parts.append(f"<mark>{html.escape(match.group())}</mark>")
+        cursor = match.end()
+    parts.append(html.escape(source[cursor:]))
+    return "".join(parts)
 
 def calculate_match_score(post, query):
     """
