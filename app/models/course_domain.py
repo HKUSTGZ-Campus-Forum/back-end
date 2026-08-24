@@ -155,7 +155,7 @@ class CourseSection(db.Model):
     is_main = db.Column(db.Boolean, default=False, nullable=False)
     status = db.Column(db.String(24), default="active", nullable=False)
     source_class_type = db.Column(db.String(16), nullable=True)
-    source_section_label = db.Column(db.String(64), nullable=True)
+    source_section_label = db.Column(db.String(255), nullable=True)
     associated_class = db.Column(db.Integer, nullable=True)
     consent_required = db.Column(db.Boolean, default=False, nullable=False)
     remarks = db.Column(db.Text, nullable=True)
