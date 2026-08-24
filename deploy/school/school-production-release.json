@@ -4,6 +4,6 @@
     "approval_reference": "User approval in Codex task on 2026-08-24: deploy KLMS 2610 courses to school production",
     "approved": true
   },
-  "frontend_sha": "5a0e5768d8e91211fb9a218b06a23d9d01db39c4",
+  "frontend_sha": "a6ab50b7068d8d912cac54973986baf8fa3c241c",
   "schema_version": 1
 }
