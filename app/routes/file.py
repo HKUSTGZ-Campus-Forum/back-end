@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app, url_for
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from app.services.file_service import OSSService
+from app.services.file_service import OSSService, UploadVerificationError
 from app.models.user import User
 from app.models.file import File
 from app.models.token import STSTokenPool
@@ -19,7 +19,7 @@ _UPLOAD_BLOCKED_EXTENSIONS = frozenset({
 })
 
 _POST_IMAGE_EXTENSIONS = frozenset({
-    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.ico', '.svg', '.avif', '.heic',
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.ico', '.avif', '.heic',
 })
 
 _BLOCKED_CONTENT_TYPE_PREFIXES = (
@@ -43,8 +43,18 @@ def _stream_file_from_oss(file_record, cache_control='public, max-age=3600'):
     if not signed_url:
         return jsonify({"error": "File URL not available"}), 500
 
-    response = requests.get(signed_url, stream=True, timeout=30)
-    if not response.ok:
+    upstream_headers = {}
+    requested_range = request.headers.get('Range')
+    if requested_range:
+        upstream_headers['Range'] = requested_range
+
+    response = requests.get(
+        signed_url,
+        headers=upstream_headers,
+        stream=True,
+        timeout=30,
+    )
+    if response.status_code not in (200, 206):
         current_app.logger.error(
             f"Failed to fetch file {file_record.id} from OSS: {response.status_code}"
         )
@@ -58,20 +68,23 @@ def _stream_file_from_oss(file_record, cache_control='public, max-age=3600'):
         finally:
             response.close()
 
+    safe_filename = (file_record.original_filename or 'download').replace('"', "'").replace('\r', '').replace('\n', '')
     headers = {
         'Content-Type': file_record.mime_type or response.headers.get('Content-Type', 'application/octet-stream'),
-        'Content-Disposition': f'inline; filename="{file_record.original_filename}"',
+        'Content-Disposition': f'inline; filename="{safe_filename}"',
         'Cache-Control': cache_control,
     }
 
-    content_length = response.headers.get('Content-Length')
-    if content_length:
-        headers['Content-Length'] = content_length
+    for header_name in ('Content-Length', 'Content-Range', 'Accept-Ranges', 'ETag', 'Last-Modified'):
+        if response.headers.get(header_name):
+            headers[header_name] = response.headers[header_name]
+    if file_record.mime_type and file_record.mime_type.startswith('video/'):
+        headers.setdefault('Accept-Ranges', 'bytes')
 
     return Response(
         stream_with_context(generate()),
         headers=headers,
-        status=200
+        status=response.status_code
     )
 
 
@@ -88,6 +101,8 @@ def _validate_upload_request(filename, file_type, content_type):
             ct = content_type.strip().lower()
             if not ct.startswith('image/'):
                 return False, '图片附件必须是图片类型'
+            if ct == 'image/svg+xml':
+                return False, 'SVG 图片不支持上传'
 
     if file_type == File.POST_ATTACHMENT:
         # Arbitrary files except dangerous extensions (already filtered above).
@@ -141,8 +156,13 @@ def generate_upload_url():
             declared_size = int(declared_size)
         except (TypeError, ValueError):
             return jsonify({"error": "Invalid file_size"}), 400
-        if declared_size > File.MAX_UPLOAD_BYTES:
-            return jsonify({"error": f"File exceeds maximum size of {File.MAX_UPLOAD_BYTES} bytes"}), 400
+        max_upload_bytes = OSSService.max_upload_bytes(file_type, content_type)
+        if declared_size <= 0:
+            return jsonify({"error": "file_size must be greater than zero"}), 400
+        if declared_size > max_upload_bytes:
+            return jsonify({"error": f"File exceeds maximum size of {max_upload_bytes} bytes"}), 400
+    else:
+        max_upload_bytes = OSSService.max_upload_bytes(file_type, content_type)
 
     # Validate entity_id if entity_type is provided (optional)
     # Some flows upload files before the entity record exists.
@@ -185,7 +205,7 @@ def generate_upload_url():
             "object_name": object_name,
             "file_id": file_id,
             "file_type": file_type, # Return type for frontend context
-            "url": f"{current_app.config.get('OSS_PUBLIC_URL', '')}/{object_name}", # Provide the final public URL
+            "max_upload_bytes": max_upload_bytes,
             "expiration_seconds": current_app.config['OSS_TOKEN_DURATION'] # Indicate URL validity duration
         }), 200
     except Exception as e:
@@ -271,57 +291,11 @@ def generate_upload_url():
 
 @bp.route('/callback', methods=['POST'])
 def oss_callback():
-    """Handle OSS callback after successful upload"""
-    # --- Add Verification Step ---
-    # if not verify_oss_callback_signature(request):
-    #     current_app.logger.error("OSS Callback verification failed.")
-    #     # OSS expects a JSON response even on failure, but the status code matters.
-    #     # Returning 400 might cause OSS to retry or log an error.
-    #     return jsonify({"Status": "Error", "Message": "Callback verification failed"}), 400
-
-    try:
-        # Get callback data from FORM POST
-        # Ensure keys match exactly what OSS sends in callbackBody
-        object_name = request.form.get('object_name')
-        file_id = request.form.get('file_id')
-        file_size = request.form.get('size')
-        mime_type = request.form.get('mimeType')
-
-        if not file_id:
-            current_app.logger.error("Callback received without file_id.")
-            return jsonify({"Status": "Error", "Message": "Missing file_id"}), 400 # Return error JSON for OSS
-
-        if not object_name:
-             current_app.logger.error(f"Callback for file_id {file_id} received without object_name.")
-             return jsonify({"Status": "Error", "Message": "Missing object_name"}), 400
-
-        # Update file status
-        file_record = OSSService.update_file_status(
-            file_id=int(file_id),
-            status='uploaded',
-            object_name=object_name, # Pass for verification
-            file_size=file_size,     # Pass raw value
-            mime_type=mime_type
-        )
-
-        if not file_record:
-            # Error already logged in service method
-            return jsonify({"Status": "Error", "Message": "Failed to update file record"}), 500 # Internal error
-
-        # Return success JSON response required by OSS
-        # The content can be customized if the client needs info from the callback.
-        return jsonify({
-            "Status": "OK",
-            # Optionally include file info if needed by any client polling this
-            # "file": file_record.to_dict()
-        }), 200
-
-    except Exception as e:
-        # Log the exception details
-        file_id_log = request.form.get('file_id', 'unknown')
-        current_app.logger.error(f"Callback processing error for file_id {file_id_log}: {str(e)}", exc_info=True)
-        # Return error JSON response to OSS
-        return jsonify({"Status": "Error", "Message": "Internal server error processing callback"}), 500
+    """Reject unsigned legacy callbacks; clients use authenticated completion."""
+    # Callback signing is intentionally disabled in generate_signed_url. Refuse
+    # unsigned state changes; clients finalize via the authenticated /complete
+    # endpoint, which verifies the object with OSS HEAD.
+    return jsonify({"Status": "Disabled", "Message": "Use the upload completion endpoint"}), 410
 
 
 @bp.route('/<int:file_id>', methods=['GET'])
@@ -340,19 +314,25 @@ def get_file_route(file_id):
     if not file_record:
         return jsonify({"error": "File not found or you don't have permission"}), 404
     
-    # Browser PUT uploads currently have no OSS callback. Confirm the object exists
-    # before promoting the database record; a failed CORS/network upload must remain
-    # pending instead of looking successful to the client.
-    if file_record.status == 'pending':
-        try:
-            if OSSService.object_exists(file_record.object_name):
-                file_record.status = 'uploaded'
-                db.session.commit()
-        except Exception as e:
-            current_app.logger.error(f"Error updating file status for file_id {file_id}: {e}")
-            db.session.rollback()
-    
-    return jsonify(file_record.to_dict()), 200
+    return jsonify(file_record.to_dict(include_storage_url=True, include_internal=True)), 200
+
+
+@bp.route('/<int:file_id>/complete', methods=['POST'])
+@jwt_required()
+def complete_upload_route(file_id):
+    """Verify an uploaded OSS object and mark it ready for use."""
+    user_id = get_jwt_identity()
+    user = User.query.filter_by(id=user_id, is_deleted=False).first()
+    if not user:
+        return jsonify({"error": "User not found or inactive"}), 404
+
+    try:
+        file_record = OSSService.complete_upload(file_id, user_id)
+        if not file_record:
+            return jsonify({"error": "File not found or you don't have permission"}), 404
+        return jsonify(file_record.to_dict(include_storage_url=True, include_internal=True)), 200
+    except UploadVerificationError as error:
+        return jsonify({"error": "Upload verification failed", "message": str(error)}), 422
 
 
 @bp.route('/<int:file_id>', methods=['DELETE'])
@@ -366,6 +346,14 @@ def delete_file_route(file_id):
     if not user:
         return jsonify({"error": "User not found or inactive"}), 404
 
+    existing_file = File.query.filter_by(
+        id=file_id,
+        user_id=user_id,
+        is_deleted=False,
+    ).first()
+    if existing_file and existing_file.entity_type == 'post' and existing_file.entity_id is not None:
+        return jsonify({"error": "Attached files cannot be deleted directly"}), 409
+
     deleted_file = OSSService.delete_file(file_id, user_id)
 
     if not deleted_file:
@@ -378,7 +366,7 @@ def delete_file_route(file_id):
              # Assume DB error if it exists but deletion failed
              return jsonify({"error": "Failed to delete file record"}), 500
 
-    return jsonify({"message": "File marked for deletion"}), 200
+    return jsonify({"message": "File deleted"}), 200
 
 
 @bp.route('', methods=['GET'])
@@ -431,7 +419,7 @@ def get_user_files():
 
 
     return jsonify({
-        "files": [file.to_dict() for file in pagination.items],
+        "files": [file.to_dict(include_storage_url=True, include_internal=True) for file in pagination.items],
         "total": pagination.total,
         "pages": pagination.pages,
         "page": page
@@ -612,7 +600,7 @@ def proxy_file(file_id):
         return jsonify({"error": "User not found"}), 404
 
     # Get file record
-    file_record = File.query.filter_by(id=file_id, is_deleted=False).first()
+    file_record = File.query.filter_by(id=file_id, user_id=user_id, is_deleted=False).first()
     if not file_record:
         return jsonify({"error": "File not found"}), 404
 

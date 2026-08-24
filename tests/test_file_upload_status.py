@@ -97,15 +97,18 @@ def test_pending_file_stays_pending_when_oss_object_is_absent(client, app, auth,
         assert db.session.get(File, app.config["PENDING_FILE_ID"]).status == "pending"
 
 
-def test_pending_file_is_uploaded_only_after_oss_confirms_object(client, app, auth, monkeypatch):
-    monkeypatch.setattr(OSSService, "object_exists", lambda _name: True)
+def test_pending_file_is_not_promoted_by_get_even_if_object_exists(client, app, auth, monkeypatch):
+    def fail_if_called(_name):
+        raise AssertionError("GET must not verify or promote pending uploads")
+
+    monkeypatch.setattr(OSSService, "object_exists", fail_if_called)
 
     response = client.get(f"/files/{app.config['PENDING_FILE_ID']}", headers=auth)
 
     assert response.status_code == 200
-    assert response.get_json()["status"] == "uploaded"
+    assert response.get_json()["status"] == "pending"
     with app.app_context():
-        assert db.session.get(File, app.config["PENDING_FILE_ID"]).status == "uploaded"
+        assert db.session.get(File, app.config["PENDING_FILE_ID"]).status == "pending"
 
 
 def test_uploaded_file_does_not_query_oss(client, app, auth, monkeypatch):

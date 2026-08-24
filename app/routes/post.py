@@ -324,6 +324,84 @@ def create_post():
         ).first()
         if not identity:
             return jsonify({"error": "Invalid or unauthorized identity selected"}), 400
+
+    # Validate the entire attachment set before creating the post. Attachment
+    # binding is all-or-nothing so a failed/stale upload can never disappear
+    # silently from a newly published post.
+    raw_file_ids = data.get('file_ids', [])
+    if raw_file_ids is None:
+        raw_file_ids = []
+    if not isinstance(raw_file_ids, list):
+        return jsonify({"error": "file_ids must be an array"}), 400
+    if len(raw_file_ids) > 35:
+        return jsonify({"error": "Too many attachments", "message": "帖子最多添加 35 个附件。"}), 400
+
+    try:
+        file_ids = [int(file_id) for file_id in raw_file_ids]
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid attachment id"}), 400
+    if len(set(file_ids)) != len(file_ids):
+        return jsonify({"error": "Duplicate attachment ids"}), 400
+
+    validated_files = []
+    if file_ids:
+        from app.models.file import File
+        from app.services.file_service import OSSService
+
+        allowed_post_file_types = frozenset({File.POST_IMAGE, File.POST_ATTACHMENT})
+        candidates = File.query.filter(
+            File.id.in_(file_ids),
+            File.user_id == user_id,
+            File.is_deleted.is_(False),
+        ).all()
+        candidates_by_id = {file_record.id: file_record for file_record in candidates}
+        image_count = 0
+        other_attachment_count = 0
+
+        for file_id in file_ids:
+            file_record = candidates_by_id.get(file_id)
+            if not file_record:
+                return jsonify({
+                    "error": "Invalid attachment",
+                    "message": "有附件不存在或不属于当前用户，请移除后重试。",
+                }), 400
+            if file_record.status != 'uploaded':
+                return jsonify({
+                    "error": "Attachment not ready",
+                    "message": f"附件「{file_record.original_filename}」尚未上传完成。",
+                }), 409
+            if file_record.file_type not in allowed_post_file_types:
+                return jsonify({
+                    "error": "Invalid attachment",
+                    "message": "仅允许添加论坛图片或附件。",
+                }), 400
+            if file_record.entity_id is not None:
+                return jsonify({
+                    "error": "Attachment already used",
+                    "message": f"附件「{file_record.original_filename}」已绑定到其他内容。",
+                }), 409
+            if file_record.file_size is None:
+                return jsonify({
+                    "error": "Attachment not verified",
+                    "message": f"附件「{file_record.original_filename}」缺少存储校验信息。",
+                }), 409
+
+            max_bytes = OSSService.max_upload_bytes(file_record.file_type, file_record.mime_type)
+            if int(file_record.file_size) > max_bytes:
+                return jsonify({
+                    "error": "Attachment too large",
+                    "message": f"附件「{file_record.original_filename}」超过大小限制。",
+                }), 400
+            if file_record.file_type == File.POST_IMAGE:
+                image_count += 1
+            else:
+                other_attachment_count += 1
+            validated_files.append(file_record)
+
+        if image_count > 5:
+            return jsonify({"error": "Too many images", "message": "帖子最多添加 5 张图片。"}), 400
+        if other_attachment_count > 30:
+            return jsonify({"error": "Too many attachments", "message": "帖子最多添加 30 个其他附件。"}), 400
     
     # Create new post
     post = Post(
@@ -338,34 +416,8 @@ def create_post():
     db.session.flush()  # Flush to get the post ID before commit
     
     # Link uploaded files to this post
-    file_ids = data.get('file_ids', [])
-    if file_ids:
-        from app.models.file import File
-        allowed_post_file_types = frozenset({File.POST_IMAGE, File.POST_ATTACHMENT})
-        for file_id in file_ids:
-            file_record = File.query.filter_by(
-                id=file_id, 
-                user_id=user_id,
-                status='uploaded',
-                is_deleted=False
-            ).first()
-            if not file_record:
-                continue
-            if file_record.file_type not in allowed_post_file_types:
-                db.session.rollback()
-                return jsonify({
-                    "error": "Invalid attachment",
-                    "message": "仅允许通过论坛上传接口添加的图片或附件。",
-                }), 400
-            if (
-                file_record.file_size is not None
-                and int(file_record.file_size) > File.MAX_UPLOAD_BYTES
-            ):
-                db.session.rollback()
-                return jsonify({
-                    "error": "Attachment too large",
-                    "message": f"附件「{file_record.original_filename}」超过 10MB 限制。",
-                }), 400
+    if validated_files:
+        for file_record in validated_files:
             file_record.entity_type = 'post'
             file_record.entity_id = post.id
     

@@ -27,14 +27,18 @@ class File(db.Model):
     IDENTITY_DOCUMENT = 'identity_document'
     GENERAL = 'general'
 
-    # Max size for user uploads enforced at API / callback (bytes)
+    # Upload limits enforced both before signing and after OSS verification.
     MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+    MAX_VIDEO_UPLOAD_BYTES = 100 * 1024 * 1024
 
-    def to_dict(self):
-        return {
+    def to_dict(self, include_storage_url=False, include_internal=False):
+        """Serialize a file without leaking storage credentials by default.
+
+        Forum posts use ``view_url``, a stable application URL. Owner-only upload
+        endpoints may opt into the short-lived OSS URL for legacy avatar flows.
+        """
+        data = {
             'id': self.id,
-            'user_id': self.user_id,
-            'object_name': self.object_name,
             'original_filename': self.original_filename,
             'file_size': self.file_size,
             'mime_type': self.mime_type,
@@ -45,11 +49,16 @@ class File(db.Model):
             'is_deleted': self.is_deleted,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-            'url': self.url, # Assuming you have the url property
-            # Stable in-site URL for public post attachments. Avoid exposing
-            # expiring OSS signed URLs to long-lived frontend caches.
             'view_url': f'/api/files/view/{self.id}' if self.entity_type == 'post' else None,
         }
+        if include_internal:
+            data.update({
+                'user_id': self.user_id,
+                'object_name': self.object_name,
+            })
+        if include_storage_url:
+            data['url'] = self.url
+        return data
 
     @property
     def url(self):

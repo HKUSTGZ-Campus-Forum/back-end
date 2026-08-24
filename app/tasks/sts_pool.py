@@ -51,6 +51,17 @@ def init_pool_maintenance(app):
             misfire_grace_time=60
         )
 
+        unified_scheduler.add_job(
+            id='stale_upload_cleanup',
+            func=_cleanup_stale_uploads_job,
+            args=[app],
+            trigger='interval',
+            hours=1,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=300,
+        )
+
         # Initialize embedding maintenance (will add its job to the same scheduler)
         try:
             from app.tasks.embedding_maintenance import init_embedding_maintenance
@@ -74,6 +85,21 @@ def _maintain_pool_job(app):
         except Exception as e:
             current_app.logger.error(f"Error during STS pool maintenance: {e}", exc_info=True)
             db.session.rollback() # Rollback on error
+
+
+def _cleanup_stale_uploads_job(app):
+    """Delete abandoned, unbound upload objects after their recovery window."""
+    with app.app_context():
+        try:
+            cleaned = OSSService.cleanup_stale_unbound_uploads(max_age_hours=24)
+            if cleaned:
+                current_app.logger.info(f"Cleaned {cleaned} stale upload objects.")
+        except Exception as error:
+            db.session.rollback()
+            current_app.logger.error(
+                f"Error during stale upload cleanup: {error}",
+                exc_info=True,
+            )
 
 # Optional: Add a shutdown hook for the scheduler if needed
 # def shutdown_scheduler():

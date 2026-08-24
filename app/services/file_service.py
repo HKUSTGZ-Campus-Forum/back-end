@@ -11,6 +11,11 @@ import base64 # Added missing import
 from flask import current_app # Added import
 from app.models.file import File # Ensure File is imported
 
+
+class UploadVerificationError(Exception):
+    """Raised when an uploaded OSS object does not match the file contract."""
+
+
 class OSSService:
     MIN_POOL_SIZE = 10
     MAX_POOL_SIZE = 20
@@ -303,6 +308,84 @@ class OSSService:
             raise # Re-raise the signing exception
 
     @staticmethod
+    def max_upload_bytes(file_type, mime_type=None):
+        """Return the authoritative byte limit for a file category."""
+        normalized_mime = (mime_type or '').lower()
+        if file_type == File.POST_ATTACHMENT and normalized_mime.startswith('video/'):
+            return File.MAX_VIDEO_UPLOAD_BYTES
+        return File.MAX_UPLOAD_BYTES
+
+    @staticmethod
+    def complete_upload(file_id, user_id):
+        """Verify the OSS object before promoting a pending upload.
+
+        This endpoint-driven confirmation replaces the old GET-side status
+        mutation. The size and MIME type persisted here come from OSS HEAD, not
+        from the browser's declaration.
+        """
+        file_record = File.query.filter_by(
+            id=file_id,
+            user_id=user_id,
+            is_deleted=False,
+        ).first()
+        if not file_record:
+            return None
+
+        if file_record.status == 'error':
+            raise UploadVerificationError('Upload is already marked as failed')
+
+        try:
+            bucket = OSSService._create_upload_bucket()
+            metadata = bucket.head_object(file_record.object_name)
+            actual_size = int(getattr(metadata, 'content_length', 0) or 0)
+            actual_mime = (
+                getattr(metadata, 'content_type', None)
+                or getattr(metadata, 'headers', {}).get('Content-Type')
+                or file_record.mime_type
+                or 'application/octet-stream'
+            ).split(';', 1)[0].strip().lower()
+
+            if actual_size <= 0:
+                raise UploadVerificationError('Uploaded object is empty')
+
+            max_bytes = OSSService.max_upload_bytes(file_record.file_type, actual_mime)
+            if actual_size > max_bytes:
+                raise UploadVerificationError(
+                    f'File exceeds maximum size of {max_bytes} bytes'
+                )
+
+            if file_record.file_type == File.POST_IMAGE and not actual_mime.startswith('image/'):
+                raise UploadVerificationError('Image upload has an invalid content type')
+            if file_record.file_type == File.POST_IMAGE and actual_mime == 'image/svg+xml':
+                raise UploadVerificationError('SVG images are not supported')
+
+            file_record.file_size = actual_size
+            file_record.mime_type = actual_mime
+            file_record.status = 'uploaded'
+            db.session.commit()
+            current_app.logger.info(
+                f'Verified OSS upload for file_id {file_id}: {actual_size} bytes, {actual_mime}'
+            )
+            return file_record
+        except UploadVerificationError:
+            file_record.status = 'error'
+            db.session.commit()
+            try:
+                OSSService._create_upload_bucket().delete_object(file_record.object_name)
+            except Exception as cleanup_error:
+                current_app.logger.warning(
+                    f'Could not remove rejected OSS object for file_id {file_id}: {cleanup_error}'
+                )
+            raise
+        except Exception as error:
+            db.session.rollback()
+            current_app.logger.error(
+                f'OSS verification failed for file_id {file_id}: {error}',
+                exc_info=True,
+            )
+            raise UploadVerificationError('Uploaded object could not be verified') from error
+
+    @staticmethod
     def update_file_status(file_id, status, object_name=None, file_size=None, mime_type=None): # Added object_name for verification
         """Update file status after callback"""
         file_record = File.query.get(file_id)
@@ -318,9 +401,13 @@ class OSSService:
                  try:
                      sz = int(file_size)
                      file_record.file_size = sz
-                     if sz > File.MAX_UPLOAD_BYTES:
+                     max_bytes = OSSService.max_upload_bytes(
+                         file_record.file_type,
+                         mime_type or file_record.mime_type,
+                     )
+                     if sz > max_bytes:
                          current_app.logger.warning(
-                             f"Uploaded file {file_id} exceeds max size ({sz} > {File.MAX_UPLOAD_BYTES}), marking error."
+                             f"Uploaded file {file_id} exceeds max size ({sz} > {max_bytes}), marking error."
                          )
                          file_record.status = 'error'
                  except (ValueError, TypeError):
@@ -343,33 +430,61 @@ class OSSService:
 
     @staticmethod
     def delete_file(file_id, user_id):
-        """Soft delete a file record and potentially delete from OSS."""
+        """Delete an unbound upload from OSS and soft-delete its record."""
         file_record = File.query.filter_by(id=file_id, user_id=user_id, is_deleted=False).first()
         if not file_record:
             return None # Not found or already deleted
 
-        file_record.is_deleted = True
+        if file_record.entity_type == 'post' and file_record.entity_id is not None:
+            return None
 
-        # TODO: Implement actual deletion from OSS (potentially in a background task)
-        # try:
-        #     token = OSSService.get_available_token()
-        #     auth = StsAuth(token.access_key_id, token.access_key_secret, token.security_token)
-        #     bucket = Bucket(auth, current_app.config['OSS_ENDPOINT'], current_app.config['OSS_BUCKET_NAME'])
-        #     bucket.delete_object(file_record.object_name)
-        #     current_app.logger.info(f"Deleted object {file_record.object_name} from OSS for file_id {file_id}.")
-        # except Exception as e:
-        #     current_app.logger.error(f"Failed to delete object {file_record.object_name} from OSS for file_id {file_id}: {e}")
-        #     # Decide if the DB soft delete should be rolled back or not
-        #     # db.session.rollback()
-        #     # return None # Indicate failure
+        try:
+            OSSService._create_upload_bucket().delete_object(file_record.object_name)
+        except Exception as e:
+            current_app.logger.error(
+                f"Failed to delete object {file_record.object_name} for file_id {file_id}: {e}",
+                exc_info=True,
+            )
+            return None
+
+        file_record.is_deleted = True
+        file_record.deleted_at = datetime.now(timezone.utc)
 
         try:
             db.session.commit()
-            current_app.logger.info(f"Soft deleted file record for file_id {file_id}.")
+            current_app.logger.info(f"Deleted OSS object and soft-deleted file_id {file_id}.")
             return file_record
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f"Database error soft deleting file record for file_id {file_id}: {e}")
             return None # Indicate failure
+
+    @staticmethod
+    def cleanup_stale_unbound_uploads(max_age_hours=24):
+        """Remove abandoned pending/error objects that were never attached."""
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+        stale_files = File.query.filter(
+            File.entity_id.is_(None),
+            File.is_deleted.is_(False),
+            File.status.in_(('pending', 'error')),
+            File.created_at < cutoff,
+        ).limit(200).all()
+        if not stale_files:
+            return 0
+
+        bucket = OSSService._create_upload_bucket()
+        cleaned = 0
+        for file_record in stale_files:
+            try:
+                bucket.delete_object(file_record.object_name)
+                file_record.is_deleted = True
+                file_record.deleted_at = datetime.now(timezone.utc)
+                cleaned += 1
+            except Exception as error:
+                current_app.logger.warning(
+                    f'Could not clean stale upload file_id {file_record.id}: {error}'
+                )
+        db.session.commit()
+        return cleaned
 
         
