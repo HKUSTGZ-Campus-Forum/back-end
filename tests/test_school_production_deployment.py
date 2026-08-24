@@ -454,7 +454,7 @@ def test_post_migration_snapshot_allows_only_empty_new_tables(tmp_path):
             "public.scheduler_plan_courses": 0,
             "public.scheduler_plan_sections": 0,
         },
-        "alembic_heads": ["20260823_auth_valid_after"],
+        "alembic_heads": ["20260824_section_label_255"],
         "foreign_keys": 17,
     }
     source_path = tmp_path / "source.json"

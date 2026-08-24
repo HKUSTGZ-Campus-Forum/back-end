@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, inspect, text
 
 
 DATABASE_URL_ENV = "PRISTINE_POSTGRES_DATABASE_URL"
-EXPECTED_HEADS = {"20260823_auth_valid_after"}
+EXPECTED_HEADS = {"20260824_section_label_255"}
 
 
 @pytest.fixture(scope="module")
@@ -146,6 +146,11 @@ def test_pristine_postgres_upgrade_reaches_existing_heads(
             column["name"]
             for column in inspector.get_columns("users")
         }
+        section_columns = {
+            column["name"]: column
+            for column in inspector.get_columns("course_sections")
+        }
+        assert section_columns["source_section_label"]["type"].length == 255
 
         # The second pass proves the normal deploy command is safe to rerun.
         command.upgrade(migrate_extension.get_config(), "heads")

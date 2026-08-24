@@ -75,6 +75,8 @@ def test_course_domain_models_store_versioned_offering_graph(app):
     )
 
     with app.app_context():
+        assert CourseSection.source_section_label.type.length == 255
+
         course = Course(
             normalized_code="CDOM2205",
             display_code="CDOM 2205",
