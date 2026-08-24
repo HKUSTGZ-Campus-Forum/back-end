@@ -18,7 +18,7 @@ CLASS_TYPE_ASSOCIATED = "N"
 SUPPORTED_CLASS_TYPES = {CLASS_TYPE_MAIN, CLASS_TYPE_ASSOCIATED}
 SEMESTER_RE = re.compile(r"^\d{4}$")
 CQ_PUBLIC_FALLBACK_SOURCE = "cq-public-fallback"
-CQ_SECTION_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
+SECTION_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
 
 
 class SisnPayloadError(RuntimeError):
@@ -194,7 +194,7 @@ def _cq_fallback_section(
         api_class.get("scheduleFallbackSection"),
         f"{context}.scheduleFallbackSection",
     ).upper()
-    match = CQ_SECTION_RE.fullmatch(section_name)
+    match = SECTION_RE.fullmatch(section_name)
     if match is None:
         raise SisnMappingError(
             f"CQ fallback class {class_number} has unsupported section label {section_name!r}"
@@ -204,6 +204,30 @@ def _cq_fallback_section(
     if bundle < 1:
         raise SisnMappingError(
             f"CQ fallback class {class_number} has invalid bundle {bundle}"
+        )
+    return section_type, section_name, bundle
+
+
+def _sisn_section(
+    api_class: dict[str, Any],
+    *,
+    class_number: str,
+    context: str,
+) -> tuple[str, str, int] | None:
+    """Return a validated main-section identity supplied by official SISN."""
+    section_name = _string(
+        api_class.get("section"),
+        f"{context}.section",
+        allow_empty=True,
+    ).upper()
+    match = SECTION_RE.fullmatch(section_name)
+    if match is None:
+        return None
+    section_type, bundle_text = match.groups()
+    bundle = int(bundle_text)
+    if bundle < 1:
+        raise SisnMappingError(
+            f"SISN class {class_number} has invalid bundle {bundle}"
         )
     return section_type, section_name, bundle
 
@@ -384,6 +408,7 @@ def adapt_proxy_envelope(
     mapped_baseline_classes: set[str] = set()
     omitted_unscheduled: list[str] = []
     fallback_main_classes: list[str] = []
+    sisn_labeled_main_classes: list[str] = []
     cq_public_fallback_classes: list[str] = []
     baseline_meeting_fallbacks: list[dict[str, Any]] = []
     warnings: list[str] = []
@@ -404,6 +429,14 @@ def adapt_proxy_envelope(
         seen_courses.add(code)
         baseline_course = baseline_by_course.get(code)
         baseline_sections = (baseline_course or {}).get("sections") or []
+        classes = api_course.get("classes") or []
+        if not isinstance(classes, list):
+            raise SisnPayloadError(f"{context}.classes: expected list")
+        incoming_class_numbers = {
+            str(item.get("classNbr") or "").strip()
+            for item in classes
+            if isinstance(item, dict)
+        }
         main_types = [
             str(section.get("section_type") or "").strip()
             for section in baseline_sections
@@ -414,13 +447,12 @@ def adapt_proxy_envelope(
             int(section.get("bundle"))
             for section in baseline_sections
             if section.get("is_main")
+            and str(section.get("section_id") or "").strip()
+            in incoming_class_numbers
         }
         next_fallback_bundle = max(used_main_bundles or {0}) + 1
         output_sections = []
 
-        classes = api_course.get("classes") or []
-        if not isinstance(classes, list):
-            raise SisnPayloadError(f"{context}.classes: expected list")
         for class_index, api_class in enumerate(classes):
             class_context = f"{context}.classes[{class_index}]"
             if not isinstance(api_class, dict):
@@ -444,6 +476,11 @@ def adapt_proxy_envelope(
             )
             if cq_fallback_section is not None:
                 cq_public_fallback_classes.append(class_number)
+            sisn_section = _sisn_section(
+                api_class,
+                class_number=class_number,
+                context=class_context,
+            )
             reserve_cap = _normalize_reserve_cap(
                 api_class.get("reserveCap"),
                 f"{class_context}.reserveCap",
@@ -497,6 +534,14 @@ def adapt_proxy_envelope(
                             f"CQ fallback class {class_number} reuses reviewed main bundle {bundle}"
                         )
                     used_main_bundles.add(bundle)
+                elif sisn_section is not None:
+                    section_type, section_name, bundle = sisn_section
+                    if bundle in used_main_bundles:
+                        raise SisnMappingError(
+                            f"SISN class {class_number} reuses reviewed main bundle {bundle}"
+                        )
+                    used_main_bundles.add(bundle)
+                    sisn_labeled_main_classes.append(class_number)
                 else:
                     while next_fallback_bundle in used_main_bundles:
                         next_fallback_bundle += 1
@@ -674,6 +719,13 @@ def adapt_proxy_envelope(
         warnings.append(
             f"generated conservative main-section labels for {len(fallback_main_classes)} new classes"
         )
+    if sisn_labeled_main_classes:
+        sisn_label_count = len(sisn_labeled_main_classes)
+        class_label = "class" if sisn_label_count == 1 else "classes"
+        warnings.append(
+            "used official SISN section labels for "
+            f"{sisn_label_count} new main {class_label}"
+        )
     if cq_public_fallback_classes:
         cq_count = len(cq_public_fallback_classes)
         cq_class_label = "class" if cq_count == 1 else "classes"
@@ -712,6 +764,7 @@ def adapt_proxy_envelope(
             "fetched_at": fetched_at.isoformat(),
             "baseline": baseline_label,
             "fallback_main_classes": sorted(fallback_main_classes),
+            "sisn_labeled_main_classes": sorted(sisn_labeled_main_classes),
             "cq_public_fallback_classes": sorted(cq_public_fallback_classes),
             "omitted_unscheduled_classes": sorted(omitted_unscheduled),
             "missing_baseline_classes": missing_baseline_classes,
@@ -740,6 +793,7 @@ def adapt_proxy_envelope(
         "source_moes_classes": sum(item["source_classes"] for item in moes_diagnostics),
         "candidate_moes_sections": sum(item["candidate_sections"] for item in moes_diagnostics),
         "fallback_main_classes": len(fallback_main_classes),
+        "sisn_labeled_main_classes": len(sisn_labeled_main_classes),
         "cq_public_fallback_classes": len(cq_public_fallback_classes),
         "omitted_unscheduled_classes": len(omitted_unscheduled),
         "missing_baseline_classes": len(missing_baseline_classes),

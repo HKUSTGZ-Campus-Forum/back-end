@@ -370,7 +370,7 @@ def test_adapter_uses_reviewed_cq_section_identity_for_temporary_moes_fallback()
     cq_class = _api_class(
         "6965",
         "E",
-        "L01",
+        "U1",
         1,
         [_schedule(1, "18:00", "20:50", "Rm 101, E1")],
     )
@@ -411,6 +411,97 @@ def test_adapter_uses_reviewed_cq_section_identity_for_temporary_moes_fallback()
     assert adapted.counts["fallback_main_classes"] == 0
     assert adapted.snapshot["provenance"]["cq_public_fallback_classes"] == ["6965"]
     assert "used CQ public fallback schedules for 1 MOES class" in adapted.warnings
+
+
+def test_adapter_uses_official_sisn_section_identity_for_new_main_class():
+    payload = _payload()
+    payload["courses"].append({
+        "crseCode": "MOES1001",
+        "subject": "MOES",
+        "catalogNbr": "1001",
+        "crseDesc": "Ideological course",
+        "longDesc": "SISN-owned course with an official section label",
+        "credit": 3,
+        "preReq": "",
+        "coReq": "",
+        "exclusion": "",
+        "attributes": [],
+        "prevCrseCode": "",
+        "classes": [
+            _api_class(
+                "6965",
+                "E",
+                "L01",
+                1,
+                [_schedule(1, "18:00", "20:50", "Rm 101, E1")],
+            ),
+        ],
+    })
+
+    adapted = adapt_proxy_envelope(
+        _envelope(payload),
+        term="2610",
+        baseline=_baseline(),
+        baseline_label="reviewed-baseline.json",
+    )
+
+    moes = next(
+        course
+        for course in adapted.snapshot["courses"]
+        if course["course_code"] == "MOES1001"
+    )
+    assert moes["sections"][0]["name"] == "L01"
+    assert moes["sections"][0]["section_type"] == "L"
+    assert moes["sections"][0]["bundle"] == 1
+    assert adapted.counts["sisn_labeled_main_classes"] == 1
+    assert adapted.counts["fallback_main_classes"] == 0
+    assert adapted.counts["cq_public_fallback_classes"] == 0
+    assert adapted.snapshot["provenance"]["sisn_labeled_main_classes"] == [
+        "6965"
+    ]
+    assert "used official SISN section labels for 1 new main class" in adapted.warnings
+
+
+def test_adapter_rejects_official_sisn_section_bundle_collision():
+    payload = _payload()
+    payload["courses"][0]["classes"].append(
+        _api_class(
+            "1999",
+            "E",
+            "L01",
+            1,
+            [_schedule(5, "18:00", "20:50", "B201")],
+        )
+    )
+
+    with pytest.raises(SisnMappingError, match="reuses reviewed main bundle 1"):
+        adapt_proxy_envelope(
+            _envelope(payload),
+            term="2610",
+            baseline=_baseline(),
+            baseline_label="reviewed-baseline.json",
+        )
+
+
+def test_adapter_reuses_bundle_when_official_sisn_replaces_missing_main_class():
+    payload = _payload()
+    payload["courses"][0]["classes"][0]["classNbr"] = "1999"
+
+    adapted = adapt_proxy_envelope(
+        _envelope(payload),
+        term="2610",
+        baseline=_baseline(),
+        baseline_label="reviewed-baseline.json",
+    )
+
+    sections = adapted.snapshot["courses"][0]["sections"]
+    replacement = next(section for section in sections if section["section_id"] == "1999")
+    assert replacement["name"] == "G1"
+    assert replacement["bundle"] == 1
+    assert adapted.snapshot["provenance"]["missing_baseline_classes"] == ["1001"]
+    assert adapted.snapshot["provenance"]["sisn_labeled_main_classes"] == [
+        "1999"
+    ]
 
 
 def test_adapter_rejects_cq_fallback_provenance_outside_moes():
