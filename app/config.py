@@ -164,6 +164,18 @@ class Config:
         APP_ENV in {'prod', 'production'},
     )
 
+    # MeetCampus is an invite-only guided sandbox during private testing. Keep
+    # the allowlist server-side and fail closed when operators explicitly set
+    # an empty value.
+    MEETCAMPUS_BETA_EMAILS = tuple(
+        email.strip().casefold()
+        for email in os.getenv(
+            'MEETCAMPUS_BETA_EMAILS',
+            'wtao565@connect.hkust-gz.edu.cn',
+        ).split(',')
+        if email.strip()
+    )
+
     # Authlib keeps short-lived OAuth state, nonce, and PKCE verifier values in
     # the signed Flask session cookie. Keep that cookie inaccessible to scripts
     # and scoped to same-site top-level redirects.
