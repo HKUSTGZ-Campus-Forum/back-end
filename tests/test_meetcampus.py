@@ -33,6 +33,9 @@ class TestConfig:
     MEETCAMPUS_DECISION_MAX_MINUTES = 90
     MEETCAMPUS_MAX_DUE_RESIDENTS_PER_TICK = 8
     MEETCAMPUS_AI_API_KEY = ""
+    MEETCAMPUS_AI_API_BASE = "https://aigw.example/v1"
+    MEETCAMPUS_AI_MODEL = "DeepSeek-V4-Flash"
+    MEETCAMPUS_AI_TIMEOUT_SECONDS = 30
     MEETCAMPUS_AI_DAILY_CALL_BUDGET = 0
 
 
@@ -150,6 +153,49 @@ def auth_headers(app, user_id):
 def test_bootstrap_requires_authentication(client):
     response = client.get("/meetcampus/bootstrap")
     assert response.status_code == 401
+
+
+def test_chat_fallback_receives_schema_contract_and_normalizes_action(app, monkeypatch):
+    from app.services import meetcampus_ai
+
+    calls = []
+
+    class FakeResponse:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    def fake_post(url, **kwargs):
+        calls.append((url, kwargs))
+        if url.endswith("/responses"):
+            return FakeResponse(404, {})
+        return FakeResponse(200, {
+            "choices": [{"message": {"content": (
+                '{"action":"socialize","scene_slug":"gym","affordance":"chat",'
+                '"target_resident_id":null,"intention_zh":"聊聊天",'
+                '"intention_en":"Have a chat"}'
+            )}}],
+            "usage": {"prompt_tokens": 12, "completion_tokens": 8},
+        })
+
+    monkeypatch.setattr(meetcampus_ai.requests, "post", fake_post)
+    with app.app_context():
+        app.config["MEETCAMPUS_AI_API_KEY"] = "sk-test-provider-key-123456"
+        app.config["MEETCAMPUS_AI_DAILY_CALL_BUDGET"] = 10
+        decision = meetcampus_ai.propose_action(
+            resident={"id": "mc-resident-lin", "name": "Lin"},
+            observation={"scene_slug": "gym", "available_scene_slugs": ["gym"]},
+        )
+
+    assert decision is not None
+    assert decision.action == "talk"
+    assert calls[0][0].endswith("/responses")
+    assert calls[1][0].endswith("/chat/completions")
+    system_prompt = calls[1][1]["json"]["messages"][0]["content"]
+    assert '"enum":["activity","move","observe","rest","talk"]' in system_prompt
 
 
 def test_bootstrap_denies_non_invited_and_unverified_accounts(app, client):

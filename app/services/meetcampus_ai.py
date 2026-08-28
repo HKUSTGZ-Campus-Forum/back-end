@@ -18,6 +18,21 @@ from app.models.meetcampus import MeetCampusAgentRun
 
 
 ALLOWED_ACTIONS = frozenset({"move", "observe", "rest", "activity", "talk"})
+ACTION_ALIASES = {
+    "chat": "talk",
+    "converse": "talk",
+    "socialize": "talk",
+    "walk": "move",
+    "go": "move",
+    "explore": "observe",
+    "look": "observe",
+    "idle": "rest",
+    "sleep": "rest",
+    "eat": "activity",
+    "play": "activity",
+    "sport": "activity",
+    "study": "activity",
+}
 
 
 @dataclass(frozen=True)
@@ -112,13 +127,20 @@ def _post_model(instructions: str, input_payload: dict[str, Any], schema: dict[s
         timeout=timeout,
     )
     if response.status_code in (404, 405, 422):
+        schema_contract = json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
         response = requests.post(
             f"{base}/chat/completions",
             headers=headers,
             json={
                 "model": model,
                 "messages": [
-                    {"role": "system", "content": instructions},
+                    {
+                        "role": "system",
+                        "content": (
+                            f"{instructions}\nThe JSON object must validate against this exact schema: "
+                            f"{schema_contract}"
+                        ),
+                    },
                     {"role": "user", "content": compact_input},
                 ],
                 "response_format": {"type": "json_object"},
@@ -177,7 +199,8 @@ def propose_action(*, resident: dict[str, Any], observation: dict[str, Any]) -> 
     )
     try:
         data, usage = _post_model(instructions, payload, schema)
-        action = str(data.get("action", ""))
+        raw_action = str(data.get("action", "")).strip().lower()
+        action = ACTION_ALIASES.get(raw_action, raw_action)
         if action not in ALLOWED_ACTIONS:
             raise MeetCampusAIError("invalid_action")
         decision = AgentDecision(
