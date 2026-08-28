@@ -7,6 +7,8 @@ from app.models.token import STSTokenPool
 from app.extensions import db
 from datetime import datetime, timezone, timedelta
 import os
+from urllib.parse import quote
+import unicodedata
 
 bp = Blueprint('file', __name__, url_prefix='/files')
 
@@ -33,6 +35,32 @@ _BLOCKED_CONTENT_TYPE_PREFIXES = (
 _ALLOWED_CONTENT_TYPE_PREFIXES = (
     'image/', 'video/', 'audio/', 'text/', 'application/', 'font/', 'message/', 'model/',
 )
+
+
+def _inline_content_disposition(filename):
+    """Build an ASCII-safe Content-Disposition value for arbitrary filenames."""
+    display_name = str(filename or 'download')
+    display_name = ''.join(
+        character if ord(character) >= 32 and ord(character) != 127 else '_'
+        for character in display_name
+    )
+    display_name = display_name.replace('\\', '_').replace('/', '_').replace('"', "'")
+    if not display_name:
+        display_name = 'download'
+
+    ascii_name = unicodedata.normalize('NFKD', display_name).encode('ascii', 'ignore').decode('ascii')
+    ascii_name = ascii_name.replace('\\', '_').replace('/', '_').replace('"', "'")
+    if not ascii_name or not os.path.splitext(ascii_name)[0].strip(' ._-'):
+        extension = os.path.splitext(ascii_name)[1]
+        ascii_name = f'download{extension}'
+    elif ascii_name[0] in ' ._-':
+        ascii_name = f'download{ascii_name}'
+
+    disposition = f'inline; filename="{ascii_name}"'
+    if ascii_name != display_name:
+        encoded_name = quote(display_name, safe="!#$&+-.^_`|~")
+        disposition += f"; filename*=UTF-8''{encoded_name}"
+    return disposition
 
 
 def _stream_file_from_oss(file_record, cache_control='public, max-age=3600'):
@@ -68,10 +96,9 @@ def _stream_file_from_oss(file_record, cache_control='public, max-age=3600'):
         finally:
             response.close()
 
-    safe_filename = (file_record.original_filename or 'download').replace('"', "'").replace('\r', '').replace('\n', '')
     headers = {
         'Content-Type': file_record.mime_type or response.headers.get('Content-Type', 'application/octet-stream'),
-        'Content-Disposition': f'inline; filename="{safe_filename}"',
+        'Content-Disposition': _inline_content_disposition(file_record.original_filename),
         'Cache-Control': cache_control,
     }
 
