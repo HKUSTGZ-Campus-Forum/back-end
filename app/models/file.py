@@ -25,6 +25,7 @@ class File(db.Model):
     POST_ATTACHMENT = 'post_attachment'
     COMMENT_ATTACHMENT = 'comment_attachment'
     IDENTITY_DOCUMENT = 'identity_document'
+    CAROUSEL_IMAGE = 'carousel_image'
     GENERAL = 'general'
 
     # Upload limits enforced both before signing and after OSS verification.
@@ -49,7 +50,11 @@ class File(db.Model):
             'is_deleted': self.is_deleted,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-            'view_url': f'/api/files/view/{self.id}' if self.entity_type == 'post' else None,
+            'view_url': (
+                f'/api/files/view/{self.id}'
+                if self.entity_type in {'post', 'home_carousel'}
+                else None
+            ),
         }
         if include_internal:
             data.update({

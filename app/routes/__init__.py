@@ -2,7 +2,7 @@
 from flask import Blueprint
 
 def register_blueprints(app):
-    from app.routes import auth, oidc, user, post, comment, tag, reaction, file, course, analytics, search, gugu, oauth, notification, push, cache, identity, profile, project, matching, project_interview, background_tasks, contest, feedback, feedback_admin, academic_map, scheduler, scheduler_plan, admin, health, meetcampus
+    from app.routes import auth, oidc, user, post, comment, tag, reaction, file, course, analytics, search, gugu, oauth, notification, push, cache, identity, profile, project, matching, project_interview, background_tasks, contest, feedback, feedback_admin, academic_map, scheduler, scheduler_plan, admin, health, meetcampus, home_carousel
 
     app.register_blueprint(health.bp)
     app.register_blueprint(auth.bp)
@@ -33,6 +33,8 @@ def register_blueprints(app):
     app.register_blueprint(feedback.merge_request_bp)
     app.register_blueprint(feedback_admin.feedback_admin_bp)
     app.register_blueprint(admin.admin_bp)
+    app.register_blueprint(home_carousel.public_bp)
+    app.register_blueprint(home_carousel.admin_bp)
     app.register_blueprint(academic_map.bp)
     app.register_blueprint(scheduler.bp)
     app.register_blueprint(scheduler_plan.bp)

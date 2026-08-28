@@ -809,6 +809,21 @@ def _soft_delete_record(model, record_id, deleted, action_name, target_type, ser
     record = model.query.get(record_id)
     if record is None:
         return jsonify({"error": f"{target_type.title()} not found"}), 404
+    if (
+        deleted
+        and model is File
+        and record.entity_type == "home_carousel"
+        and record.entity_id is not None
+    ):
+        from app.models.home_carousel_slide import HomeCarouselSlide
+
+        linked_slide = HomeCarouselSlide.query.filter_by(
+            id=record.entity_id,
+            image_file_id=record.id,
+            is_deleted=False,
+        ).first()
+        if linked_slide is not None:
+            return jsonify({"error": "Replace or archive the carousel slide before deleting its image"}), 409
     record.is_deleted = deleted
     record.deleted_at = datetime.now(timezone.utc) if deleted else None
     target_label = getattr(record, "title", None) or getattr(record, "content", None)
