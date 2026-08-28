@@ -1,7 +1,7 @@
 {
   "backend_sha": "5416c2f56c357fb5366dba893589d136f6690278",
   "database_change": {
-    "approval_reference": "",
+    "approval_reference": null,
     "approved": false
   },
   "frontend_sha": "0c9c43ccde34f353a030b12d7abc71562a7fc554",
