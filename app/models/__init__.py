@@ -70,3 +70,4 @@ from .meetcampus import (
     MeetCampusStory,
     MeetCampusWorld,
 )
+from .home_carousel_slide import HomeCarouselSlide

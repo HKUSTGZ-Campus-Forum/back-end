@@ -210,10 +210,44 @@ def test_storage_proxy_forwards_video_range_requests(upload_client, monkeypatch)
         response = _stream_file_from_oss(record)
         assert response.status_code == 206
         assert response.headers["Content-Range"] == "bytes 0-3/100"
+        assert response.headers["Content-Disposition"] == 'inline; filename="clip.mp4"'
         assert response.get_data() == b"test"
 
     assert observed["headers"] == {"Range": "bytes=0-3"}
     assert observed["closed"] is True
+
+
+def test_storage_proxy_encodes_unicode_filename_in_ascii_safe_header(upload_client, monkeypatch):
+    client, _headers, _user_id, _bucket = upload_client
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"Content-Type": "image/jpeg", "Content-Length": "4"}
+
+        def iter_content(self, chunk_size):
+            assert chunk_size == 8192
+            yield b"test"
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("requests.get", lambda *_args, **_kwargs: FakeResponse())
+    record = SimpleNamespace(
+        id=10,
+        url="https://storage.example/image",
+        mime_type="image/jpeg",
+        original_filename="招新_c.jpg",
+    )
+
+    with client.application.test_request_context("/files/view/10"):
+        response = _stream_file_from_oss(record)
+        disposition = response.headers["Content-Disposition"]
+        assert disposition == (
+            'inline; filename="download_c.jpg"; '
+            "filename*=UTF-8''%E6%8B%9B%E6%96%B0_c.jpg"
+        )
+        assert disposition.isascii()
+        assert response.get_data() == b"test"
 
 
 def test_post_attachment_binding_is_atomic(upload_client, monkeypatch):

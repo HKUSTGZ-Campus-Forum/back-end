@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, inspect, text
 
 
 DATABASE_URL_ENV = "PRISTINE_POSTGRES_DATABASE_URL"
-EXPECTED_HEADS = {"20260828_meetcampus_world"}
+EXPECTED_HEADS = {"20260828_home_carousel"}
 
 
 @pytest.fixture(scope="module")
@@ -137,6 +137,16 @@ def test_pristine_postgres_upgrade_reaches_existing_heads(
 
         assert inspector.has_table("curriculum_programs")
         assert inspector.has_table("scheduler_popularity_events")
+        assert inspector.has_table("home_carousel_slides")
+        with db.engine.connect() as connection:
+            seeded_carousel_slides = connection.execute(
+                text("SELECT locale, image_path FROM home_carousel_slides ORDER BY sort_order")
+            ).all()
+        assert seeded_carousel_slides == [
+            ("all", "/image/banner/scheduler-planner-hero.webp"),
+            ("zh", "/image/banner/welcome_cn_2.jpg"),
+            ("en", "/image/banner/welcome_en.jpg"),
+        ]
         assert set(db.metadata.tables).issubset(set(inspector.get_table_names()))
         assert {
             column["name"]

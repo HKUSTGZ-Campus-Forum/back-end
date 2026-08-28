@@ -7,6 +7,8 @@ from app.models.token import STSTokenPool
 from app.extensions import db
 from datetime import datetime, timezone, timedelta
 import os
+from urllib.parse import quote
+import unicodedata
 
 bp = Blueprint('file', __name__, url_prefix='/files')
 
@@ -33,6 +35,32 @@ _BLOCKED_CONTENT_TYPE_PREFIXES = (
 _ALLOWED_CONTENT_TYPE_PREFIXES = (
     'image/', 'video/', 'audio/', 'text/', 'application/', 'font/', 'message/', 'model/',
 )
+
+
+def _inline_content_disposition(filename):
+    """Build an ASCII-safe Content-Disposition value for arbitrary filenames."""
+    display_name = str(filename or 'download')
+    display_name = ''.join(
+        character if ord(character) >= 32 and ord(character) != 127 else '_'
+        for character in display_name
+    )
+    display_name = display_name.replace('\\', '_').replace('/', '_').replace('"', "'")
+    if not display_name:
+        display_name = 'download'
+
+    ascii_name = unicodedata.normalize('NFKD', display_name).encode('ascii', 'ignore').decode('ascii')
+    ascii_name = ascii_name.replace('\\', '_').replace('/', '_').replace('"', "'")
+    if not ascii_name or not os.path.splitext(ascii_name)[0].strip(' ._-'):
+        extension = os.path.splitext(ascii_name)[1]
+        ascii_name = f'download{extension}'
+    elif ascii_name[0] in ' ._-':
+        ascii_name = f'download{ascii_name}'
+
+    disposition = f'inline; filename="{ascii_name}"'
+    if ascii_name != display_name:
+        encoded_name = quote(display_name, safe="!#$&+-.^_`|~")
+        disposition += f"; filename*=UTF-8''{encoded_name}"
+    return disposition
 
 
 def _stream_file_from_oss(file_record, cache_control='public, max-age=3600'):
@@ -68,10 +96,9 @@ def _stream_file_from_oss(file_record, cache_control='public, max-age=3600'):
         finally:
             response.close()
 
-    safe_filename = (file_record.original_filename or 'download').replace('"', "'").replace('\r', '').replace('\n', '')
     headers = {
         'Content-Type': file_record.mime_type or response.headers.get('Content-Type', 'application/octet-stream'),
-        'Content-Disposition': f'inline; filename="{safe_filename}"',
+        'Content-Disposition': _inline_content_disposition(file_record.original_filename),
         'Cache-Control': cache_control,
     }
 
@@ -94,7 +121,7 @@ def _validate_upload_request(filename, file_type, content_type):
     if ext in _UPLOAD_BLOCKED_EXTENSIONS:
         return False, '该文件类型不允许上传'
 
-    if file_type == File.POST_IMAGE:
+    if file_type in {File.POST_IMAGE, File.CAROUSEL_IMAGE}:
         if ext and ext not in _POST_IMAGE_EXTENSIONS:
             return False, '图片附件仅支持常见图片格式'
         if content_type and content_type.strip():
@@ -140,6 +167,7 @@ def generate_upload_url():
         File.POST_ATTACHMENT,
         File.COMMENT_ATTACHMENT,
         File.IDENTITY_DOCUMENT,
+        File.CAROUSEL_IMAGE,
         File.GENERAL
     ]
     if file_type not in allowed_file_types:
@@ -167,7 +195,7 @@ def generate_upload_url():
     # Validate entity_id if entity_type is provided (optional)
     # Some flows upload files before the entity record exists.
     # Keep this list explicit to avoid weakening validation globally.
-    entity_types_allow_pending_id = {'post', 'identity_verification'}
+    entity_types_allow_pending_id = {'post', 'identity_verification', 'home_carousel'}
     if entity_type and entity_type not in entity_types_allow_pending_id and entity_id is None:
          return jsonify({"error": "entity_id is required when entity_type is provided"}), 400
     if entity_type and entity_id is not None and not isinstance(entity_id, int):
@@ -182,6 +210,12 @@ def generate_upload_url():
     if not user:
         current_app.logger.warning(f"Upload attempt by non-existent or inactive user ID: {user_id}")
         return jsonify({"error": "User not found or inactive"}), 404
+
+    if file_type == File.CAROUSEL_IMAGE:
+        if entity_type != 'home_carousel':
+            return jsonify({"error": "Carousel images require the home_carousel entity type"}), 400
+        if not user.is_admin():
+            return jsonify({"error": "Admin access required"}), 403
 
     try:
         # Generate callback URL dynamically
@@ -351,7 +385,11 @@ def delete_file_route(file_id):
         user_id=user_id,
         is_deleted=False,
     ).first()
-    if existing_file and existing_file.entity_type == 'post' and existing_file.entity_id is not None:
+    if (
+        existing_file
+        and existing_file.entity_type in {'post', 'home_carousel'}
+        and existing_file.entity_id is not None
+    ):
         return jsonify({"error": "Attached files cannot be deleted directly"}), 409
 
     deleted_file = OSSService.delete_file(file_id, user_id)
@@ -517,7 +555,7 @@ def debug_maintain_sts_pool():
 
 @bp.route('/view/<int:file_id>', methods=['GET'])
 def public_view_file(file_id):
-    """Public stable file endpoint for forum post attachments."""
+    """Serve public forum and managed carousel images through UniKorn."""
     from app.models.post import Post
     import requests
 
@@ -528,15 +566,27 @@ def public_view_file(file_id):
     if file_record.status != 'uploaded':
         return jsonify({"error": "File not ready"}), 400
 
-    if file_record.entity_type != 'post' or not file_record.entity_id:
+    cache_control = 'no-store'
+    if file_record.entity_type == 'post' and file_record.entity_id:
+        post = Post.query.filter_by(id=file_record.entity_id, is_deleted=False).first()
+        if not post:
+            return jsonify({"error": "Post not found"}), 404
+    elif file_record.entity_type == 'home_carousel' and file_record.entity_id:
+        from app.models.home_carousel_slide import HomeCarouselSlide
+
+        slide = HomeCarouselSlide.query.filter_by(
+            id=file_record.entity_id,
+            image_file_id=file_record.id,
+            is_deleted=False,
+        ).first()
+        if slide is None:
+            return jsonify({"error": "Carousel slide not found"}), 404
+        cache_control = 'public, max-age=3600'
+    else:
         return jsonify({"error": "Forbidden"}), 403
 
-    post = Post.query.filter_by(id=file_record.entity_id, is_deleted=False).first()
-    if not post:
-        return jsonify({"error": "Post not found"}), 404
-
     try:
-        return _stream_file_from_oss(file_record, cache_control='no-store')
+        return _stream_file_from_oss(file_record, cache_control=cache_control)
     except requests.exceptions.Timeout:
         current_app.logger.error(f"Timeout fetching public file {file_id} from OSS")
         return jsonify({"error": "Request timeout"}), 504
