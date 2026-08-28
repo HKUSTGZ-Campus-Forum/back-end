@@ -14,6 +14,7 @@ from app.services.meetcampus_service import (
     create_bridge,
     create_command,
     mark_story_viewed,
+    update_appearance,
     world_worker_status,
 )
 
@@ -77,6 +78,12 @@ def snapshot():
 @jwt_required()
 def onboarding():
     return _response(complete_onboarding(_authorized_user(), _json_body()))
+
+
+@bp.patch("/appearance")
+@jwt_required()
+def appearance():
+    return _response(update_appearance(_authorized_user(), _json_body()))
 
 
 @bp.post("/commands")

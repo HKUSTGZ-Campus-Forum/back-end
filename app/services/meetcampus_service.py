@@ -35,6 +35,25 @@ from app.services.meetcampus_ai import (
 MOUNT_RESIDENT_SLUG = "mount"
 ALLOWED_AUTONOMY = frozenset({"guided", "balanced", "brave"})
 ALLOWED_COMMAND_KINDS = frozenset({"goal", "visit", "activity"})
+APPEARANCE_OPTIONS = {
+    "skinTone": ("porcelain", "warm", "tan", "deep"),
+    "hairStyle": ("crop", "bob", "waves", "bun", "curly", "cap"),
+    "hairColor": ("ink", "chestnut", "auburn", "plum", "ocean"),
+    "outfit": ("campus_blue", "mint_cardigan", "sunset_hoodie", "lavender_knit", "sport_green", "lab_coat"),
+    "accessory": ("none", "round_glasses", "headphones", "beret", "hairclip"),
+}
+DEFAULT_APPEARANCE = {
+    "skinTone": "warm",
+    "hairStyle": "crop",
+    "hairColor": "ink",
+    "outfit": "campus_blue",
+    "accessory": "none",
+}
+LEGACY_PALETTE_OUTFITS = {
+    "navy": "campus_blue", "blue": "campus_blue", "green": "sport_green",
+    "forest": "sport_green", "mint": "mint_cardigan", "orange": "sunset_hoodie",
+    "amber": "sunset_hoodie", "purple": "lavender_knit",
+}
 DEFAULT_PRIVACY_RULES = {
     "share_virtual_interests": True,
     "share_real_name": False,
@@ -83,6 +102,47 @@ def _iso(value: datetime | None) -> str | None:
 
 def _localized(zh: str, en: str) -> dict[str, str]:
     return {"zh": zh, "en": en}
+
+
+def _legacy_option(options: tuple[str, ...], value: Any, fallback: str) -> str:
+    try:
+        return options[abs(int(value)) % len(options)]
+    except (TypeError, ValueError):
+        return fallback
+
+
+def normalize_appearance(value: Any) -> dict[str, str]:
+    """Expose one stable appearance contract while retaining legacy seed compatibility."""
+    source = value if isinstance(value, dict) else {}
+    result = dict(DEFAULT_APPEARANCE)
+    for key, options in APPEARANCE_OPTIONS.items():
+        if source.get(key) in options:
+            result[key] = source[key]
+    if source.get("hairStyle") not in APPEARANCE_OPTIONS["hairStyle"]:
+        result["hairStyle"] = _legacy_option(APPEARANCE_OPTIONS["hairStyle"], source.get("hair"), result["hairStyle"])
+    if source.get("hairColor") not in APPEARANCE_OPTIONS["hairColor"]:
+        result["hairColor"] = _legacy_option(APPEARANCE_OPTIONS["hairColor"], source.get("hair"), result["hairColor"])
+    if source.get("outfit") not in APPEARANCE_OPTIONS["outfit"]:
+        result["outfit"] = LEGACY_PALETTE_OUTFITS.get(str(source.get("palette"))) or _legacy_option(
+            APPEARANCE_OPTIONS["outfit"], source.get("outfit"), result["outfit"]
+        )
+    if source.get("accessory") not in APPEARANCE_OPTIONS["accessory"]:
+        result["accessory"] = _legacy_option(APPEARANCE_OPTIONS["accessory"], source.get("accessory"), result["accessory"])
+    return result
+
+
+def validate_appearance(value: Any, current: Any = None) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise MeetCampusDomainError("invalid_appearance", "Resident appearance must be an object.")
+    unknown = set(value) - set(APPEARANCE_OPTIONS)
+    if unknown:
+        raise MeetCampusDomainError("invalid_appearance", "Resident appearance contains unsupported fields.")
+    result = normalize_appearance(current)
+    for key, option in value.items():
+        if option not in APPEARANCE_OPTIONS[key]:
+            raise MeetCampusDomainError("invalid_appearance", f"Unsupported appearance option for {key}.")
+        result[key] = option
+    return result
 
 
 def _world() -> MeetCampusWorld:
@@ -155,7 +215,7 @@ def _serialize_resident(
         "name": _localized(resident.name_zh, resident.name_en),
         "isMine": is_mine,
         "isSynthetic": resident.is_synthetic,
-        "appearance": dict(resident.appearance or {}),
+        "appearance": normalize_appearance(resident.appearance),
         "persona": persona if is_mine else {
             "interests": list(persona.get("interests", [])),
             "temperament": persona.get("temperament"),
@@ -297,6 +357,10 @@ def complete_onboarding(user: User, payload: dict[str, Any]) -> dict[str, Any]:
         "ownerAnchors": anchors,
         "autonomyLevel": autonomy,
     }
+    if "appearance" in payload:
+        resident.appearance = validate_appearance(payload["appearance"], resident.appearance)
+    else:
+        resident.appearance = normalize_appearance(resident.appearance)
     resident.is_active = True
     profile.locale = locale
     profile.autonomy_level = autonomy
@@ -309,6 +373,15 @@ def complete_onboarding(user: User, payload: dict[str, Any]) -> dict[str, Any]:
         state.activity = "setting_out"
         state.activity_started_at = utc_now()
         state.next_decision_at = utc_now()
+    db.session.commit()
+    return build_bootstrap_payload(user)
+
+
+def update_appearance(user: User, payload: dict[str, Any]) -> dict[str, Any]:
+    resident, profile = ensure_owner_profile(user)
+    if profile.onboarding_status != "completed":
+        raise MeetCampusDomainError("onboarding_required", "Finish meeting your resident first.", 409)
+    resident.appearance = validate_appearance(payload, resident.appearance)
     db.session.commit()
     return build_bootstrap_payload(user)
 
@@ -414,7 +487,7 @@ def list_relationships(resident: MeetCampusResident) -> list[dict[str, Any]]:
             "resident": {
                 "id": other.id,
                 "name": _localized(other.name_zh, other.name_en),
-                "appearance": dict(other.appearance or {}),
+                "appearance": normalize_appearance(other.appearance),
                 "isSynthetic": other.is_synthetic,
             },
             "familiarity": row.familiarity,

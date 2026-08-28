@@ -218,6 +218,7 @@ def test_bootstrap_denies_non_invited_and_unverified_accounts(app, client):
     ("get", "/meetcampus/bootstrap"),
     ("get", "/meetcampus/snapshot"),
     ("post", "/meetcampus/onboarding"),
+    ("patch", "/meetcampus/appearance"),
     ("post", "/meetcampus/commands"),
     ("post", "/meetcampus/stories/not-a-story/view"),
     ("post", "/meetcampus/stories/not-a-story/bridge"),
@@ -230,7 +231,7 @@ def test_every_route_denies_non_invited_accounts(app, client, method, path):
     response = getattr(client, method)(
         path,
         headers=auth_headers(app, other_id),
-        json={} if method == "post" else None,
+        json={} if method in {"post", "patch"} else None,
     )
     assert response.status_code == 403
     assert response.get_json()["code"] == "meetcampus_beta_required"
@@ -266,6 +267,13 @@ def test_onboarding_command_and_world_tick_are_persistent(app, client):
     response = client.post("/meetcampus/onboarding", headers=headers, json={
         "locale": "zh",
         "autonomyLevel": "balanced",
+        "appearance": {
+            "skinTone": "tan",
+            "hairStyle": "waves",
+            "hairColor": "auburn",
+            "outfit": "mint_cardigan",
+            "accessory": "round_glasses",
+        },
         "anchors": {
             "residentName": "小满",
             "socialPace": "slow_warmup",
@@ -275,6 +283,20 @@ def test_onboarding_command_and_world_tick_are_persistent(app, client):
     })
     assert response.status_code == 200
     assert len(response.get_json()["snapshot"]["residents"]) == 2
+    mine = next(item for item in response.get_json()["snapshot"]["residents"] if item["isMine"])
+    assert mine["appearance"] == {
+        "skinTone": "tan", "hairStyle": "waves", "hairColor": "auburn",
+        "outfit": "mint_cardigan", "accessory": "round_glasses",
+    }
+
+    restyled = client.patch("/meetcampus/appearance", headers=headers, json={
+        "hairStyle": "bun", "accessory": "hairclip",
+    })
+    assert restyled.status_code == 200
+    mine = next(item for item in restyled.get_json()["snapshot"]["residents"] if item["isMine"])
+    assert mine["appearance"]["hairStyle"] == "bun"
+    assert mine["appearance"]["accessory"] == "hairclip"
+    assert mine["appearance"]["skinTone"] == "tan"
 
     command = client.post("/meetcampus/commands", headers=headers, json={
         "kind": "visit",
@@ -296,3 +318,19 @@ def test_onboarding_command_and_world_tick_are_persistent(app, client):
     payload = snapshot.get_json()
     assert payload["snapshot"]["world"]["stateVersion"] == first_version
     assert payload["stories"]
+
+
+def test_appearance_rejects_invalid_options_and_requires_onboarding(app, client):
+    invited_id = create_user(app, email="wtao565@connect.hkust-gz.edu.cn")
+    headers = auth_headers(app, invited_id)
+
+    before_onboarding = client.patch("/meetcampus/appearance", headers=headers, json={"hairStyle": "bun"})
+    assert before_onboarding.status_code == 409
+    assert before_onboarding.get_json()["code"] == "onboarding_required"
+
+    invalid = client.post("/meetcampus/onboarding", headers=headers, json={
+        "locale": "zh", "autonomyLevel": "balanced", "anchors": {},
+        "appearance": {"hairStyle": "impossible"},
+    })
+    assert invalid.status_code == 400
+    assert invalid.get_json()["code"] == "invalid_appearance"
