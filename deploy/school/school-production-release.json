@@ -1,9 +1,9 @@
 {
-  "backend_sha": "6622ea732c455799dd89896a131f20266ec66d8e",
+  "backend_sha": "8ac14fa81aa93980e1044cfb2657dec7d7c3943e",
   "database_change": {
-    "approval_reference": null,
-    "approved": false
+    "approval_reference": "codex-thread-2026-08-28-user-approved-meetcampus-migration",
+    "approved": true
   },
-  "frontend_sha": "7c890f5671500efad61ff4cfcdb2d70377afccb6",
+  "frontend_sha": "0c9c43ccde34f353a030b12d7abc71562a7fc554",
   "schema_version": 1
 }
