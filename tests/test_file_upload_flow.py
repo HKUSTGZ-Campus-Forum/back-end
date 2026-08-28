@@ -29,6 +29,7 @@ class FakeBucket:
         self.size = size
         self.mime_type = mime_type
         self.deleted = []
+        self.delete_error = None
 
     def head_object(self, _object_name):
         return SimpleNamespace(
@@ -38,6 +39,8 @@ class FakeBucket:
         )
 
     def delete_object(self, object_name):
+        if self.delete_error:
+            raise self.delete_error
         self.deleted.append(object_name)
 
 
@@ -46,6 +49,7 @@ def upload_client(monkeypatch):
     app = create_app(TestConfig)
     fake_bucket = FakeBucket()
     monkeypatch.setattr(OSSService, "_create_upload_bucket", staticmethod(lambda: fake_bucket))
+    monkeypatch.setattr(OSSService, "_create_management_bucket", staticmethod(lambda: fake_bucket))
 
     with app.test_client() as client:
         with app.app_context():
@@ -154,6 +158,45 @@ def test_cleanup_keeps_recent_verified_forum_draft(upload_client):
         assert OSSService.cleanup_stale_unbound_uploads(max_age_hours=24) == 0
         assert db.session.get(File, file_id).is_deleted is False
         assert bucket.deleted == []
+
+
+def test_delete_unbound_upload_uses_management_bucket(upload_client):
+    client, headers, user_id, bucket = upload_client
+    with client.application.app_context():
+        file_id = _pending_file(user_id)
+        record = db.session.get(File, file_id)
+        record.status = "uploaded"
+        object_name = record.object_name
+        db.session.commit()
+
+    response = client.delete(f"/files/{file_id}", headers=headers)
+
+    assert response.status_code == 200
+    assert response.get_json()["cleanup_pending"] is False
+    assert object_name in bucket.deleted
+    with client.application.app_context():
+        record = db.session.get(File, file_id)
+        assert record.is_deleted is True
+        assert record.deleted_at is not None
+
+
+def test_delete_unbound_upload_queues_cleanup_when_oss_delete_fails(upload_client):
+    client, headers, user_id, bucket = upload_client
+    bucket.delete_error = PermissionError("DeleteObject denied")
+    with client.application.app_context():
+        file_id = _pending_file(user_id)
+        record = db.session.get(File, file_id)
+        record.status = "uploaded"
+        db.session.commit()
+
+    response = client.delete(f"/files/{file_id}", headers=headers)
+
+    assert response.status_code == 202
+    assert response.get_json()["cleanup_pending"] is True
+    with client.application.app_context():
+        record = db.session.get(File, file_id)
+        assert record.is_deleted is False
+        assert record.status == "error"
 
 
 def test_public_serializer_does_not_expose_storage_fields(upload_client):

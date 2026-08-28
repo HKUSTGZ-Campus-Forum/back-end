@@ -5,6 +5,7 @@ from sqlalchemy import and_, or_
 from app.models.token import STSTokenPool
 from app.extensions import db
 from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
 import json
 import uuid # Moved import to top
 import os   # Moved import to top
@@ -15,6 +16,14 @@ from app.models.file import File # Ensure File is imported
 
 class UploadVerificationError(Exception):
     """Raised when an uploaded OSS object does not match the file contract."""
+
+
+@dataclass(frozen=True)
+class FileDeletionResult:
+    """Outcome of removing an unbound upload from the user's draft."""
+
+    record: File
+    cleanup_pending: bool
 
 
 class OSSService:
@@ -57,6 +66,27 @@ class OSSService:
         current_app.logger.warning('STS unavailable, falling back to long-lived OSS credentials for upload signing.')
         auth = Auth(access_key_id, access_key_secret)
         return Bucket(auth, endpoint, bucket_name)
+
+    @staticmethod
+    def _create_management_bucket():
+        """Create a server-owned OSS client for HEAD/delete operations.
+
+        Browser upload STS credentials are intentionally narrow and may not
+        include DeleteObject. Cleanup must therefore use the server's managed
+        credentials instead of whichever upload token happens to be in the
+        shared token pool.
+        """
+        endpoint = current_app.config.get('OSS_ENDPOINT')
+        bucket_name = current_app.config.get('OSS_BUCKET_NAME')
+        access_key_id = current_app.config.get('ALIBABA_CLOUD_ACCESS_KEY_ID')
+        access_key_secret = current_app.config.get('ALIBABA_CLOUD_ACCESS_KEY_SECRET')
+
+        if not endpoint or not bucket_name:
+            raise Exception('OSS endpoint or bucket name is not configured.')
+        if not access_key_id or not access_key_secret:
+            raise Exception('OSS management credentials are not configured.')
+
+        return Bucket(Auth(access_key_id, access_key_secret), endpoint, bucket_name)
 
     @staticmethod
     def object_exists(object_name):
@@ -372,7 +402,7 @@ class OSSService:
             file_record.status = 'error'
             db.session.commit()
             try:
-                OSSService._create_upload_bucket().delete_object(file_record.object_name)
+                OSSService._create_management_bucket().delete_object(file_record.object_name)
             except Exception as cleanup_error:
                 current_app.logger.warning(
                     f'Could not remove rejected OSS object for file_id {file_id}: {cleanup_error}'
@@ -431,7 +461,7 @@ class OSSService:
 
     @staticmethod
     def delete_file(file_id, user_id):
-        """Delete an unbound upload from OSS and soft-delete its record."""
+        """Remove an unbound draft upload and queue cleanup when OSS is unavailable."""
         file_record = File.query.filter_by(id=file_id, user_id=user_id, is_deleted=False).first()
         if not file_record:
             return None # Not found or already deleted
@@ -440,13 +470,22 @@ class OSSService:
             return None
 
         try:
-            OSSService._create_upload_bucket().delete_object(file_record.object_name)
+            OSSService._create_management_bucket().delete_object(file_record.object_name)
         except Exception as e:
-            current_app.logger.error(
-                f"Failed to delete object {file_record.object_name} for file_id {file_id}: {e}",
-                exc_info=True,
+            current_app.logger.warning(
+                f"Deferred OSS cleanup for file_id {file_id}: {e}",
             )
-            return None
+            file_record.status = 'error'
+            try:
+                db.session.commit()
+                return FileDeletionResult(record=file_record, cleanup_pending=True)
+            except Exception as db_error:
+                db.session.rollback()
+                current_app.logger.error(
+                    f"Could not queue cleanup for file_id {file_id}: {db_error}",
+                    exc_info=True,
+                )
+                return None
 
         file_record.is_deleted = True
         file_record.deleted_at = datetime.now(timezone.utc)
@@ -454,7 +493,7 @@ class OSSService:
         try:
             db.session.commit()
             current_app.logger.info(f"Deleted OSS object and soft-deleted file_id {file_id}.")
-            return file_record
+            return FileDeletionResult(record=file_record, cleanup_pending=False)
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f"Database error soft deleting file record for file_id {file_id}: {e}")
@@ -485,7 +524,7 @@ class OSSService:
         if not stale_files:
             return 0
 
-        bucket = OSSService._create_upload_bucket()
+        bucket = OSSService._create_management_bucket()
         cleaned = 0
         for file_record in stale_files:
             try:

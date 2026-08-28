@@ -392,9 +392,9 @@ def delete_file_route(file_id):
     ):
         return jsonify({"error": "Attached files cannot be deleted directly"}), 409
 
-    deleted_file = OSSService.delete_file(file_id, user_id)
+    deletion = OSSService.delete_file(file_id, user_id)
 
-    if not deleted_file:
+    if not deletion:
         # Could be not found, or already deleted, or DB error
         # Check if it exists at all first
         exists = File.query.filter_by(id=file_id, user_id=user_id).first()
@@ -404,7 +404,13 @@ def delete_file_route(file_id):
              # Assume DB error if it exists but deletion failed
              return jsonify({"error": "Failed to delete file record"}), 500
 
-    return jsonify({"message": "File deleted"}), 200
+    if deletion.cleanup_pending:
+        return jsonify({
+            "message": "File removed from draft; storage cleanup queued",
+            "cleanup_pending": True,
+        }), 202
+
+    return jsonify({"message": "File deleted", "cleanup_pending": False}), 200
 
 
 @bp.route('', methods=['GET'])
