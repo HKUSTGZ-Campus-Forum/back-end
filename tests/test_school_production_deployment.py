@@ -429,7 +429,7 @@ def test_restore_compares_every_table_alembic_and_foreign_keys_before_promotion(
     assert exact_compare_position < migration_position < post_migration_position < promote_position
     assert "ast.parse" in post_migration
     assert "source table row count" in post_migration
-    assert "target-only migration table is not empty" in post_migration
+    assert "target-only migration table count differs from declared seed" in post_migration
     assert "target Alembic heads do not match release" in post_migration
     rehearsal_gate = restore.index("ALTER DATABASE ${candidate} WITH ALLOW_CONNECTIONS false")
     assert post_migration_position < rehearsal_gate < promote_position
@@ -453,8 +453,13 @@ def test_post_migration_snapshot_allows_only_empty_new_tables(tmp_path):
             "public.scheduler_plans": 0,
             "public.scheduler_plan_courses": 0,
             "public.scheduler_plan_sections": 0,
+            "public.meetcampus_worlds": 1,
+            "public.meetcampus_scenes": 12,
+            "public.meetcampus_scene_connections": 22,
+            "public.meetcampus_residents": 20,
+            "public.meetcampus_resident_states": 20,
         },
-        "alembic_heads": ["20260824_section_label_255"],
+        "alembic_heads": ["20260828_meetcampus_world"],
         "foreign_keys": 17,
     }
     source_path = tmp_path / "source.json"
@@ -492,7 +497,7 @@ def test_post_migration_snapshot_allows_only_empty_new_tables(tmp_path):
         text=True,
     )
     assert failed.returncode != 0
-    assert "target-only migration table is not empty" in failed.stdout
+    assert "target-only migration table count differs from declared seed" in failed.stdout
 
 
 def test_migration_dump_and_source_counts_share_one_exported_snapshot():

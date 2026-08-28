@@ -83,7 +83,7 @@ def test_alembic_revision_graph_is_acyclic_and_has_expected_heads():
         )
         if parent is not None
     }
-    assert set(revisions) - parents == {"20260824_section_label_255"}
+    assert set(revisions) - parents == {"20260828_meetcampus_world"}
 
 
 def test_cross_branch_dependencies_order_pristine_database_revisions():

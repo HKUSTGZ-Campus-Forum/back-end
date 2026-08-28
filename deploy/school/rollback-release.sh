@@ -21,14 +21,14 @@ done
 # A verified DB backup is mandatory, but schema downgrade remains an explicit
 # operator decision. This script never overwrites the database automatically.
 systemctl start unikorn-backup.service
-systemctl stop unikorn-frontend.service unikorn-backend.service
+systemctl stop unikorn-background-worker.service unikorn-frontend.service unikorn-backend.service
 next_current="${app_root}/.rollback-current.$$"
 next_previous="${app_root}/.rollback-previous.$$"
 ln -s -- "${previous}" "${next_current}"
 ln -s -- "${current}" "${next_previous}"
 mv -Tf -- "${next_current}" "${app_root}/current"
 mv -Tf -- "${next_previous}" "${app_root}/previous"
-systemctl start unikorn-backend.service unikorn-frontend.service
+systemctl start unikorn-backend.service unikorn-frontend.service unikorn-background-worker.service
 
 for _attempt in {1..20}; do
     if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8001/readyz >/dev/null && \

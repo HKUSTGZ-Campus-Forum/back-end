@@ -17,12 +17,13 @@ def load_snapshot(path: str) -> dict:
     return payload
 
 
-def repository_heads(migrations_dir: str) -> list[str]:
+def repository_metadata(migrations_dir: str) -> tuple[list[str], dict[str, int]]:
     directory = Path(migrations_dir).resolve(strict=True)
     if not directory.is_dir():
         raise RuntimeError("migrations path is not a directory")
     revisions: set[str] = set()
     down_revisions: set[str] = set()
+    expected_seed_counts: dict[str, int] = {}
     for migration in sorted((directory / "versions").glob("*.py")):
         assignments: dict[str, object] = {}
         tree = ast.parse(migration.read_text(encoding="utf-8"), filename=str(migration))
@@ -30,7 +31,9 @@ def repository_heads(migrations_dir: str) -> list[str]:
             if not isinstance(node, ast.Assign) or len(node.targets) != 1:
                 continue
             target = node.targets[0]
-            if isinstance(target, ast.Name) and target.id in {"revision", "down_revision"}:
+            if isinstance(target, ast.Name) and target.id in {
+                "revision", "down_revision", "expected_seed_counts"
+            }:
                 assignments[target.id] = ast.literal_eval(node.value)
         revision = assignments.get("revision")
         if revision is None:
@@ -47,10 +50,28 @@ def repository_heads(migrations_dir: str) -> list[str]:
             down_revisions.update(down_revision)
         elif down_revision is not None:
             raise RuntimeError(f"invalid down_revision in {migration}")
+        declared_counts = assignments.get("expected_seed_counts", {})
+        if not isinstance(declared_counts, dict):
+            raise RuntimeError(f"invalid expected_seed_counts in {migration}")
+        for table, count in declared_counts.items():
+            if (
+                not isinstance(table, str)
+                or not table.startswith("public.")
+                or not isinstance(count, int)
+                or isinstance(count, bool)
+                or count <= 0
+                or table in expected_seed_counts
+            ):
+                raise RuntimeError(f"invalid seeded table count in {migration}: {table}")
+            expected_seed_counts[table] = count
     heads = sorted(revisions - down_revisions)
     if not revisions or not heads:
         raise RuntimeError("could not determine repository Alembic heads")
-    return heads
+    return heads, expected_seed_counts
+
+
+def repository_heads(migrations_dir: str) -> list[str]:
+    return repository_metadata(migrations_dir)[0]
 
 
 def main() -> None:
@@ -62,7 +83,7 @@ def main() -> None:
 
     source = load_snapshot(args.source)
     target = load_snapshot(args.target)
-    expected_heads = repository_heads(args.migrations_dir)
+    expected_heads, expected_seed_counts = repository_metadata(args.migrations_dir)
     source_counts = source["table_counts"]
     target_counts = target["table_counts"]
     mismatches: list[str] = []
@@ -74,9 +95,11 @@ def main() -> None:
                 f"source table row count {table}: source={source_count} target={target_count}"
             )
     for table in sorted(set(target_counts) - set(source_counts)):
-        if target_counts[table] != 0:
+        expected_count = expected_seed_counts.get(table, 0)
+        if target_counts[table] != expected_count:
             mismatches.append(
-                f"target-only migration table is not empty: {table}={target_counts[table]}"
+                "target-only migration table count differs from declared seed: "
+                f"{table}={target_counts[table]} expected={expected_count}"
             )
     if target.get("alembic_heads") != expected_heads:
         mismatches.append(

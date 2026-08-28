@@ -55,3 +55,18 @@ from .course_domain import (
     UserSectionSelection,
     CoursePostOfferingTarget,
 )
+from .meetcampus import (
+    MeetCampusAgentRun,
+    MeetCampusBridge,
+    MeetCampusCommand,
+    MeetCampusEvent,
+    MeetCampusMemory,
+    MeetCampusOwnerProfile,
+    MeetCampusRelationship,
+    MeetCampusResident,
+    MeetCampusResidentState,
+    MeetCampusScene,
+    MeetCampusSceneConnection,
+    MeetCampusStory,
+    MeetCampusWorld,
+)

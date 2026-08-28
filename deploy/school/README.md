@@ -153,10 +153,32 @@ sudo deploy/school/deploy-release.sh \
 ```
 
 The same trusted script builds immutable dependencies, applies Alembic through a systemd
-oneshot unit, atomically changes `current`, restarts both services, verifies the
+oneshot unit, atomically changes `current`, restarts the application services, verifies the
 exact frontend version, and reverts the application symlink on failed health.
 It takes a verified DB backup before replacing an existing release. Schema
 downgrades are intentionally never automatic.
+
+### 3.1 One-time background worker installation
+
+MeetCampus world advancement and the existing maintenance jobs run in the
+single `unikorn-background-worker.service`; Gunicorn keeps
+`ENABLE_BACKGROUND_TASKS=false` so web workers never create duplicate
+schedulers. Installing this new root-owned unit is intentionally not part of a
+normal branch-triggered release and requires an interactive operator once:
+
+```bash
+sudo install -o root -g root -m 0644 \
+  deploy/school/systemd/unikorn-background-worker.service \
+  /etc/systemd/system/unikorn-background-worker.service
+sudo systemd-analyze verify /etc/systemd/system/unikorn-background-worker.service
+sudo systemctl daemon-reload
+sudo systemctl enable unikorn-background-worker.service
+```
+
+Set the documented MeetCampus variables in `/etc/unikorn/unikorn.env` without
+shell-sourcing it. The next validated release starts the worker together with
+the API and frontend. Verify its status and the private
+`/api/meetcampus/worker/status` endpoint after activation.
 
 ### 4. Split Nginx without touching CoursePlan
 

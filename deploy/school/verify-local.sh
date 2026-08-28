@@ -103,7 +103,7 @@ pg_restore --list "${latest_backup}" >/dev/null
 
 if [[ "${restart_services}" == "true" ]]; then
     [[ "${EUID}" -eq 0 ]] || { printf '%s\n' '--restart-services requires root' >&2; exit 1; }
-    systemctl restart unikorn-redis.service unikorn-backend.service unikorn-frontend.service
+    systemctl restart unikorn-redis.service unikorn-backend.service unikorn-frontend.service unikorn-background-worker.service
     systemctl restart courseplan.service
     sleep 3
     rerun_args=()

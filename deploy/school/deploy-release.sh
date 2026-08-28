@@ -169,9 +169,9 @@ if [[ -L "${app_root}/current" ]]; then
     systemctl start unikorn-backup.service
 fi
 
-systemctl stop unikorn-frontend.service unikorn-backend.service >/dev/null 2>&1 || true
+systemctl stop unikorn-background-worker.service unikorn-frontend.service unikorn-backend.service >/dev/null 2>&1 || true
 if ! systemctl start "unikorn-migrate@${release_id}.service"; then
-    [[ -z "${old_current}" ]] || systemctl start unikorn-backend.service unikorn-frontend.service
+    [[ -z "${old_current}" ]] || systemctl start unikorn-backend.service unikorn-frontend.service unikorn-background-worker.service
     fail "Alembic migration failed; current release was not changed"
 fi
 
@@ -185,8 +185,8 @@ if [[ -n "${old_current}" ]]; then
 fi
 
 systemctl daemon-reload
-systemctl enable unikorn-backend.service unikorn-frontend.service unikorn-backup.timer >/dev/null
-systemctl restart unikorn-backend.service unikorn-frontend.service
+systemctl enable unikorn-backend.service unikorn-frontend.service unikorn-background-worker.service unikorn-backup.timer >/dev/null
+systemctl restart unikorn-backend.service unikorn-frontend.service unikorn-background-worker.service
 healthy=false
 for _attempt in {1..30}; do
     if curl --fail --silent --show-error --connect-timeout 2 --max-time 5 \
@@ -200,12 +200,12 @@ for _attempt in {1..30}; do
     sleep 2
 done
 if [[ "${healthy}" != "true" ]]; then
-    systemctl stop unikorn-frontend.service unikorn-backend.service >/dev/null 2>&1 || true
+    systemctl stop unikorn-background-worker.service unikorn-frontend.service unikorn-backend.service >/dev/null 2>&1 || true
     if [[ -n "${old_current}" ]]; then
         failed_stage="${app_root}/.failed-current.${release_id}.$$"
         ln -s -- "${old_current}" "${failed_stage}"
         mv -Tf -- "${failed_stage}" "${app_root}/current"
-        systemctl start unikorn-backend.service unikorn-frontend.service
+        systemctl start unikorn-backend.service unikorn-frontend.service unikorn-background-worker.service
     fi
     fail "candidate health failed; application link was reverted (database downgrade is never automatic)"
 fi

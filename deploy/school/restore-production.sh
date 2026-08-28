@@ -246,7 +246,7 @@ fi
 if [[ -L "${app_root}/current" ]]; then
     systemctl start unikorn-backup.service
 fi
-systemctl stop unikorn-frontend.service unikorn-backend.service >/dev/null 2>&1 || true
+systemctl stop unikorn-background-worker.service unikorn-frontend.service unikorn-backend.service >/dev/null 2>&1 || true
 rollback_database="prod_unikorn_rollback_${timestamp,,}"
 [[ "${#rollback_database}" -le 63 ]] || fail "rollback database name is too long"
 
@@ -267,7 +267,7 @@ runuser -u postgres -- psql --dbname=postgres --no-psqlrc --set ON_ERROR_STOP=1 
     --command="ALTER DATABASE ${rollback_database} WITH ALLOW_CONNECTIONS false"
 trap - ERR
 
-systemctl restart unikorn-backend.service unikorn-frontend.service
+systemctl restart unikorn-backend.service unikorn-frontend.service unikorn-background-worker.service
 healthy=false
 for _attempt in {1..30}; do
     if curl --fail --silent --show-error --connect-timeout 2 --max-time 5 \
@@ -280,7 +280,7 @@ for _attempt in {1..30}; do
     sleep 2
 done
 if [[ "${healthy}" != "true" ]]; then
-    systemctl stop unikorn-frontend.service unikorn-backend.service >/dev/null 2>&1 || true
+    systemctl stop unikorn-background-worker.service unikorn-frontend.service unikorn-backend.service >/dev/null 2>&1 || true
     failed_database="prod_unikorn_failed_${timestamp,,}"
     runuser -u postgres -- psql --dbname=postgres --no-psqlrc --set ON_ERROR_STOP=1 \
         --command="ALTER DATABASE prod_unikorn WITH ALLOW_CONNECTIONS false"
@@ -292,7 +292,7 @@ if [[ "${healthy}" != "true" ]]; then
         --command="ALTER DATABASE ${rollback_database} RENAME TO prod_unikorn"
     runuser -u postgres -- psql --dbname=postgres --no-psqlrc --set ON_ERROR_STOP=1 \
         --command="ALTER DATABASE prod_unikorn WITH ALLOW_CONNECTIONS true"
-    systemctl start unikorn-backend.service unikorn-frontend.service >/dev/null 2>&1 || true
+    systemctl start unikorn-backend.service unikorn-frontend.service unikorn-background-worker.service >/dev/null 2>&1 || true
     fail "promoted database failed health checks and was rolled back"
 fi
 

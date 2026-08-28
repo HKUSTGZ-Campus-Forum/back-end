@@ -164,9 +164,8 @@ class Config:
         APP_ENV in {'prod', 'production'},
     )
 
-    # MeetCampus is an invite-only guided sandbox during private testing. Keep
-    # the allowlist server-side and fail closed when operators explicitly set
-    # an empty value.
+    # MeetCampus is invite-only during private testing. Keep the allowlist
+    # server-side and fail closed when operators explicitly set an empty value.
     MEETCAMPUS_BETA_EMAILS = tuple(
         email.strip().casefold()
         for email in os.getenv(
@@ -174,6 +173,44 @@ class Config:
             'wtao565@connect.hkust-gz.edu.cn',
         ).split(',')
         if email.strip()
+    )
+    MEETCAMPUS_WORLD_ENABLED = get_env_bool('MEETCAMPUS_WORLD_ENABLED', True)
+    MEETCAMPUS_WORLD_ID = os.getenv(
+        'MEETCAMPUS_WORLD_ID',
+        'mc-world-campus-v1',
+    ).strip()
+    MEETCAMPUS_WORLD_TICK_SECONDS = max(
+        15,
+        int(os.getenv('MEETCAMPUS_WORLD_TICK_SECONDS', '60')),
+    )
+    MEETCAMPUS_DECISION_MIN_MINUTES = max(
+        15,
+        int(os.getenv('MEETCAMPUS_DECISION_MIN_MINUTES', '30')),
+    )
+    MEETCAMPUS_DECISION_MAX_MINUTES = max(
+        MEETCAMPUS_DECISION_MIN_MINUTES,
+        int(os.getenv('MEETCAMPUS_DECISION_MAX_MINUTES', '90')),
+    )
+    MEETCAMPUS_MAX_DUE_RESIDENTS_PER_TICK = max(
+        1,
+        int(os.getenv('MEETCAMPUS_MAX_DUE_RESIDENTS_PER_TICK', '8')),
+    )
+    MEETCAMPUS_AI_API_BASE = os.getenv(
+        'MEETCAMPUS_AI_API_BASE',
+        'https://aigw.hkust-gz.edu.cn/v1',
+    ).strip().rstrip('/')
+    MEETCAMPUS_AI_API_KEY = os.getenv('MEETCAMPUS_AI_API_KEY', '').strip()
+    MEETCAMPUS_AI_MODEL = os.getenv(
+        'MEETCAMPUS_AI_MODEL',
+        'DeepSeek-V4-Flash',
+    ).strip()
+    MEETCAMPUS_AI_TIMEOUT_SECONDS = max(
+        5,
+        int(os.getenv('MEETCAMPUS_AI_TIMEOUT_SECONDS', '30')),
+    )
+    MEETCAMPUS_AI_DAILY_CALL_BUDGET = max(
+        0,
+        int(os.getenv('MEETCAMPUS_AI_DAILY_CALL_BUDGET', '300')),
     )
 
     # Authlib keeps short-lived OAuth state, nonce, and PKCE verifier values in
