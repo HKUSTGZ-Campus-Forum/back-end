@@ -206,6 +206,19 @@ def test_school_release_update_helper_writes_exact_manifest(tmp_path):
     }
 
 
+def test_background_worker_overrides_shared_web_scheduler_setting():
+    unit = (
+        ROOT / "deploy" / "school" / "systemd" / "unikorn-background-worker.service"
+    ).read_text(encoding="utf-8")
+
+    assert "EnvironmentFile=/etc/unikorn/unikorn.env" in unit
+    assert (
+        "ExecStart=/usr/bin/env ENABLE_BACKGROUND_TASKS=true "
+        "/srv/unikorn/current/backend/.venv/bin/python -m app.background_worker"
+    ) in unit
+    assert "Environment=ENABLE_BACKGROUND_TASKS=true" not in unit
+
+
 def git_commit(repository: Path, message: str) -> str:
     subprocess.run(["git", "-C", str(repository), "add", "-A"], check=True)
     subprocess.run(
