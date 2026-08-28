@@ -1,9 +1,9 @@
 {
-  "backend_sha": "abf0c6581d6277777f075a6fe91c0ed274c27ea9",
+  "backend_sha": "834f25b2edbf2478f7948b442a9583353f69d948",
   "database_change": {
-    "approval_reference": null,
-    "approved": false
+    "approval_reference": "Codex thread user approval on 2026-08-28: \u786e\u8ba4\u8be5\u8fc1\u79fb\u8ba1\u5212\u5e76\u6279\u51c6\u4e0a\u7ebf\u6b63\u5f0f\u670d",
+    "approved": true
   },
-  "frontend_sha": "0c9c43ccde34f353a030b12d7abc71562a7fc554",
+  "frontend_sha": "6ae6a66b4852f008f88ff098f5170c0e3b83c45a",
   "schema_version": 1
 }
