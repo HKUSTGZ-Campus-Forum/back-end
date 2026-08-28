@@ -113,39 +113,39 @@ def _post_model(instructions: str, input_payload: dict[str, Any], schema: dict[s
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     compact_input = json.dumps(input_payload, ensure_ascii=False, separators=(",", ":"))
 
+    schema_contract = json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
     response = requests.post(
-        f"{base}/responses",
+        f"{base}/chat/completions",
         headers=headers,
         json={
             "model": model,
-            "instructions": instructions,
-            "input": compact_input,
-            "reasoning": {"effort": "low"},
-            "max_output_tokens": 500,
-            "text": {"format": {"type": "json_schema", "name": "meetcampus_output", "schema": schema}},
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        f"{instructions}\nThe JSON object must validate against this exact schema: "
+                        f"{schema_contract}"
+                    ),
+                },
+                {"role": "user", "content": compact_input},
+            ],
+            "response_format": {"type": "json_object"},
+            "temperature": 0.4,
+            "max_tokens": 500,
         },
         timeout=timeout,
     )
-    if response.status_code in (404, 405, 422):
-        schema_contract = json.dumps(schema, ensure_ascii=False, separators=(",", ":"))
+    if response.status_code in (404, 405):
         response = requests.post(
-            f"{base}/chat/completions",
+            f"{base}/responses",
             headers=headers,
             json={
                 "model": model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            f"{instructions}\nThe JSON object must validate against this exact schema: "
-                            f"{schema_contract}"
-                        ),
-                    },
-                    {"role": "user", "content": compact_input},
-                ],
-                "response_format": {"type": "json_object"},
-                "temperature": 0.4,
-                "max_tokens": 500,
+                "instructions": instructions,
+                "input": compact_input,
+                "reasoning": {"effort": "low"},
+                "max_output_tokens": 500,
+                "text": {"format": {"type": "json_schema", "name": "meetcampus_output", "schema": schema}},
             },
             timeout=timeout,
         )

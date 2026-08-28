@@ -155,7 +155,7 @@ def test_bootstrap_requires_authentication(client):
     assert response.status_code == 401
 
 
-def test_chat_fallback_receives_schema_contract_and_normalizes_action(app, monkeypatch):
+def test_chat_request_receives_schema_contract_and_normalizes_action(app, monkeypatch):
     from app.services import meetcampus_ai
 
     calls = []
@@ -170,8 +170,6 @@ def test_chat_fallback_receives_schema_contract_and_normalizes_action(app, monke
 
     def fake_post(url, **kwargs):
         calls.append((url, kwargs))
-        if url.endswith("/responses"):
-            return FakeResponse(404, {})
         return FakeResponse(200, {
             "choices": [{"message": {"content": (
                 '{"action":"socialize","scene_slug":"gym","affordance":"chat",'
@@ -192,9 +190,9 @@ def test_chat_fallback_receives_schema_contract_and_normalizes_action(app, monke
 
     assert decision is not None
     assert decision.action == "talk"
-    assert calls[0][0].endswith("/responses")
-    assert calls[1][0].endswith("/chat/completions")
-    system_prompt = calls[1][1]["json"]["messages"][0]["content"]
+    assert len(calls) == 1
+    assert calls[0][0].endswith("/chat/completions")
+    system_prompt = calls[0][1]["json"]["messages"][0]["content"]
     assert '"enum":["activity","move","observe","rest","talk"]' in system_prompt
 
 
