@@ -1,9 +1,9 @@
 {
-  "backend_sha": "88fa6a9ce01b62f0505df4169c4e284dbd6edf06",
+  "backend_sha": "74c4f3408343332e90b5db00f73a0390c1f1459b",
   "database_change": {
-    "approval_reference": null,
-    "approved": false
+    "approval_reference": "codex-thread-2026-08-29-user-approved-complete-meetcampus-simulation-and-production-release",
+    "approved": true
   },
-  "frontend_sha": "bae0a6156fb21ed7aaefd9bf3ba2b931af20a33f",
+  "frontend_sha": "67ba79705a3877252999888833ced42f397fc114",
   "schema_version": 1
 }
