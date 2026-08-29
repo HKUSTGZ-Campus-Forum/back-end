@@ -55,26 +55,4 @@ from .course_domain import (
     UserSectionSelection,
     CoursePostOfferingTarget,
 )
-from .meetcampus import (
-    MeetCampusActivityDefinition,
-    MeetCampusActivityParticipant,
-    MeetCampusActivitySession,
-    MeetCampusAgentRun,
-    MeetCampusBridge,
-    MeetCampusCommand,
-    MeetCampusDecision,
-    MeetCampusEvent,
-    MeetCampusJourney,
-    MeetCampusMemory,
-    MeetCampusObservation,
-    MeetCampusOwnerProfile,
-    MeetCampusRelationship,
-    MeetCampusResident,
-    MeetCampusResidentPlan,
-    MeetCampusResidentState,
-    MeetCampusScene,
-    MeetCampusSceneConnection,
-    MeetCampusStory,
-    MeetCampusWorld,
-)
 from .home_carousel_slide import HomeCarouselSlide

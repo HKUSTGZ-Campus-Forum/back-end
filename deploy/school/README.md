@@ -160,10 +160,9 @@ downgrades are intentionally never automatic.
 
 ### 3.1 One-time background worker installation
 
-MeetCampus world advancement and the existing maintenance jobs run in the
-single `unikorn-background-worker.service`; Gunicorn keeps
-`ENABLE_BACKGROUND_TASKS=false` so web workers never create duplicate
-schedulers. Installing this new root-owned unit is intentionally not part of a
+UniKorn maintenance jobs run in `unikorn-background-worker.service`; Gunicorn
+keeps `ENABLE_BACKGROUND_TASKS=false` so web workers never create duplicate
+schedulers. Installing this root-owned unit is intentionally not part of a
 normal branch-triggered release and requires an interactive operator once:
 
 ```bash
@@ -175,10 +174,9 @@ sudo systemctl daemon-reload
 sudo systemctl enable unikorn-background-worker.service
 ```
 
-Set the documented MeetCampus variables in `/etc/unikorn/unikorn.env` without
-shell-sourcing it. The next validated release starts the worker together with
-the API and frontend. Verify its status and the private
-`/api/meetcampus/worker/status` endpoint after activation.
+MeetCampus is deployed independently from the private
+`taowenxiang/meetcampus` repository. Its API, frontend, worker, environment and
+release controller are not part of the UniKorn release.
 
 ### 4. Split Nginx without touching CoursePlan
 

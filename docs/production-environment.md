@@ -11,6 +11,7 @@ that directory.
 | Local frontend | `http://localhost:3000` | UI/API development | local Nuxt and usually local Flask `:8000` |
 | Shared development | `https://dev.unikorn.axfff.com` | Integration testing | frontend and backend `main` GitHub Actions |
 | Active production | `https://unikorn.hkust-gz.edu.cn` | User-facing UniKorn | validated paired-SHA manifest on backend `school-production` |
+| MeetCampus private beta | `https://unikorn.hkust-gz.edu.cn/meetcampus/` | Independent AI campus world | private `taowenxiang/meetcampus` validated `production` branch |
 | Independent CoursePlan | `https://scheduler.unikorn.hkust-gz.edu.cn` | School scheduler and official SISN fetcher | separate service on the same host |
 | Former axfff production | `https://unikorn.axfff.com` | Preserved migration-era stack | not the current production target |
 
@@ -32,6 +33,10 @@ Do not run them for a normal release to `unikorn.hkust-gz.edu.cn`.
 - Nginx snapshots: `/etc/unikorn/nginx-backups/`
 - Runtime environment: `/etc/unikorn/unikorn.env`, owner `root:unikorn`, mode
   `0640`
+- Independent MeetCampus root: `/srv/meetcampus`, with environment
+  `/etc/meetcampus/meetcampus.env` and services/controller owned by its private
+  repository. UniKorn Nginx only delegates `/meetcampus/` and
+  `/api/meetcampus/`; UniKorn releases must not build or restart MeetCampus.
 - Independent CoursePlan root: `/srv/course-scheduler`
 
 Never store passwords, private keys, OIDC secrets, signing keys, database URLs

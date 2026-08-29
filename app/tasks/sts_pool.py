@@ -75,12 +75,6 @@ def init_pool_maintenance(app):
         except Exception as e:
             app.logger.warning(f"Could not initialize official course catalog sync: {e}")
 
-        try:
-            from app.tasks.meetcampus_world import init_meetcampus_world
-            init_meetcampus_world(app, unified_scheduler)
-        except Exception as e:
-            app.logger.warning(f"Could not initialize MeetCampus world advancement: {e}")
-
         unified_scheduler.start()
         app.logger.info("Unified background task scheduler started with STS and embedding maintenance.")
     else:

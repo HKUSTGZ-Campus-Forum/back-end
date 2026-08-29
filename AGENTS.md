@@ -84,6 +84,13 @@ production data.
 
 ## Server and secret boundaries
 
+- MeetCampus is an independent private repository (`taowenxiang/meetcampus`)
+  with its own frontend, API, worker, migrations and production controller under
+  `/srv/meetcampus`. Do not add MeetCampus runtime code, routes, models, assets,
+  environment variables or scheduler jobs back to UniKorn. The two historical
+  `20260828_meetcampus_persistent_world.py` and
+  `20260829_meetcampus_simulation_runtime.py` files remain only because later
+  UniKorn Alembic revisions depend on that immutable lineage.
 - UniKorn runs under `/srv/unikorn` using `unikorn-backend.service`,
   `unikorn-frontend.service`, `unikorn-redis.service`, local PostgreSQL database
   `prod_unikorn`, and loopback ports documented in
