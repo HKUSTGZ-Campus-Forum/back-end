@@ -22,7 +22,16 @@ def run_meetcampus_world_tick(app) -> dict:
     with app.app_context():
         redis_client = Redis.from_url(app.config["REDIS_URL"], decode_responses=True)
         token = secrets.token_urlsafe(24)
-        acquired = redis_client.set(LOCK_KEY, token, nx=True, ex=55)
+        # A bounded batch may contain several sequential provider calls. Keep
+        # the lease longer than one model timeout while max_instances prevents
+        # overlap inside the worker itself.
+        lease_seconds = max(
+            300,
+            int(app.config.get("MEETCAMPUS_AI_TIMEOUT_SECONDS", 30))
+            * int(app.config.get("MEETCAMPUS_MAX_DUE_RESIDENTS_PER_TICK", 8))
+            + 60,
+        )
+        acquired = redis_client.set(LOCK_KEY, token, nx=True, ex=lease_seconds)
         if not acquired:
             redis_client.close()
             return {"status": "leader_busy", "advancedResidents": 0, "events": 0}

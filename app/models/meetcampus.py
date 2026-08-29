@@ -63,6 +63,7 @@ class MeetCampusSceneConnection(db.Model):
     from_scene_id = db.Column(db.String(36), db.ForeignKey("meetcampus_scenes.id", ondelete="CASCADE"), nullable=False)
     to_scene_id = db.Column(db.String(36), db.ForeignKey("meetcampus_scenes.id", ondelete="CASCADE"), nullable=False)
     travel_minutes = db.Column(db.Integer, nullable=False, default=8)
+    path = db.Column(JsonType, nullable=False, default=list)
 
     __table_args__ = (
         UniqueConstraint("from_scene_id", "to_scene_id", name="uq_meetcampus_scene_connection"),
@@ -256,3 +257,144 @@ class MeetCampusAgentRun(db.Model):
     latency_ms = db.Column(db.Integer)
     error_code = db.Column(db.String(80))
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class MeetCampusActivityDefinition(db.Model):
+    """A world-owned activity residents may attempt at one scene."""
+
+    __tablename__ = "meetcampus_activity_definitions"
+
+    id = db.Column(db.String(36), primary_key=True)
+    world_id = db.Column(db.String(36), db.ForeignKey("meetcampus_worlds.id", ondelete="CASCADE"), nullable=False)
+    scene_id = db.Column(db.String(36), db.ForeignKey("meetcampus_scenes.id", ondelete="CASCADE"), nullable=False)
+    slug = db.Column(db.String(80), nullable=False)
+    name_zh = db.Column(db.String(120), nullable=False)
+    name_en = db.Column(db.String(120), nullable=False)
+    description_zh = db.Column(db.Text, nullable=False, default="")
+    description_en = db.Column(db.Text, nullable=False, default="")
+    min_participants = db.Column(db.Integer, nullable=False, default=1)
+    max_participants = db.Column(db.Integer, nullable=False, default=1)
+    duration_min_minutes = db.Column(db.Integer, nullable=False, default=10)
+    duration_max_minutes = db.Column(db.Integer, nullable=False, default=30)
+    capacity = db.Column(db.Integer, nullable=False, default=8)
+    requirements = db.Column(JsonType, nullable=False, default=dict)
+    effects = db.Column(JsonType, nullable=False, default=dict)
+    outcome_rules = db.Column(JsonType, nullable=False, default=dict)
+    tags = db.Column(JsonType, nullable=False, default=list)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+
+    __table_args__ = (
+        UniqueConstraint("scene_id", "slug", name="uq_meetcampus_activity_scene_slug"),
+        CheckConstraint("min_participants > 0", name="ck_meetcampus_activity_min_participants"),
+        CheckConstraint("max_participants >= min_participants", name="ck_meetcampus_activity_max_participants"),
+        CheckConstraint("duration_min_minutes > 0", name="ck_meetcampus_activity_min_duration"),
+        CheckConstraint("duration_max_minutes >= duration_min_minutes", name="ck_meetcampus_activity_max_duration"),
+    )
+
+
+class MeetCampusJourney(db.Model):
+    """A time-bounded traversal whose progress can be rendered continuously."""
+
+    __tablename__ = "meetcampus_journeys"
+
+    id = db.Column(db.String(36), primary_key=True)
+    world_id = db.Column(db.String(36), db.ForeignKey("meetcampus_worlds.id", ondelete="CASCADE"), nullable=False)
+    resident_id = db.Column(db.String(36), db.ForeignKey("meetcampus_residents.id", ondelete="CASCADE"), nullable=False)
+    from_scene_id = db.Column(db.String(36), db.ForeignKey("meetcampus_scenes.id", ondelete="RESTRICT"), nullable=False)
+    to_scene_id = db.Column(db.String(36), db.ForeignKey("meetcampus_scenes.id", ondelete="RESTRICT"), nullable=False)
+    route_scene_ids = db.Column(JsonType, nullable=False, default=list)
+    path = db.Column(JsonType, nullable=False, default=list)
+    status = db.Column(db.String(24), nullable=False, default="traveling")
+    intention = db.Column(JsonType, nullable=False, default=dict)
+    decision_id = db.Column(db.String(36), db.ForeignKey("meetcampus_decisions.id", ondelete="SET NULL"))
+    command_id = db.Column(db.String(36), db.ForeignKey("meetcampus_commands.id", ondelete="SET NULL"))
+    depart_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    arrive_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    completed_at = db.Column(db.DateTime(timezone=True))
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+
+    __table_args__ = (
+        CheckConstraint("arrive_at > depart_at", name="ck_meetcampus_journey_time_order"),
+    )
+
+
+class MeetCampusActivitySession(db.Model):
+    """A world-validated attempt to perform an activity with explicit membership."""
+
+    __tablename__ = "meetcampus_activity_sessions"
+
+    id = db.Column(db.String(36), primary_key=True)
+    world_id = db.Column(db.String(36), db.ForeignKey("meetcampus_worlds.id", ondelete="CASCADE"), nullable=False)
+    activity_definition_id = db.Column(db.String(36), db.ForeignKey("meetcampus_activity_definitions.id", ondelete="RESTRICT"), nullable=False)
+    scene_id = db.Column(db.String(36), db.ForeignKey("meetcampus_scenes.id", ondelete="RESTRICT"), nullable=False)
+    host_resident_id = db.Column(db.String(36), db.ForeignKey("meetcampus_residents.id", ondelete="CASCADE"), nullable=False)
+    status = db.Column(db.String(24), nullable=False, default="forming")
+    seed = db.Column(db.Integer, nullable=False)
+    intention = db.Column(JsonType, nullable=False, default=dict)
+    result = db.Column(JsonType, nullable=False, default=dict)
+    starts_at = db.Column(db.DateTime(timezone=True))
+    ends_at = db.Column(db.DateTime(timezone=True))
+    completed_at = db.Column(db.DateTime(timezone=True))
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class MeetCampusActivityParticipant(db.Model):
+    __tablename__ = "meetcampus_activity_participants"
+
+    id = db.Column(db.String(36), primary_key=True)
+    session_id = db.Column(db.String(36), db.ForeignKey("meetcampus_activity_sessions.id", ondelete="CASCADE"), nullable=False)
+    resident_id = db.Column(db.String(36), db.ForeignKey("meetcampus_residents.id", ondelete="CASCADE"), nullable=False)
+    role = db.Column(db.String(24), nullable=False, default="participant")
+    status = db.Column(db.String(24), nullable=False, default="invited")
+    response_reason = db.Column(JsonType, nullable=False, default=dict)
+    outcome = db.Column(JsonType, nullable=False, default=dict)
+    invited_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+    responded_at = db.Column(db.DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "resident_id", name="uq_meetcampus_activity_participant"),
+    )
+
+
+class MeetCampusObservation(db.Model):
+    __tablename__ = "meetcampus_observations"
+
+    id = db.Column(db.String(36), primary_key=True)
+    resident_id = db.Column(db.String(36), db.ForeignKey("meetcampus_residents.id", ondelete="CASCADE"), nullable=False)
+    world_state_version = db.Column(db.Integer, nullable=False)
+    payload = db.Column(JsonType, nullable=False, default=dict)
+    observed_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class MeetCampusDecision(db.Model):
+    __tablename__ = "meetcampus_decisions"
+
+    id = db.Column(db.String(36), primary_key=True)
+    resident_id = db.Column(db.String(36), db.ForeignKey("meetcampus_residents.id", ondelete="CASCADE"), nullable=False)
+    observation_id = db.Column(db.String(36), db.ForeignKey("meetcampus_observations.id", ondelete="RESTRICT"), nullable=False)
+    candidates = db.Column(JsonType, nullable=False, default=list)
+    selected_intent = db.Column(JsonType, nullable=False, default=dict)
+    source = db.Column(db.String(32), nullable=False)
+    status = db.Column(db.String(24), nullable=False, default="proposed")
+    validation = db.Column(JsonType, nullable=False, default=dict)
+    execution = db.Column(JsonType, nullable=False, default=dict)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+    executed_at = db.Column(db.DateTime(timezone=True))
+
+
+class MeetCampusResidentPlan(db.Model):
+    __tablename__ = "meetcampus_resident_plans"
+
+    id = db.Column(db.String(36), primary_key=True)
+    resident_id = db.Column(db.String(36), db.ForeignKey("meetcampus_residents.id", ondelete="CASCADE"), nullable=False)
+    plan_date = db.Column(db.Date, nullable=False)
+    goals = db.Column(JsonType, nullable=False, default=list)
+    items = db.Column(JsonType, nullable=False, default=list)
+    source = db.Column(db.String(32), nullable=False, default="routine")
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("resident_id", "plan_date", name="uq_meetcampus_resident_plan_date"),
+    )

@@ -471,9 +471,16 @@ def test_post_migration_snapshot_allows_only_empty_new_tables(tmp_path):
             "public.meetcampus_scene_connections": 22,
             "public.meetcampus_residents": 20,
             "public.meetcampus_resident_states": 20,
+            "public.meetcampus_activity_definitions": 21,
+            "public.meetcampus_observations": 0,
+            "public.meetcampus_decisions": 0,
+            "public.meetcampus_journeys": 0,
+            "public.meetcampus_activity_sessions": 0,
+            "public.meetcampus_activity_participants": 0,
+            "public.meetcampus_resident_plans": 0,
             "public.home_carousel_slides": 3,
         },
-        "alembic_heads": ["20260828_home_carousel"],
+        "alembic_heads": ["20260829_meetcampus_runtime"],
         "foreign_keys": 21,
     }
     source_path = tmp_path / "source.json"

@@ -17,6 +17,7 @@ from app.services.meetcampus_service import (
     update_appearance,
     world_worker_status,
 )
+from app.services.meetcampus_runtime import list_decision_traces
 
 
 bp = Blueprint("meetcampus", __name__, url_prefix="/meetcampus")
@@ -60,13 +61,13 @@ def _handle_domain_error(error: MeetCampusDomainError):
 @bp.get("/bootstrap")
 @jwt_required()
 def bootstrap():
-    return _response(build_bootstrap_payload(_authorized_user()))
+    return _response(build_bootstrap_payload(_authorized_user(), request.args.get("residentId")))
 
 
 @bp.get("/snapshot")
 @jwt_required()
 def snapshot():
-    payload = build_bootstrap_payload(_authorized_user())
+    payload = build_bootstrap_payload(_authorized_user(), request.args.get("residentId"))
     return _response({
         "snapshot": payload["snapshot"],
         "stories": payload["stories"],
@@ -115,3 +116,11 @@ def memory_correction():
 def worker_status():
     _authorized_user()
     return _response(world_worker_status())
+
+
+@bp.get("/debug/residents/<string:resident_id>/traces")
+@jwt_required()
+def decision_traces(resident_id: str):
+    user = _authorized_user()
+    build_bootstrap_payload(user, resident_id)
+    return _response({"residentId": resident_id, "traces": list_decision_traces(resident_id)})

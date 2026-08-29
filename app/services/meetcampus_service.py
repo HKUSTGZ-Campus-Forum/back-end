@@ -11,9 +11,11 @@ from flask import current_app
 
 from app.extensions import db
 from app.models.meetcampus import (
+    MeetCampusActivityDefinition,
     MeetCampusBridge,
     MeetCampusCommand,
     MeetCampusEvent,
+    MeetCampusJourney,
     MeetCampusMemory,
     MeetCampusOwnerProfile,
     MeetCampusRelationship,
@@ -24,11 +26,12 @@ from app.models.meetcampus import (
     MeetCampusWorld,
 )
 from app.models.user import User
-from app.services.meetcampus_ai import (
-    AgentDecision,
-    narrate_event,
-    propose_action,
-    provider_configured,
+from app.services.meetcampus_ai import provider_configured
+from app.services.meetcampus_runtime import (
+    advance_world as advance_world_runtime,
+    compile_homecoming,
+    serialize_activity_state,
+    serialize_journey,
 )
 
 
@@ -190,6 +193,9 @@ def ensure_owner_profile(user: User) -> tuple[MeetCampusResident, MeetCampusOwne
 
 
 def _serialize_scene(scene: MeetCampusScene) -> dict[str, Any]:
+    activities = MeetCampusActivityDefinition.query.filter_by(scene_id=scene.id, is_active=True).order_by(
+        MeetCampusActivityDefinition.slug
+    ).all()
     return {
         "id": scene.id,
         "slug": scene.slug,
@@ -198,6 +204,15 @@ def _serialize_scene(scene: MeetCampusScene) -> dict[str, Any]:
         "name": _localized(scene.name_zh, scene.name_en),
         "map": {"x": scene.map_x, "y": scene.map_y},
         "affordances": list(scene.affordances or []),
+        "activities": [{
+            "id": activity.id,
+            "slug": activity.slug,
+            "name": _localized(activity.name_zh, activity.name_en),
+            "description": _localized(activity.description_zh, activity.description_en),
+            "participants": {"min": activity.min_participants, "max": activity.max_participants},
+            "durationMinutes": {"min": activity.duration_min_minutes, "max": activity.duration_max_minutes},
+            "tags": list(activity.tags or []),
+        } for activity in activities],
         "visual": dict(scene.visual or {}),
     }
 
@@ -209,6 +224,9 @@ def _serialize_resident(
     is_mine: bool = False,
 ) -> dict[str, Any]:
     persona = dict(resident.persona or {})
+    journey = MeetCampusJourney.query.filter_by(resident_id=resident.id, status="traveling").order_by(
+        MeetCampusJourney.depart_at.desc()
+    ).first()
     return {
         "id": resident.id,
         "slug": resident.slug,
@@ -226,6 +244,9 @@ def _serialize_resident(
             "activity": state.activity,
             "activityStartedAt": _iso(state.activity_started_at),
             "nextDecisionAt": _iso(state.next_decision_at) if is_mine else None,
+            "needs": dict(state.needs or {}) if is_mine else None,
+            "journey": serialize_journey(journey),
+            "activitySession": serialize_activity_state(resident.id),
         },
     }
 
@@ -287,12 +308,30 @@ def _serialize_story(story: MeetCampusStory) -> dict[str, Any]:
     }
 
 
-def build_bootstrap_payload(user: User) -> dict[str, Any]:
+def _perspective_resident(
+    owner_resident: MeetCampusResident,
+    perspective_resident_id: str | None,
+) -> MeetCampusResident:
+    if not perspective_resident_id:
+        return owner_resident
+    resident = db.session.get(MeetCampusResident, perspective_resident_id)
+    if resident is None or resident.world_id != owner_resident.world_id or not resident.is_active:
+        raise MeetCampusDomainError("invalid_perspective", "That resident perspective is unavailable.", 404)
+    return resident
+
+
+def build_bootstrap_payload(user: User, perspective_resident_id: str | None = None) -> dict[str, Any]:
     world = _world()
-    resident, profile = ensure_owner_profile(user)
-    stories = MeetCampusStory.query.filter_by(owner_user_id=user.id).order_by(
+    owner_resident, profile = ensure_owner_profile(user)
+    resident = _perspective_resident(owner_resident, perspective_resident_id)
+    if profile.onboarding_status == "completed" and resident.is_active:
+        compile_homecoming(user.id, resident)
+    stories = MeetCampusStory.query.filter_by(owner_user_id=user.id, resident_id=resident.id).order_by(
         MeetCampusStory.created_at.desc()
-    ).limit(5).all()
+    ).limit(8).all()
+    perspectives = MeetCampusResident.query.filter_by(world_id=world.id, is_active=True).order_by(
+        MeetCampusResident.slug
+    ).all()
     return {
         "feature": {
             "id": "meetcampus",
@@ -304,6 +343,9 @@ def build_bootstrap_payload(user: User) -> dict[str, Any]:
             "autonomousAgentDecisions": True,
             "syntheticResidentCount": 19,
             "providerConfigured": provider_configured(),
+            "runtimeParity": True,
+            "continuousJourneys": True,
+            "reciprocalActivities": True,
         },
         "onboarding": {
             "status": profile.onboarding_status,
@@ -312,7 +354,18 @@ def build_bootstrap_payload(user: User) -> dict[str, Any]:
             "anchors": dict(profile.anchors or {}),
             "privacyRules": dict(profile.privacy_rules or {}),
         },
+        "ownerResidentId": owner_resident.id,
         "myResidentId": resident.id,
+        "perspective": {
+            "residentId": resident.id,
+            "isOwnerResident": resident.id == owner_resident.id,
+            "canSwitch": True,
+            "residents": [{
+                "id": item.id,
+                "name": _localized(item.name_zh, item.name_en),
+                "appearance": normalize_appearance(item.appearance),
+            } for item in perspectives],
+        },
         "snapshot": _snapshot(world, resident),
         "stories": [_serialize_story(story) for story in stories],
         "relationships": list_relationships(resident),
@@ -387,7 +440,8 @@ def update_appearance(user: User, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def create_command(user: User, payload: dict[str, Any]) -> dict[str, Any]:
-    resident, profile = ensure_owner_profile(user)
+    owner_resident, profile = ensure_owner_profile(user)
+    resident = _perspective_resident(owner_resident, str(payload.get("residentId") or "") or None)
     if profile.onboarding_status != "completed":
         raise MeetCampusDomainError("onboarding_required", "Finish meeting your resident first.", 409)
     kind = str(payload.get("kind") or "goal")
@@ -501,11 +555,10 @@ def list_relationships(resident: MeetCampusResident) -> list[dict[str, Any]]:
 
 
 def create_bridge(user: User, story_id: str) -> dict[str, Any]:
-    resident, _profile = ensure_owner_profile(user)
+    _owner_resident, _profile = ensure_owner_profile(user)
     story = MeetCampusStory.query.filter_by(
         id=story_id,
         owner_user_id=user.id,
-        resident_id=resident.id,
     ).one_or_none()
     if story is None or not story.bridge_candidate:
         raise MeetCampusDomainError(
@@ -513,6 +566,9 @@ def create_bridge(user: User, story_id: str) -> dict[str, Any]:
             "This story is not ready for a real-world bridge.",
             409,
         )
+    resident = db.session.get(MeetCampusResident, story.resident_id)
+    if resident is None:
+        raise MeetCampusDomainError("resident_missing", "The story resident is unavailable.", 409)
     events = MeetCampusEvent.query.filter(
         MeetCampusEvent.id.in_(story.event_ids or [])
     ).order_by(MeetCampusEvent.importance.desc()).all()
@@ -571,383 +627,13 @@ def _serialize_bridge(
     }
 
 
-def _relationship_for(a_id: str, b_id: str) -> MeetCampusRelationship:
-    resident_a_id, resident_b_id = sorted((a_id, b_id))
-    relationship = MeetCampusRelationship.query.filter_by(
-        resident_a_id=resident_a_id,
-        resident_b_id=resident_b_id,
-    ).one_or_none()
-    if relationship is None:
-        relationship = MeetCampusRelationship(
-            id=str(uuid.uuid4()),
-            resident_a_id=resident_a_id,
-            resident_b_id=resident_b_id,
-            familiarity=0,
-            trust=0,
-            warmth=0,
-            shared_interests=[],
-            summary_zh="刚刚认识",
-            summary_en="Just met",
-        )
-        db.session.add(relationship)
-    return relationship
-
-
-def _decision_interval(resident_id: str) -> timedelta:
-    minimum = int(current_app.config.get("MEETCAMPUS_DECISION_MIN_MINUTES", 30))
-    maximum = int(current_app.config.get("MEETCAMPUS_DECISION_MAX_MINUTES", 90))
-    span = max(0, maximum - minimum)
-    stable = sum(ord(char) for char in resident_id)
-    return timedelta(minutes=minimum + (stable % (span + 1)))
-
-
-def _period_for(hour: int) -> str:
-    if hour < 12:
-        return "morning"
-    if hour < 18:
-        return "afternoon"
-    return "evening"
-
-
-def _scene_from_schedule(
-    resident: MeetCampusResident,
-    now: datetime,
-) -> MeetCampusScene | None:
-    period = _period_for(now.hour)
-    slug = next(
-        (entry.get("scene") for entry in resident.schedule or [] if entry.get("period") == period),
-        None,
-    )
-    if not slug:
-        return None
-    return MeetCampusScene.query.filter_by(
-        world_id=resident.world_id,
-        slug=slug,
-        is_active=True,
-    ).one_or_none()
-
-
-def _observation(
-    resident: MeetCampusResident,
-    state: MeetCampusResidentState,
-    scenes: list[MeetCampusScene],
-) -> dict[str, Any]:
-    scene = db.session.get(MeetCampusScene, state.scene_id)
-    nearby = db.session.query(MeetCampusResident, MeetCampusResidentState).join(
-        MeetCampusResidentState,
-        MeetCampusResidentState.resident_id == MeetCampusResident.id,
-    ).filter(
-        MeetCampusResidentState.scene_id == state.scene_id,
-        MeetCampusResident.id != resident.id,
-        MeetCampusResident.is_active.is_(True),
-    ).limit(5).all()
-    return {
-        "server_time": _iso(utc_now()),
-        "current_scene": {
-            "id": scene.id if scene else state.scene_id,
-            "slug": scene.slug if scene else "unknown",
-            "affordances": list(scene.affordances or []) if scene else [],
-        },
-        "available_scenes": [
-            {"id": item.id, "slug": item.slug, "affordances": list(item.affordances or [])}
-            for item in scenes
-        ],
-        "nearby_residents": [
-            {"id": item.id, "name": item.name_en, "activity": item_state.activity}
-            for item, item_state in nearby
-        ],
-        "needs": dict(state.needs or {}),
-        "active_goal": dict(state.active_goal or {}),
-    }
-
-
-def _choose_decision(
-    resident: MeetCampusResident,
-    state: MeetCampusResidentState,
-    scenes: list[MeetCampusScene],
-    now: datetime,
-) -> AgentDecision:
-    proposal = propose_action(
-        resident={
-            "id": resident.id,
-            "name": resident.name_en,
-            "persona": dict(resident.persona or {}),
-            "voice": dict(resident.voice or {}),
-        },
-        observation=_observation(resident, state, scenes),
-    )
-    if proposal is not None:
-        return proposal
-    scheduled = _scene_from_schedule(resident, now)
-    if scheduled and scheduled.id != state.scene_id:
-        return AgentDecision(
-            action="move",
-            scene_slug=scheduled.slug,
-            affordance=None,
-            target_resident_id=None,
-            intention_zh=f"按自己的节奏去{scheduled.name_zh}",
-            intention_en=f"Follow the routine to {scheduled.name_en}",
-            source="schedule",
-        )
-    current_scene = db.session.get(MeetCampusScene, state.scene_id)
-    affordance = (current_scene.affordances or ["observe"])[0] if current_scene else "observe"
-    return AgentDecision(
-        action="activity",
-        scene_slug=current_scene.slug if current_scene else None,
-        affordance=affordance,
-        target_resident_id=None,
-        intention_zh="继续眼前的校园生活",
-        intention_en="Continue the current campus routine",
-        source="schedule",
-    )
-
-
-def _create_event(
-    *,
-    resident: MeetCampusResident,
-    scene: MeetCampusScene,
-    decision: AgentDecision,
-    participant_ids: list[str],
-    now: datetime,
-    slot_key: str,
-) -> MeetCampusEvent | None:
-    idempotency_key = f"{resident.id}:{slot_key}:{decision.action}:{scene.id}"
-    if MeetCampusEvent.query.filter_by(idempotency_key=idempotency_key).one_or_none():
-        return None
-    is_shared = bool(participant_ids)
-    affordance = decision.affordance or "explore"
-    if is_shared:
-        summary_zh = f"在{scene.name_zh}和一位居民一起体验了{affordance}。"
-        summary_en = f"Shared {affordance} with another resident at {scene.name_en}."
-        kind = "shared_activity"
-        importance = 7
-    elif decision.action == "move":
-        summary_zh = f"沿着自己的计划来到了{scene.name_zh}。"
-        summary_en = f"Arrived at {scene.name_en} as part of the day's plan."
-        kind = "arrived"
-        importance = 3
-    else:
-        summary_zh = f"在{scene.name_zh}体验了{affordance}。"
-        summary_en = f"Spent time on {affordance} at {scene.name_en}."
-        kind = "activity"
-        importance = 4
-    event = MeetCampusEvent(
-        id=str(uuid.uuid4()),
-        world_id=resident.world_id,
-        scene_id=scene.id,
-        actor_resident_id=resident.id,
-        kind=kind,
-        summary_zh=summary_zh,
-        summary_en=summary_en,
-        participant_resident_ids=[resident.id, *participant_ids],
-        payload={
-            "action": decision.action,
-            "affordance": affordance,
-            "intention": {"zh": decision.intention_zh, "en": decision.intention_en},
-            "decisionSource": decision.source,
-        },
-        importance=importance,
-        idempotency_key=idempotency_key,
-        occurred_at=now,
-    )
-    db.session.add(event)
-    db.session.flush()
-    db.session.add(MeetCampusMemory(
-        id=str(uuid.uuid4()),
-        resident_id=resident.id,
-        kind="episodic",
-        content_zh=summary_zh,
-        content_en=summary_en,
-        source_event_ids=[event.id],
-        source="lived_event",
-        salience=importance,
-        confidence=1.0,
-    ))
-    for participant_id in participant_ids:
-        relationship = _relationship_for(resident.id, participant_id)
-        relationship.familiarity = min(100, relationship.familiarity + 8)
-        relationship.trust = min(100, relationship.trust + 3)
-        relationship.warmth = min(100, relationship.warmth + 5)
-        relationship.summary_zh = f"在{scene.name_zh}有过共同经历"
-        relationship.summary_en = f"Shared an experience at {scene.name_en}"
-        relationship.last_event_id = event.id
-    return event
-
-
-def _story_for_owner(
-    event: MeetCampusEvent,
-    owner_resident: MeetCampusResident,
-) -> MeetCampusStory | None:
-    if event.importance < 4 or owner_resident.owner_user_id is None:
-        return None
-    existing = MeetCampusStory.query.filter_by(
-        owner_user_id=owner_resident.owner_user_id
-    ).all()
-    if any(event.id in (story.event_ids or []) for story in existing):
-        return None
-    narration = narrate_event(
-        resident={
-            "id": owner_resident.id,
-            "name": owner_resident.name_en,
-            "persona": dict(owner_resident.persona or {}),
-            "voice": dict(owner_resident.voice or {}),
-        },
-        event={
-            "id": event.id,
-            "kind": event.kind,
-            "summary_zh": event.summary_zh,
-            "summary_en": event.summary_en,
-            "scene_id": event.scene_id,
-            "participant_resident_ids": list(event.participant_resident_ids or []),
-            "occurred_at": _iso(event.occurred_at),
-            "payload": dict(event.payload or {}),
-        },
-    ) or {
-        "title_zh": "今天的一段见闻",
-        "title_en": "Something from today",
-        "narration_zh": event.summary_zh,
-        "narration_en": event.summary_en,
-    }
-    story = MeetCampusStory(
-        id=str(uuid.uuid4()),
-        owner_user_id=owner_resident.owner_user_id,
-        resident_id=owner_resident.id,
-        title_zh=narration["title_zh"],
-        title_en=narration["title_en"],
-        narration_zh=narration["narration_zh"],
-        narration_en=narration["narration_en"],
-        event_ids=[event.id],
-        bridge_candidate=event.kind == "shared_activity",
-        is_viewed=False,
-    )
-    db.session.add(story)
-    return story
-
-
 def advance_world(
     now: datetime | None = None,
     *,
     max_residents: int | None = None,
 ) -> dict[str, Any]:
-    """Advance due residents exactly once for the current decision slot."""
-    if not current_app.config.get("MEETCAMPUS_WORLD_ENABLED", True):
-        return {"status": "disabled", "advancedResidents": 0, "events": 0}
-    now = now or utc_now()
-    world = _world()
-    scenes = MeetCampusScene.query.filter_by(world_id=world.id, is_active=True).all()
-    scenes_by_slug = {scene.slug: scene for scene in scenes}
-    limit = max_residents or int(
-        current_app.config.get("MEETCAMPUS_MAX_DUE_RESIDENTS_PER_TICK", 8)
-    )
-    due = db.session.query(MeetCampusResident, MeetCampusResidentState).join(
-        MeetCampusResidentState,
-        MeetCampusResidentState.resident_id == MeetCampusResident.id,
-    ).filter(
-        MeetCampusResident.world_id == world.id,
-        MeetCampusResident.is_active.is_(True),
-        MeetCampusResidentState.next_decision_at <= now,
-    ).order_by(MeetCampusResidentState.next_decision_at).limit(limit).all()
-    created_events: list[MeetCampusEvent] = []
-    for resident, state in due:
-        pending = MeetCampusCommand.query.filter_by(
-            resident_id=resident.id,
-            status="pending",
-        ).order_by(MeetCampusCommand.created_at).first()
-        if pending:
-            state.active_goal = {
-                "commandId": pending.id,
-                "kind": pending.kind,
-                "text": pending.text,
-                **dict(pending.payload or {}),
-            }
-        decision = _choose_decision(resident, state, scenes, now)
-        if pending and pending.payload.get("targetSceneId"):
-            commanded_scene = db.session.get(
-                MeetCampusScene,
-                pending.payload["targetSceneId"],
-            )
-            if commanded_scene:
-                decision = AgentDecision(
-                    action="move",
-                    scene_slug=commanded_scene.slug,
-                    affordance=None,
-                    target_resident_id=None,
-                    intention_zh=pending.text,
-                    intention_en=pending.text,
-                    source="owner_command",
-                )
-        target_scene = scenes_by_slug.get(decision.scene_slug or "")
-        if target_scene is None:
-            target_scene = db.session.get(MeetCampusScene, state.scene_id)
-        if target_scene is None:
-            state.next_decision_at = now + _decision_interval(resident.id)
-            continue
-        state.scene_id = target_scene.id
-        state.position_x = float(
-            18 + (sum(ord(c) for c in resident.id + str(world.state_version)) % 65)
-        )
-        state.position_y = float(
-            18 + (sum(ord(c) for c in resident.slug + str(world.state_version)) % 65)
-        )
-        state.activity = decision.affordance or decision.action
-        state.activity_started_at = now
-        state.last_decision_at = now
-        state.next_decision_at = now + _decision_interval(resident.id)
-
-        colocated = db.session.query(MeetCampusResident).join(
-            MeetCampusResidentState,
-            MeetCampusResidentState.resident_id == MeetCampusResident.id,
-        ).filter(
-            MeetCampusResidentState.scene_id == target_scene.id,
-            MeetCampusResident.id != resident.id,
-            MeetCampusResident.is_active.is_(True),
-        ).order_by(MeetCampusResident.id).all()
-        participant_ids: list[str] = []
-        if colocated and decision.action in {"talk", "activity"}:
-            preferred = next(
-                (item for item in colocated if item.id == decision.target_resident_id),
-                None,
-            )
-            participant_ids = [(preferred or colocated[0]).id]
-        slot_seconds = max(
-            900,
-            int(current_app.config.get("MEETCAMPUS_DECISION_MIN_MINUTES", 30)) * 60,
-        )
-        event = _create_event(
-            resident=resident,
-            scene=target_scene,
-            decision=decision,
-            participant_ids=participant_ids,
-            now=now,
-            slot_key=str(int(now.timestamp()) // slot_seconds),
-        )
-        if event:
-            created_events.append(event)
-            owner_candidate_ids = [resident.id, *participant_ids]
-            for owner_resident in MeetCampusResident.query.filter(
-                MeetCampusResident.id.in_(owner_candidate_ids),
-                MeetCampusResident.owner_user_id.isnot(None),
-            ).all():
-                _story_for_owner(event, owner_resident)
-        if pending:
-            pending.status = "completed"
-            pending.outcome = {
-                "sceneId": target_scene.id,
-                "activity": state.activity,
-            }
-            pending.resolved_at = now
-
-    if due:
-        world.state_version += 1
-    world.last_advanced_at = now
-    db.session.commit()
-    return {
-        "status": "advanced",
-        "advancedResidents": len(due),
-        "events": len(created_events),
-        "stateVersion": world.state_version,
-        "lastAdvancedAt": _iso(world.last_advanced_at),
-    }
+    """Advance the authoritative event-driven runtime."""
+    return advance_world_runtime(now, max_residents=max_residents)
 
 
 def world_worker_status() -> dict[str, Any]:

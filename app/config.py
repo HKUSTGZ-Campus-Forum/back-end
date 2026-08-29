@@ -181,7 +181,7 @@ class Config:
     ).strip()
     MEETCAMPUS_WORLD_TICK_SECONDS = max(
         15,
-        int(os.getenv('MEETCAMPUS_WORLD_TICK_SECONDS', '60')),
+        int(os.getenv('MEETCAMPUS_WORLD_TICK_SECONDS', '15')),
     )
     MEETCAMPUS_DECISION_MIN_MINUTES = max(
         15,
@@ -210,7 +210,7 @@ class Config:
     )
     MEETCAMPUS_AI_DAILY_CALL_BUDGET = max(
         0,
-        int(os.getenv('MEETCAMPUS_AI_DAILY_CALL_BUDGET', '300')),
+        int(os.getenv('MEETCAMPUS_AI_DAILY_CALL_BUDGET', '800')),
     )
 
     # Authlib keeps short-lived OAuth state, nonce, and PKCE verifier values in

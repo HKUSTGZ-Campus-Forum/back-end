@@ -46,6 +46,14 @@ class AgentDecision:
     source: str
 
 
+@dataclass(frozen=True)
+class AgentIntent:
+    candidate_id: str
+    intention_zh: str
+    intention_en: str
+    source: str
+
+
 class MeetCampusAIError(RuntimeError):
     pass
 
@@ -226,6 +234,67 @@ def propose_action(*, resident: dict[str, Any], observation: dict[str, Any]) -> 
         return None
 
 
+def select_intent(
+    *,
+    resident: dict[str, Any],
+    observation: dict[str, Any],
+    relevant_memories: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+) -> AgentIntent | None:
+    """Select one already-valid candidate without allowing the model to create facts."""
+    if not provider_configured() or not candidates:
+        return None
+    candidate_ids = [str(candidate["id"]) for candidate in candidates]
+    payload = {
+        "resident": resident,
+        "observation": observation,
+        "relevant_memories": relevant_memories,
+        "candidates": candidates,
+    }
+    prompt_hash = _prompt_hash(payload)
+    started_at = time.monotonic()
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["candidate_id", "intention_zh", "intention_en"],
+        "properties": {
+            "candidate_id": {"type": "string", "enum": candidate_ids},
+            "intention_zh": {"type": "string", "maxLength": 120},
+            "intention_en": {"type": "string", "maxLength": 180},
+        },
+    }
+    instructions = (
+        "You are the deliberation module for one persistent campus resident. "
+        "Select exactly one candidate that fits the resident's identity, current needs, plan, memories, "
+        "relationships, and local observation. The candidates have already been generated from world affordances. "
+        "Do not invent an action, participant, place, outcome, dialogue, identity, or commitment. "
+        "The intention is a short inspectable summary, never hidden chain-of-thought. Return only JSON."
+    )
+    try:
+        data, usage = _post_model(instructions, payload, schema)
+        candidate_id = str(data.get("candidate_id", ""))
+        if candidate_id not in candidate_ids:
+            raise MeetCampusAIError("invalid_candidate")
+        result = AgentIntent(
+            candidate_id=candidate_id,
+            intention_zh=str(data.get("intention_zh", ""))[:120],
+            intention_en=str(data.get("intention_en", ""))[:180],
+            source="deepseek",
+        )
+        _record_run(
+            resident_id=resident.get("id"), operation="intent_selection", prompt_hash=prompt_hash,
+            status="succeeded", started_at=started_at, usage=usage,
+        )
+        return result
+    except (MeetCampusAIError, requests.RequestException, ValueError) as exc:
+        _record_run(
+            resident_id=resident.get("id"), operation="intent_selection", prompt_hash=prompt_hash,
+            status="failed", started_at=started_at, error_code=str(exc)[:80],
+        )
+        current_app.logger.warning("MeetCampus intent provider degraded: %s", exc)
+        return None
+
+
 def narrate_event(*, resident: dict[str, Any], event: dict[str, Any]) -> dict[str, str] | None:
     if not provider_configured():
         return None
@@ -265,4 +334,49 @@ def narrate_event(*, resident: dict[str, Any], event: dict[str, Any]) -> dict[st
             status="failed", started_at=started_at, error_code=str(exc)[:80],
         )
         current_app.logger.warning("MeetCampus narration provider degraded: %s", exc)
+        return None
+
+
+def narrate_homecoming(
+    *, resident: dict[str, Any], events: list[dict[str, Any]]
+) -> dict[str, str] | None:
+    """Voice a small event bundle while preserving its immutable facts."""
+    if not provider_configured() or not events:
+        return None
+    payload = {"resident": resident, "events": events}
+    prompt_hash = _prompt_hash(payload)
+    started_at = time.monotonic()
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["title_zh", "title_en", "narration_zh", "narration_en"],
+        "properties": {
+            "title_zh": {"type": "string", "maxLength": 50},
+            "title_en": {"type": "string", "maxLength": 80},
+            "narration_zh": {"type": "string", "maxLength": 420},
+            "narration_en": {"type": "string", "maxLength": 680},
+        },
+    }
+    instructions = (
+        "Write one brief first-person homecoming report in Chinese and English from the supplied lived events. "
+        "Preserve exact people, places, timing, invitations, activities, scores, and outcomes. "
+        "You may express the resident's feeling and voice, but may not add dialogue, facts, contact details, "
+        "real identities, schedules, or commitments. Return only JSON."
+    )
+    try:
+        data, usage = _post_model(instructions, payload, schema)
+        result = {key: str(data[key]).strip() for key in ("title_zh", "title_en", "narration_zh", "narration_en")}
+        if not all(result.values()):
+            raise MeetCampusAIError("empty_homecoming")
+        _record_run(
+            resident_id=resident.get("id"), operation="homecoming_narration", prompt_hash=prompt_hash,
+            status="succeeded", started_at=started_at, usage=usage,
+        )
+        return result
+    except (KeyError, MeetCampusAIError, requests.RequestException, ValueError) as exc:
+        _record_run(
+            resident_id=resident.get("id"), operation="homecoming_narration", prompt_hash=prompt_hash,
+            status="failed", started_at=started_at, error_code=str(exc)[:80],
+        )
+        current_app.logger.warning("MeetCampus homecoming provider degraded: %s", exc)
         return None
