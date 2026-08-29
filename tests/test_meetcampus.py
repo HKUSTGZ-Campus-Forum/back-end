@@ -1,6 +1,7 @@
 import pytest
 from datetime import datetime, timezone
 from flask_jwt_extended import create_access_token
+from sqlalchemy.dialects import postgresql
 
 from app import create_app
 from app.extensions import db
@@ -18,9 +19,11 @@ from app.models.meetcampus import (
     MeetCampusResidentState,
     MeetCampusScene,
     MeetCampusSceneConnection,
+    MeetCampusStory,
     MeetCampusWorld,
 )
 from app.services.meetcampus_service import advance_world
+from app.services.meetcampus_runtime import _participant_resident_filter
 
 
 class TestConfig:
@@ -288,6 +291,52 @@ def test_bootstrap_allows_only_normalized_invited_email(app, client):
     assert payload["myResidentId"] == "mc-resident-mount"
     assert len(payload["snapshot"]["residents"]) == 1
     assert response.headers["Cache-Control"] == "private, no-store"
+
+
+def test_homecoming_participant_filter_uses_postgresql_jsonb_containment():
+    predicate = _participant_resident_filter("mc-resident-mount", dialect_name="postgresql")
+    sql = str(predicate.compile(dialect=postgresql.dialect()))
+
+    assert "@>" in sql
+    assert "LIKE" not in sql
+
+
+def test_bootstrap_compiles_homecoming_for_participant_event(app, client):
+    invited_id = create_user(app, email="wtao565@connect.hkust-gz.edu.cn")
+    headers = auth_headers(app, invited_id)
+    onboarding = client.post("/meetcampus/onboarding", headers=headers, json={
+        "locale": "zh",
+        "autonomyLevel": "balanced",
+        "anchors": {"residentName": "小满"},
+    })
+    assert onboarding.status_code == 200
+    with app.app_context():
+        db.session.add(MeetCampusEvent(
+            id="mc-event-participant-homecoming",
+            world_id="mc-world-campus-v1",
+            scene_id="mc-scene-gym",
+            actor_resident_id="mc-resident-lin",
+            kind="activity_completed",
+            summary_zh="阿林和小满打完了一局羽毛球。",
+            summary_en="Lin and Mori finished a badminton match.",
+            participant_resident_ids=["mc-resident-mount"],
+            payload={"result": {"kind": "competitive"}},
+            importance=5,
+            idempotency_key="test-participant-homecoming",
+        ))
+        db.session.commit()
+
+    response = client.get(
+        "/meetcampus/bootstrap",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    stories = response.get_json()["stories"]
+    assert stories
+    with app.app_context():
+        story = MeetCampusStory.query.filter_by(owner_user_id=invited_id).one()
+        assert story.event_ids == ["mc-event-participant-homecoming"]
 
 
 def test_onboarding_command_and_world_tick_are_persistent(app, client):

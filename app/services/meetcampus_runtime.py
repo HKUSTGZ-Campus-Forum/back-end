@@ -11,7 +11,8 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from flask import current_app
-from sqlalchemy import or_
+from sqlalchemy import cast, or_
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.extensions import db
 from app.models.meetcampus import (
@@ -76,6 +77,22 @@ def _world() -> MeetCampusWorld:
     if world is None:
         raise RuntimeError("meetcampus_not_initialized")
     return world
+
+
+def _participant_resident_filter(resident_id: str, dialect_name: str | None = None):
+    """Build a real JSON-array containment predicate for the active database.
+
+    SQLAlchemy's generic JSON comparator implements ``contains`` as a textual
+    LIKE expression. That happens to work for SQLite test storage, but is not a
+    valid operation for PostgreSQL JSONB. Keep the portable fallback while
+    using PostgreSQL's native ``@>`` operator in production.
+    """
+    dialect_name = dialect_name or db.session.get_bind().dialect.name
+    column = MeetCampusEvent.participant_resident_ids
+    if dialect_name == "postgresql":
+        return cast(column, JSONB).contains([resident_id])
+    # SQLite stores the generic JSON value as serialized text in tests.
+    return column.contains(resident_id)
 
 
 def _needs(state: MeetCampusResidentState) -> dict[str, int]:
@@ -849,7 +866,7 @@ def compile_homecoming(owner_user_id: int, resident: MeetCampusResident) -> Meet
         MeetCampusEvent.importance >= 3,
         or_(
             MeetCampusEvent.actor_resident_id == resident.id,
-            MeetCampusEvent.participant_resident_ids.contains([resident.id]),
+            _participant_resident_filter(resident.id),
         ),
     ).order_by(MeetCampusEvent.occurred_at.desc()).limit(20).all()
     pending = [event for event in reversed(events) if event.id not in reported][-5:]
