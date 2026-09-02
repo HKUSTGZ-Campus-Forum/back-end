@@ -8,10 +8,12 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from app.extensions import cache, db
 from app.models.agent_chat import AgentConversation, AgentMessage
 from app.services.agent_chat_service import (
+    AgentProviderConfigError,
     AgentResponseError,
     AgentUnavailableError,
     agent_chat_service,
 )
+from app.services.agent_context_service import build_agent_context
 
 
 bp = Blueprint("agent", __name__, url_prefix="/agent")
@@ -105,6 +107,18 @@ def get_status():
     return private_json(agent_chat_service.status())
 
 
+@bp.route("/context", methods=["GET"])
+@jwt_required()
+def get_context():
+    query = str(request.args.get("q") or "").strip()
+    if len(query) < 2:
+        return private_json(
+            {"error": "Query must be at least 2 characters", "code": "query_required"},
+            400,
+        )
+    return private_json(build_agent_context(query, current_user_id()))
+
+
 @bp.route("/conversations", methods=["GET"])
 @jwt_required()
 def list_conversations():
@@ -178,7 +192,16 @@ def send_message():
             },
             400,
         )
-    if not agent_chat_service.status()["enabled"]:
+    provider = None
+    if "provider" in payload and payload.get("provider") is not None:
+        try:
+            provider = agent_chat_service.validate_provider_payload(
+                payload.get("provider")
+            )
+        except AgentProviderConfigError as exc:
+            return private_json({"error": str(exc), "code": exc.code}, 400)
+
+    if not agent_chat_service.status()["enabled"] and provider is None:
         return private_json(
             {"error": "Assistant is not configured", "code": "agent_unavailable"},
             503,
@@ -228,10 +251,17 @@ def send_message():
         .all()
     )
     context.reverse()
+    try:
+        site_context = build_agent_context(content, user_id=user_id)
+    except Exception:
+        current_app.logger.warning("Agent context lookup failed", exc_info=True)
+        site_context = {"sections": []}
 
     try:
         reply = agent_chat_service.create_reply(
-            [{"role": item.role, "content": item.content} for item in context]
+            [{"role": item.role, "content": item.content} for item in context],
+            provider=provider,
+            context_sections=site_context["sections"],
         )
     except AgentUnavailableError:
         return private_json(

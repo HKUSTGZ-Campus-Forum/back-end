@@ -5,7 +5,18 @@ from flask_jwt_extended import create_access_token
 
 from app import create_app
 from app.extensions import db
-from app.models import AgentConversation, AgentMessage, User, UserRole
+from app.models import (
+    AgentConversation,
+    AgentMessage,
+    Comment,
+    Course,
+    GuguMessage,
+    Post,
+    Tag,
+    TagType,
+    User,
+    UserRole,
+)
 from app.services.agent_chat_service import agent_chat_service
 
 
@@ -24,6 +35,8 @@ class TestConfig:
     AGENT_MAX_MESSAGE_CHARS = 4000
     AGENT_CONTEXT_MESSAGES = 20
     AGENT_REQUESTS_PER_MINUTE = 0
+    AGENT_CLIENT_PROVIDER_ENABLED = True
+    AGENT_CLIENT_PROVIDER_ALLOW_PRIVATE_BASE_URLS = False
 
 
 @pytest.fixture()
@@ -67,7 +80,7 @@ def auth_headers(app, user_index=0):
     return {"Authorization": f"Bearer {token}"}
 
 
-def fake_reply(messages):
+def fake_reply(messages, **_kwargs):
     return {
         "content": f"Answer: {messages[-1]['content']}",
         "input_tokens": 12,
@@ -113,6 +126,61 @@ def test_agent_service_calls_openai_compatible_provider(app, monkeypatch):
     }
 
 
+def test_agent_service_uses_custom_openai_provider(app, monkeypatch):
+    captured = {}
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="自定义模型已接通"))],
+                usage=SimpleNamespace(prompt_tokens=9, completion_tokens=5),
+            )
+
+    fake_client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+
+    def fake_new_client(provider):
+        captured["provider"] = {key: value for key, value in provider.items() if key != "api_key"}
+        return fake_client
+
+    monkeypatch.setattr(agent_chat_service, "_new_client", fake_new_client)
+
+    with app.app_context():
+        provider = agent_chat_service.validate_provider_payload(
+            {
+                "base_url": "https://llm.example/v1/",
+                "api_key": "client-secret",
+                "model": "bring-your-own-model",
+            }
+        )
+        result = agent_chat_service.create_reply(
+            [{"role": "user", "content": "帮我找课程"}],
+            provider=provider,
+            context_sections=[
+                {
+                    "title": "Course search results",
+                    "items": [
+                        {
+                            "title": "AIAA 5030",
+                            "summary": "Course detail",
+                            "path": "/courses/AIAA5030",
+                        }
+                    ],
+                }
+            ],
+        )
+
+    assert captured["model"] == "bring-your-own-model"
+    assert captured["provider"] == {
+        "base_url": "https://llm.example/v1",
+        "model": "bring-your-own-model",
+        "source": "client",
+    }
+    assert "client-secret" not in str(captured)
+    assert any("Course search results" in item["content"] for item in captured["messages"])
+    assert result["content"] == "自定义模型已接通"
+
+
 def test_agent_routes_require_authentication(client):
     assert client.get("/agent/status").status_code == 401
     assert client.get("/agent/conversations").status_code == 401
@@ -122,7 +190,7 @@ def test_agent_routes_require_authentication(client):
 def test_chat_creates_persistent_conversation_and_history(app, client, monkeypatch):
     seen_contexts = []
 
-    def reply(messages):
+    def reply(messages, **_kwargs):
         seen_contexts.append(messages)
         return fake_reply(messages)
 
@@ -222,12 +290,87 @@ def test_unconfigured_agent_fails_before_persisting(app, client):
         assert AgentConversation.query.count() == 0
 
 
+def test_custom_provider_allows_chat_without_server_provider(app, client, monkeypatch):
+    app.config["AGENT_ENABLED"] = False
+    seen = {}
+
+    def reply(messages, provider=None, context_sections=None):
+        seen["messages"] = messages
+        seen["provider"] = provider
+        seen["context_sections"] = context_sections
+        return fake_reply(messages)
+
+    monkeypatch.setattr(agent_chat_service, "create_reply", reply)
+    response = client.post(
+        "/agent/chat",
+        json={
+            "message": "AIAA 5030 在哪里看？",
+            "provider": {
+                "base_url": "https://llm.example/v1",
+                "api_key": "client-only-secret",
+                "model": "client-model",
+            },
+        },
+        headers=auth_headers(app),
+    )
+
+    assert response.status_code == 201
+    body = response.get_data(as_text=True)
+    assert "client-only-secret" not in body
+    assert seen["provider"]["base_url"] == "https://llm.example/v1"
+    assert seen["provider"]["model"] == "client-model"
+    assert seen["context_sections"][0]["name"] == "site_navigation"
+    with app.app_context():
+        assert AgentMessage.query.count() == 2
+        assert all(
+            "client-only-secret" not in message.content
+            for message in AgentMessage.query.all()
+        )
+
+
+def test_invalid_custom_provider_is_rejected_before_persisting(app, client):
+    app.config["AGENT_ENABLED"] = False
+    response = client.post(
+        "/agent/chat",
+        json={
+            "message": "hello",
+            "provider": {
+                "base_url": "ftp://llm.example/v1",
+                "api_key": "client-secret",
+                "model": "client-model",
+            },
+        },
+        headers=auth_headers(app),
+    )
+    assert response.status_code == 400
+    assert response.get_json()["code"] == "invalid_provider"
+    with app.app_context():
+        assert AgentConversation.query.count() == 0
+
+
+def test_private_custom_provider_url_is_rejected(app, client):
+    response = client.post(
+        "/agent/chat",
+        json={
+            "message": "hello",
+            "provider": {
+                "base_url": "http://127.0.0.1:11434/v1",
+                "api_key": "local-secret",
+                "model": "local-model",
+            },
+        },
+        headers=auth_headers(app),
+    )
+    assert response.status_code == 400
+    assert response.get_json()["code"] == "provider_private_url"
+
+
 def test_provider_failure_preserves_user_message_for_history(
     app, client, monkeypatch
 ):
     from app.services.agent_chat_service import AgentResponseError
 
-    def fail(_messages):
+    def fail(_messages, **_kwargs):
         raise AgentResponseError("provider failed")
 
     monkeypatch.setattr(agent_chat_service, "create_reply", fail)
@@ -261,5 +404,58 @@ def test_status_never_exposes_provider_key(app, client):
         "enabled": True,
         "configured": True,
         "model": "test-model",
+        "client_provider_allowed": True,
+        "server_provider": {
+            "enabled": True,
+            "configured": True,
+            "model": "test-model",
+        },
     }
     assert "test-key" not in response.get_data(as_text=True)
+
+
+def test_agent_context_endpoint_returns_public_site_snippets(app, client):
+    with app.app_context():
+        user_id = app.config["TEST_USER_IDS"][0]
+        tag_type = TagType(name=TagType.USER)
+        db.session.add(tag_type)
+        db.session.flush()
+        tag = Tag(name="AIAA5030", tag_type_id=tag_type.id, description="Course discussion tag")
+        course = Course(
+            code="AIAA 5030",
+            normalized_code="AIAA5030",
+            display_code="AIAA 5030",
+            canonical_title="Campus AI Studio",
+            name="Campus AI Studio",
+            description="Project course about campus assistants and large language models.",
+            credits=3,
+        )
+        post = Post(
+            user_id=user_id,
+            title="AIAA 5030 scheduler notes",
+            content="Use the scheduling assistant to compare sections for AIAA 5030.",
+        )
+        post.tags.append(tag)
+        comment = Comment(
+            post=post,
+            user_id=user_id,
+            content="AIAA 5030 overview page links to discussions and prerequisite maps.",
+        )
+        gugu = GuguMessage(author_id=user_id, content="Anyone joining AIAA 5030 this term?")
+        db.session.add_all([tag, course, post, comment, gugu])
+        db.session.commit()
+
+    response = client.get(
+        "/agent/context?q=AIAA%205030",
+        headers=auth_headers(app),
+    )
+    assert response.status_code == 200
+    payload = response.get_json()
+    sections = {section["name"]: section for section in payload["sections"]}
+    assert sections["site_navigation"]["items"]
+    assert sections["courses"]["items"][0]["path"] == "/courses/AIAA5030"
+    assert "large language models" in sections["courses"]["items"][0]["summary"]
+    assert sections["posts"]["items"][0]["path"].startswith("/forum/posts/")
+    assert sections["comments"]["items"][0]["path"].startswith("/forum/posts/")
+    assert sections["gugu"]["items"][0]["path"] == "/community"
+    assert sections["tags"]["items"][0]["title"] == "AIAA5030"
