@@ -479,8 +479,10 @@ def test_post_migration_snapshot_allows_only_empty_new_tables(tmp_path):
             "public.meetcampus_activity_participants": 0,
             "public.meetcampus_resident_plans": 0,
             "public.home_carousel_slides": 3,
+            "public.agent_conversations": 0,
+            "public.agent_messages": 0,
         },
-        "alembic_heads": ["20260829_meetcampus_runtime"],
+        "alembic_heads": ["20260826_agent_chat"],
         "foreign_keys": 21,
     }
     source_path = tmp_path / "source.json"
