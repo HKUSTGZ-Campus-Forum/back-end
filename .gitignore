@@ -172,6 +172,8 @@ cython_debug/
 .pypirc
 
 Docs/
+!/docs/
+!/docs/agent-assistant-api.md
 
 localExps/
 

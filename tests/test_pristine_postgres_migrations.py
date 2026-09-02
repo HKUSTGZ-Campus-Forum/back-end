@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, inspect, text
 
 
 DATABASE_URL_ENV = "PRISTINE_POSTGRES_DATABASE_URL"
-EXPECTED_HEADS = {"20260829_meetcampus_runtime"}
+EXPECTED_HEADS = {"20260826_agent_chat"}
 
 
 @pytest.fixture(scope="module")
@@ -147,6 +147,8 @@ def test_pristine_postgres_upgrade_reaches_existing_heads(
             ("zh", "/image/banner/welcome_cn_2.jpg"),
             ("en", "/image/banner/welcome_en.jpg"),
         ]
+        assert inspector.has_table("agent_conversations")
+        assert inspector.has_table("agent_messages")
         assert set(db.metadata.tables).issubset(set(inspector.get_table_names()))
         assert {
             column["name"]

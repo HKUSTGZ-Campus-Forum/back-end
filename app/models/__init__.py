@@ -41,6 +41,7 @@ from .scheduler_popularity import (
     SchedulerPopularitySnapshotRun,
 )
 from .scheduler_plan import SchedulerPlan, SchedulerPlanCourse, SchedulerPlanSection
+from .agent_chat import AgentConversation, AgentMessage
 from .course_domain import (
     CourseCatalogVersion,
     CourseCatalogRequirement,

@@ -213,6 +213,21 @@ class Config:
         60, get_env_nonnegative_int('RECRUITMENT_ATTEMPT_TTL_SECONDS', 2592000)
     )
 
+    # OpenAI-compatible forum assistant provider. Keep the API key server-side.
+    AGENT_BASE_URL = os.getenv('AGENT_BASE_URL', '').strip().rstrip('/')
+    AGENT_API_KEY = os.getenv('AGENT_API_KEY', '').strip()
+    AGENT_MODEL = os.getenv('AGENT_MODEL', '').strip()
+    AGENT_ENABLED = get_env_bool(
+        'AGENT_ENABLED',
+        bool(AGENT_BASE_URL and AGENT_API_KEY and AGENT_MODEL),
+    )
+    AGENT_SYSTEM_PROMPT = os.getenv('AGENT_SYSTEM_PROMPT', '').strip()
+    AGENT_TIMEOUT_SECONDS = int(os.getenv('AGENT_TIMEOUT_SECONDS', '60'))
+    AGENT_MAX_MESSAGE_CHARS = int(os.getenv('AGENT_MAX_MESSAGE_CHARS', '4000'))
+    AGENT_MAX_OUTPUT_TOKENS = int(os.getenv('AGENT_MAX_OUTPUT_TOKENS', '800'))
+    AGENT_CONTEXT_MESSAGES = int(os.getenv('AGENT_CONTEXT_MESSAGES', '20'))
+    AGENT_REQUESTS_PER_MINUTE = int(os.getenv('AGENT_REQUESTS_PER_MINUTE', '10'))
+
     # Web Push Configuration
     VAPID_PRIVATE_KEY = os.getenv('VAPID_PRIVATE_KEY')
     VAPID_PUBLIC_KEY = os.getenv('VAPID_PUBLIC_KEY')

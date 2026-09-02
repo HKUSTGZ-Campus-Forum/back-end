@@ -17,6 +17,14 @@ python run.py
 
 默认数据库连接为 `postgres:///app.db`，可通过 `DATABASE_URL` 覆盖。Redis 默认为 `redis://localhost:6379/0`，可通过 `REDIS_URL` 覆盖。启动后可访问 `http://localhost:8000/healthz` 检查服务状态。
 
+## 论坛助手
+
+论坛助手通过后端调用 OpenAI 兼容接口，浏览器不会接触供应商 API Key。配置
+`AGENT_BASE_URL`、`AGENT_API_KEY`、`AGENT_MODEL` 并设置
+`AGENT_ENABLED=true` 后，登录用户可使用 `/agent/*` 接口创建对话并读取自己的历史记录。
+Sub2API 应填写账号提供的兼容模式 `/v1` 地址和对应模型名；完整接口与边界见
+[论坛助手 API](docs/agent-assistant-api.md)。
+
 ## 测试
 
 ```bash
@@ -29,6 +37,7 @@ pytest -q
 
 - [后端运维 API](docs/backend-operations-api.md)
 - [排课方案 API](docs/scheduler-saved-plans-api.md)
+- [论坛助手 API](docs/agent-assistant-api.md)
 - [正式环境与发布边界](docs/production-environment.md)
 - [学校 SSO](CAMPUS_SSO.md)
 - [仓库协作规范](AGENTS.md)
