@@ -31,7 +31,9 @@ def _response(payload, status=200):
 def _is_enabled():
     return bool(
         current_app.config.get('RECRUITMENT_CHALLENGE_ENABLED')
-        and current_app.config.get('DASHSCOPE_API_KEY')
+        and current_app.config.get('RECRUITMENT_AGENT_API_KEY')
+        and current_app.config.get('RECRUITMENT_AGENT_BASE_URL')
+        and current_app.config.get('RECRUITMENT_AGENT_MODEL')
     )
 
 

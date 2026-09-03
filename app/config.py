@@ -197,6 +197,13 @@ class Config:
     RECRUITMENT_CHALLENGE_ENABLED = get_env_bool(
         'RECRUITMENT_CHALLENGE_ENABLED', True
     )
+    RECRUITMENT_AGENT_API_KEY = os.getenv(
+        'RECRUITMENT_AGENT_API_KEY', ''
+    ).strip()
+    RECRUITMENT_AGENT_BASE_URL = os.getenv(
+        'RECRUITMENT_AGENT_BASE_URL',
+        'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    ).strip().rstrip('/')
     RECRUITMENT_AGENT_MODEL = os.getenv(
         'RECRUITMENT_AGENT_MODEL', 'qwen-plus'
     ).strip()

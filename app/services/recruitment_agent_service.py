@@ -22,7 +22,6 @@ from openai import OpenAI
 logger = logging.getLogger(__name__)
 
 PROMPT_LIMIT = 100
-_DASHSCOPE_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
 
 
 def normalize_recruitment_prompt(value):
@@ -263,8 +262,8 @@ def run_recruitment_agent(prompt):
     started = time.monotonic()
     target = RecruitmentVirtualTarget()
     client = OpenAI(
-        api_key=config['DASHSCOPE_API_KEY'],
-        base_url=_DASHSCOPE_BASE_URL,
+        api_key=config['RECRUITMENT_AGENT_API_KEY'],
+        base_url=config['RECRUITMENT_AGENT_BASE_URL'],
         timeout=config['RECRUITMENT_AGENT_TIMEOUT_SECONDS'],
         max_retries=0,
     )

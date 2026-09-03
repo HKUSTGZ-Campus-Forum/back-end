@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from flask_jwt_extended import create_access_token
 
 from app import create_app
@@ -11,7 +13,9 @@ from app.services.recruitment_agent_service import (
     RecruitmentVirtualTarget,
     count_recruitment_prompt_characters,
     normalize_recruitment_prompt,
+    run_recruitment_agent,
 )
+from app.services import recruitment_agent_service
 
 
 class RecruitmentTestConfig(Config):
@@ -24,7 +28,8 @@ class RecruitmentTestConfig(Config):
     AUTO_INIT_ON_STARTUP = False
     ENABLE_BACKGROUND_TASKS = False
     RECRUITMENT_CHALLENGE_ENABLED = True
-    DASHSCOPE_API_KEY = 'test-key'
+    RECRUITMENT_AGENT_API_KEY = 'test-key'
+    RECRUITMENT_AGENT_BASE_URL = 'https://agent.example.test/v1'
     RECRUITMENT_AGENT_MODEL = 'test-model'
     RECRUITMENT_AGENT_MAX_ROUNDS = 8
     RECRUITMENT_AGENT_MAX_TOOL_CALLS = 20
@@ -128,7 +133,7 @@ def test_run_validates_prompt_before_consuming_attempt():
 
 def test_unavailable_challenge_does_not_consume_attempt():
     app = _build_app()
-    app.config['DASHSCOPE_API_KEY'] = ''
+    app.config['RECRUITMENT_AGENT_API_KEY'] = ''
     client = app.test_client()
     headers = _auth_headers(app)
 
@@ -140,6 +145,34 @@ def test_unavailable_challenge_does_not_consume_attempt():
     assert run.status_code == 503
     assert run.get_json()['error'] == 'challenge_unavailable'
     assert status['data']['attempted'] is False
+
+
+def test_agent_uses_dedicated_provider_configuration(monkeypatch):
+    app = _build_app()
+    captured = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+            self.chat = SimpleNamespace(
+                completions=SimpleNamespace(create=self.create),
+            )
+
+        @staticmethod
+        def create(**kwargs):
+            captured['request'] = kwargs
+            message = SimpleNamespace(content='done', tool_calls=None)
+            return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    monkeypatch.setattr(recruitment_agent_service, 'OpenAI', FakeClient)
+
+    with app.app_context():
+        result = run_recruitment_agent('test strategy')
+
+    assert captured['api_key'] == 'test-key'
+    assert captured['base_url'] == 'https://agent.example.test/v1'
+    assert captured['request']['model'] == 'test-model'
+    assert result['model'] == 'test-model'
 
 
 def test_only_one_successful_run_is_accepted_per_user(monkeypatch):
