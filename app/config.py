@@ -197,6 +197,13 @@ class Config:
     RECRUITMENT_CHALLENGE_ENABLED = get_env_bool(
         'RECRUITMENT_CHALLENGE_ENABLED', True
     )
+    RECRUITMENT_AGENT_API_KEY = os.getenv(
+        'RECRUITMENT_AGENT_API_KEY', ''
+    ).strip()
+    RECRUITMENT_AGENT_BASE_URL = os.getenv(
+        'RECRUITMENT_AGENT_BASE_URL',
+        'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    ).strip().rstrip('/')
     RECRUITMENT_AGENT_MODEL = os.getenv(
         'RECRUITMENT_AGENT_MODEL', 'qwen-plus'
     ).strip()
@@ -211,6 +218,16 @@ class Config:
     )
     RECRUITMENT_ATTEMPT_TTL_SECONDS = max(
         60, get_env_nonnegative_int('RECRUITMENT_ATTEMPT_TTL_SECONDS', 2592000)
+    )
+    RECRUITMENT_UNLIMITED_EMAILS = frozenset(
+        email.strip().casefold()
+        for email in os.getenv('RECRUITMENT_UNLIMITED_EMAILS', '').split(',')
+        if email.strip()
+    )
+    RECRUITMENT_ADMIN_EMAILS = frozenset(
+        email.strip().casefold()
+        for email in os.getenv('RECRUITMENT_ADMIN_EMAILS', '').split(',')
+        if email.strip()
     )
 
     # OpenAI-compatible forum assistant provider. Keep the API key server-side.
