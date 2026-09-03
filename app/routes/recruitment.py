@@ -1,4 +1,4 @@
-"""Public configuration and authenticated one-attempt recruitment routes."""
+"""Recruitment routes with one attempt except for verified test accounts."""
 
 import hashlib
 import logging
@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
-from app.extensions import cache
+from app.extensions import cache, db
+from app.models.user import User
 from app.services.recruitment_agent_service import (
     PROMPT_LIMIT,
     count_recruitment_prompt_characters,
@@ -37,6 +38,37 @@ def _is_enabled():
 def _attempt_key(identity):
     digest = hashlib.sha256(str(identity).encode('utf-8')).hexdigest()
     return f'recruitment:attempt:v1:{digest}'
+
+
+def _running_key(identity):
+    digest = hashlib.sha256(str(identity).encode('utf-8')).hexdigest()
+    return f'recruitment:running:v1:{digest}'
+
+
+def _normalized_email_allowlist(value):
+    if isinstance(value, str):
+        value = value.split(',')
+    return {
+        str(email).strip().casefold()
+        for email in (value or ())
+        if str(email).strip()
+    }
+
+
+def _has_unlimited_attempts(identity):
+    try:
+        user_id = int(identity)
+    except (TypeError, ValueError):
+        return False
+
+    user = db.session.get(User, user_id)
+    if not user or user.is_deleted or not user.email_verified or not user.email:
+        return False
+
+    allowlist = _normalized_email_allowlist(
+        current_app.config.get('RECRUITMENT_UNLIMITED_EMAILS')
+    )
+    return user.email.strip().casefold() in allowlist
 
 
 def _utc_now():
@@ -70,12 +102,15 @@ def get_recruitment_config():
 @bp.get('/status')
 @jwt_required()
 def get_recruitment_status():
-    receipt = cache.get(_attempt_key(get_jwt_identity()))
+    identity = get_jwt_identity()
+    receipt = cache.get(_attempt_key(identity))
+    unlimited_attempts = _has_unlimited_attempts(identity)
     return _response({
         'success': True,
         'data': {
             'attempted': receipt is not None,
             'attempt': _public_attempt(receipt),
+            'unlimited_attempts': unlimited_attempts,
         },
     })
 
@@ -103,15 +138,35 @@ def run_recruitment_challenge():
             'prompt_limit': PROMPT_LIMIT,
         }, 400)
 
-    key = _attempt_key(get_jwt_identity())
+    identity = get_jwt_identity()
+    key = _attempt_key(identity)
+    unlimited_attempts = _has_unlimited_attempts(identity)
     ttl = current_app.config['RECRUITMENT_ATTEMPT_TTL_SECONDS']
     started_at = _utc_now()
     running_receipt = {'state': 'running', 'started_at': started_at}
-    if not cache.add(key, running_receipt, timeout=ttl):
+    claim_key = _running_key(identity) if unlimited_attempts else key
+    claim_ttl = (
+        max(
+            300,
+            current_app.config['RECRUITMENT_AGENT_MAX_ROUNDS']
+            * current_app.config['RECRUITMENT_AGENT_TIMEOUT_SECONDS']
+            + 60,
+        )
+        if unlimited_attempts
+        else ttl
+    )
+    if not cache.add(claim_key, running_receipt, timeout=claim_ttl):
         return _response({
             'success': False,
-            'error': 'attempt_already_used',
-            'data': {'attempt': _public_attempt(cache.get(key))},
+            'error': (
+                'attempt_in_progress'
+                if unlimited_attempts
+                else 'attempt_already_used'
+            ),
+            'data': {
+                'attempt': _public_attempt(cache.get(key)),
+                'unlimited_attempts': unlimited_attempts,
+            },
         }, 409)
 
     try:
@@ -122,7 +177,13 @@ def run_recruitment_challenge():
             'completed_at': _utc_now(),
         }
         cache.set(key, receipt, timeout=ttl)
-        return _response({'success': True, 'data': {'attempt': _public_attempt(receipt)}})
+        return _response({
+            'success': True,
+            'data': {
+                'attempt': _public_attempt(receipt),
+                'unlimited_attempts': unlimited_attempts,
+            },
+        })
     except Exception:
         logger.exception('Recruitment agent run failed')
         receipt = {
@@ -135,5 +196,11 @@ def run_recruitment_challenge():
         return _response({
             'success': False,
             'error': 'agent_failed',
-            'data': {'attempt': _public_attempt(receipt)},
+            'data': {
+                'attempt': _public_attempt(receipt),
+                'unlimited_attempts': unlimited_attempts,
+            },
         }, 502)
+    finally:
+        if unlimited_attempts:
+            cache.delete(claim_key)

@@ -30,6 +30,7 @@ class RecruitmentTestConfig(Config):
     RECRUITMENT_AGENT_MAX_TOOL_CALLS = 20
     RECRUITMENT_AGENT_TIMEOUT_SECONDS = 12
     RECRUITMENT_ATTEMPT_TTL_SECONDS = 3600
+    RECRUITMENT_UNLIMITED_EMAILS = frozenset()
 
 
 def _build_app():
@@ -40,15 +41,15 @@ def _build_app():
     return app
 
 
-def _auth_headers(app, identity='42'):
+def _auth_headers(app, identity='42', email=None, email_verified=True):
     with app.app_context():
         role = UserRole(name=f'user-{identity}', description='Test role')
         user = User(
             id=int(identity),
             username=f'recruitment-user-{identity}',
             password_hash='not-used',
-            email=f'recruitment-{identity}@connect.hkust-gz.edu.cn',
-            email_verified=True,
+            email=email or f'recruitment-{identity}@connect.hkust-gz.edu.cn',
+            email_verified=email_verified,
             role=role,
         )
         db.session.add_all([role, user])
@@ -172,4 +173,82 @@ def test_only_one_successful_run_is_accepted_per_user(monkeypatch):
     assert second.status_code == 409
     assert second.get_json()['error'] == 'attempt_already_used'
     assert status.get_json()['data']['attempted'] is True
+    assert status.get_json()['data']['unlimited_attempts'] is False
     assert calls == ['先检查源码']
+
+
+def test_allowlisted_verified_email_can_repeat_challenge(monkeypatch):
+    app = _build_app()
+    app.config['RECRUITMENT_UNLIMITED_EMAILS'] = {
+        'YXIA873@CONNECT.HKUST-GZ.EDU.CN',
+    }
+    client = app.test_client()
+    headers = _auth_headers(
+        app,
+        email='yxia873@connect.hkust-gz.edu.cn',
+    )
+    calls = []
+
+    def fake_run(prompt):
+        calls.append(prompt)
+        return {
+            'state': 'complete',
+            'success': True,
+            'score': 100,
+            'tool_calls': 5,
+            'events': [],
+            'agent_message': 'done',
+            'duration_ms': 10,
+            'model': 'test-model',
+        }
+
+    monkeypatch.setattr(recruitment_routes, 'run_recruitment_agent', fake_run)
+
+    first = client.post('/recruitment/run', headers=headers, json={'prompt': '第一次'})
+    second = client.post('/recruitment/run', headers=headers, json={'prompt': '第二次'})
+    status = client.get('/recruitment/status', headers=headers).get_json()['data']
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.get_json()['data']['unlimited_attempts'] is True
+    assert status['attempted'] is True
+    assert status['unlimited_attempts'] is True
+    assert status['attempt']['score'] == 100
+    assert calls == ['第一次', '第二次']
+
+
+def test_allowlisted_unverified_email_keeps_one_attempt_limit(monkeypatch):
+    app = _build_app()
+    app.config['RECRUITMENT_UNLIMITED_EMAILS'] = {
+        'yxia873@connect.hkust-gz.edu.cn',
+    }
+    client = app.test_client()
+    headers = _auth_headers(
+        app,
+        identity='43',
+        email='yxia873@connect.hkust-gz.edu.cn',
+        email_verified=False,
+    )
+    monkeypatch.setattr(
+        recruitment_routes,
+        'run_recruitment_agent',
+        lambda _prompt: {
+            'state': 'complete',
+            'success': False,
+            'score': 10,
+            'tool_calls': 1,
+            'events': [],
+            'agent_message': 'done',
+            'duration_ms': 10,
+            'model': 'test-model',
+        },
+    )
+
+    first = client.post('/recruitment/run', headers=headers, json={'prompt': '第一次'})
+    second = client.post('/recruitment/run', headers=headers, json={'prompt': '第二次'})
+    status = client.get('/recruitment/status', headers=headers).get_json()['data']
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert second.get_json()['error'] == 'attempt_already_used'
+    assert status['unlimited_attempts'] is False

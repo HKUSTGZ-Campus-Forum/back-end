@@ -212,6 +212,11 @@ class Config:
     RECRUITMENT_ATTEMPT_TTL_SECONDS = max(
         60, get_env_nonnegative_int('RECRUITMENT_ATTEMPT_TTL_SECONDS', 2592000)
     )
+    RECRUITMENT_UNLIMITED_EMAILS = frozenset(
+        email.strip().casefold()
+        for email in os.getenv('RECRUITMENT_UNLIMITED_EMAILS', '').split(',')
+        if email.strip()
+    )
 
     # Web Push Configuration
     VAPID_PRIVATE_KEY = os.getenv('VAPID_PRIVATE_KEY')
