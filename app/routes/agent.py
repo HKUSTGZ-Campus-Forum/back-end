@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 import re
 import time
+import uuid
 
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
@@ -68,6 +69,29 @@ def serialize_conversation(conversation, include_messages=False):
     return payload
 
 
+def serialize_ephemeral_message(message_id, role, content, created_at, **extra):
+    payload = {
+        "id": message_id,
+        "role": role,
+        "content": content,
+        "created_at": created_at.isoformat() if created_at else None,
+    }
+    payload.update(extra)
+    return payload
+
+
+def serialize_ephemeral_conversation(public_id, title, now, message_count):
+    stamp = now.isoformat() if now else None
+    return {
+        "id": public_id,
+        "title": title,
+        "created_at": stamp,
+        "updated_at": stamp,
+        "last_message_at": stamp,
+        "message_count": message_count,
+    }
+
+
 def conversation_for_user(public_id, user_id):
     return AgentConversation.query.filter_by(
         public_id=public_id,
@@ -83,13 +107,21 @@ def conversation_title(content):
     return f"{compact[:47]}..."
 
 
-def rate_limit_allows(user_id):
+def rate_limit_subject(user_id=None):
+    if user_id is not None:
+        return f"user:{user_id}"
+    forwarded_for = str(request.headers.get("X-Forwarded-For") or "").split(",")[0]
+    remote_addr = forwarded_for.strip() or str(request.remote_addr or "unknown")
+    return f"anon:{remote_addr[:120]}"
+
+
+def rate_limit_allows(subject):
     limit = int(current_app.config.get("AGENT_REQUESTS_PER_MINUTE", 10))
     if limit <= 0:
         return True
 
     bucket = int(time.time() // 60)
-    key = f"agent:rate:{user_id}:{bucket}"
+    key = f"agent:rate:{subject}:{bucket}"
     try:
         if cache.add(key, 1, timeout=70):
             count = 1
@@ -101,14 +133,110 @@ def rate_limit_allows(user_id):
         return True
 
 
+def anonymous_context_messages(value):
+    if not isinstance(value, list):
+        return []
+    max_message_chars = int(current_app.config.get("AGENT_MAX_MESSAGE_CHARS", 4000))
+    limit = max(1, int(current_app.config.get("AGENT_CONTEXT_MESSAGES", 20)) - 1)
+    messages = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "").strip()
+        if role not in AgentMessage.ROLES:
+            continue
+        content = str(item.get("content") or "").strip()
+        if not content:
+            continue
+        messages.append({"role": role, "content": content[:max_message_chars]})
+    return messages[-limit:]
+
+
+def anonymous_conversation_id(value):
+    public_id = str(value or "").strip()
+    if re.fullmatch(r"local-[A-Za-z0-9_-]{1,80}", public_id):
+        return public_id
+    return f"local-{uuid.uuid4()}"
+
+
+def send_anonymous_message(payload, content, provider):
+    if not rate_limit_allows(rate_limit_subject()):
+        return private_json(
+            {"error": "Too many assistant requests", "code": "rate_limited"},
+            429,
+        )
+
+    now = utcnow()
+    public_id = anonymous_conversation_id(payload.get("conversation_id"))
+    history = anonymous_context_messages(payload.get("context_messages"))
+    context = [*history, {"role": AgentMessage.ROLE_USER, "content": content}]
+    title = conversation_title(content)
+    user_message = serialize_ephemeral_message(
+        f"local-user-{uuid.uuid4()}",
+        AgentMessage.ROLE_USER,
+        content,
+        now,
+    )
+
+    try:
+        site_context = build_agent_context(content, user_id=None)
+    except Exception:
+        current_app.logger.warning("Agent context lookup failed", exc_info=True)
+        site_context = {"sections": []}
+
+    try:
+        reply = agent_chat_service.create_reply(
+            context,
+            provider=provider,
+            context_sections=site_context["sections"],
+        )
+    except AgentUnavailableError:
+        return private_json(
+            {"error": "Assistant is not configured", "code": "agent_unavailable"},
+            503,
+        )
+    except AgentResponseError:
+        return private_json(
+            {
+                "error": "Assistant response failed",
+                "code": "agent_request_failed",
+                "conversation": serialize_ephemeral_conversation(
+                    public_id, title, now, len(context)
+                ),
+                "user_message": user_message,
+            },
+            502,
+        )
+
+    assistant_now = utcnow()
+    assistant_message = serialize_ephemeral_message(
+        f"local-assistant-{uuid.uuid4()}",
+        AgentMessage.ROLE_ASSISTANT,
+        reply["content"],
+        assistant_now,
+        input_tokens=reply.get("input_tokens"),
+        output_tokens=reply.get("output_tokens"),
+    )
+    return private_json(
+        {
+            "conversation": serialize_ephemeral_conversation(
+                public_id, title, assistant_now, len(context) + 1
+            ),
+            "user_message": user_message,
+            "assistant_message": assistant_message,
+        },
+        201,
+    )
+
+
 @bp.route("/status", methods=["GET"])
-@jwt_required()
+@jwt_required(optional=True)
 def get_status():
     return private_json(agent_chat_service.status())
 
 
 @bp.route("/context", methods=["GET"])
-@jwt_required()
+@jwt_required(optional=True)
 def get_context():
     query = str(request.args.get("q") or "").strip()
     if len(query) < 2:
@@ -166,7 +294,7 @@ def delete_conversation(public_id):
 
 
 @bp.route("/chat", methods=["POST"])
-@jwt_required()
+@jwt_required(optional=True)
 def send_message():
     user_id = current_user_id()
     payload = request.get_json(silent=True)
@@ -201,12 +329,23 @@ def send_message():
         except AgentProviderConfigError as exc:
             return private_json({"error": str(exc), "code": exc.code}, 400)
 
+    if user_id is None:
+        if provider is None:
+            return private_json(
+                {
+                    "error": "Login or a custom provider is required",
+                    "code": "login_required",
+                },
+                401,
+            )
+        return send_anonymous_message(payload, content, provider)
+
     if not agent_chat_service.status()["enabled"] and provider is None:
         return private_json(
             {"error": "Assistant is not configured", "code": "agent_unavailable"},
             503,
         )
-    if not rate_limit_allows(user_id):
+    if not rate_limit_allows(rate_limit_subject(user_id)):
         return private_json(
             {"error": "Too many assistant requests", "code": "rate_limited"},
             429,

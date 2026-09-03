@@ -24,14 +24,14 @@ AGENT_CLIENT_PROVIDER_ALLOW_PRIVATE_BASE_URLS=false
 
 ## 接口
 
-所有接口都要求 UniKorn JWT，并返回 `Cache-Control: private, no-store`。
+接口都返回 `Cache-Control: private, no-store`。状态、只读上下文和“未登录 + 用户自带模型通道”的临时聊天可公开访问；服务端对话历史、读取历史、删除历史仍要求 UniKorn JWT。
 
-- `GET /agent/status`：返回是否已配置及当前模型名，不返回 Key。
-- `GET /agent/context?q=关键词`：返回助手会看到的只读站内上下文片段，用于调试检索结果。
+- `GET /agent/status`：返回是否已配置及当前模型名，不返回 Key；未登录也可读取。
+- `GET /agent/context?q=关键词`：返回助手会看到的只读站内上下文片段，用于调试检索结果；未登录只返回公开站内数据。
 - `GET /agent/conversations`：按最近消息时间列出当前用户的会话。
 - `GET /agent/conversations/<id>`：读取当前用户的一段完整会话。
 - `DELETE /agent/conversations/<id>`：软删除当前用户的会话。
-- `POST /agent/chat`：发送消息；`conversation_id` 为空时自动新建会话；可选传入用户自带模型通道。
+- `POST /agent/chat`：发送消息；登录用户的 `conversation_id` 为空时自动新建会话；未登录时必须传入用户自带模型通道，只返回临时会话响应，不写入 `AgentConversation` 或 `AgentMessage`。
 
 请求示例：
 
@@ -39,6 +39,10 @@ AGENT_CLIENT_PROVIDER_ALLOW_PRIVATE_BASE_URLS=false
 {
   "conversation_id": null,
   "message": "课程评价在哪里看？",
+  "context_messages": [
+    { "role": "user", "content": "课程入口在哪里？" },
+    { "role": "assistant", "content": "可以从 Courses 页面进入。" }
+  ],
   "provider": {
     "base_url": "https://provider.example/v1",
     "api_key": "sk-...",

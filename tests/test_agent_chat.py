@@ -181,10 +181,13 @@ def test_agent_service_uses_custom_openai_provider(app, monkeypatch):
     assert result["content"] == "自定义模型已接通"
 
 
-def test_agent_routes_require_authentication(client):
-    assert client.get("/agent/status").status_code == 401
+def test_agent_public_routes_and_protected_history(client):
+    assert client.get("/agent/status").status_code == 200
+    assert client.get("/agent/context?q=course").status_code == 200
     assert client.get("/agent/conversations").status_code == 401
-    assert client.post("/agent/chat", json={"message": "hello"}).status_code == 401
+    response = client.post("/agent/chat", json={"message": "hello"})
+    assert response.status_code == 401
+    assert response.get_json()["code"] == "login_required"
 
 
 def test_chat_creates_persistent_conversation_and_history(app, client, monkeypatch):
@@ -326,6 +329,55 @@ def test_custom_provider_allows_chat_without_server_provider(app, client, monkey
             "client-only-secret" not in message.content
             for message in AgentMessage.query.all()
         )
+
+
+def test_anonymous_custom_provider_chat_is_ephemeral(app, client, monkeypatch):
+    app.config["AGENT_ENABLED"] = False
+    seen = {}
+
+    def reply(messages, provider=None, context_sections=None):
+        seen["messages"] = messages
+        seen["provider"] = provider
+        seen["context_sections"] = context_sections
+        return fake_reply(messages)
+
+    monkeypatch.setattr(agent_chat_service, "create_reply", reply)
+    response = client.post(
+        "/agent/chat",
+        json={
+            "conversation_id": "local-browser-session",
+            "message": "AIAA 5030 怎么找？",
+            "context_messages": [
+                {"role": "user", "content": "之前问过课程入口"},
+                {"role": "assistant", "content": "可以从 Courses 页面进入。"},
+            ],
+            "provider": {
+                "base_url": "https://llm.example/v1",
+                "api_key": "anonymous-client-secret",
+                "model": "client-model",
+            },
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.get_data(as_text=True)
+    assert "anonymous-client-secret" not in body
+    payload = response.get_json()
+    assert payload["conversation"]["id"] == "local-browser-session"
+    assert payload["conversation"]["message_count"] == 4
+    assert str(payload["user_message"]["id"]).startswith("local-user-")
+    assert str(payload["assistant_message"]["id"]).startswith("local-assistant-")
+    assert [item["role"] for item in seen["messages"]] == [
+        "user",
+        "assistant",
+        "user",
+    ]
+    assert seen["messages"][-1]["content"] == "AIAA 5030 怎么找？"
+    assert seen["provider"]["model"] == "client-model"
+    assert seen["context_sections"][0]["name"] == "site_navigation"
+    with app.app_context():
+        assert AgentConversation.query.count() == 0
+        assert AgentMessage.query.count() == 0
 
 
 def test_invalid_custom_provider_is_rejected_before_persisting(app, client):
