@@ -224,6 +224,11 @@ class Config:
         for email in os.getenv('RECRUITMENT_UNLIMITED_EMAILS', '').split(',')
         if email.strip()
     )
+    RECRUITMENT_ADMIN_EMAILS = frozenset(
+        email.strip().casefold()
+        for email in os.getenv('RECRUITMENT_ADMIN_EMAILS', '').split(',')
+        if email.strip()
+    )
 
     # Web Push Configuration
     VAPID_PRIVATE_KEY = os.getenv('VAPID_PRIVATE_KEY')

@@ -7,6 +7,7 @@ from app.config import Config
 from app.extensions import cache, db
 from app.models.user import User
 from app.models.user_role import UserRole
+from app.models.recruitment_attempt import RecruitmentAttempt
 from app.routes import recruitment as recruitment_routes
 from app.services.recruitment_agent_service import (
     PROMPT_LIMIT,
@@ -36,6 +37,7 @@ class RecruitmentTestConfig(Config):
     RECRUITMENT_AGENT_TIMEOUT_SECONDS = 12
     RECRUITMENT_ATTEMPT_TTL_SECONDS = 3600
     RECRUITMENT_UNLIMITED_EMAILS = frozenset()
+    RECRUITMENT_ADMIN_EMAILS = frozenset()
 
 
 def _build_app():
@@ -208,6 +210,12 @@ def test_only_one_successful_run_is_accepted_per_user(monkeypatch):
     assert status.get_json()['data']['attempted'] is True
     assert status.get_json()['data']['unlimited_attempts'] is False
     assert calls == ['先检查源码']
+    with app.app_context():
+        records = RecruitmentAttempt.query.all()
+        assert len(records) == 1
+        assert records[0].prompt == '先检查源码'
+        assert records[0].score == 100
+        assert records[0].feedback[0]['code'] == 'flag_accepted'
 
 
 def test_allowlisted_verified_email_can_repeat_challenge(monkeypatch):
@@ -248,6 +256,142 @@ def test_allowlisted_verified_email_can_repeat_challenge(monkeypatch):
     assert status['unlimited_attempts'] is True
     assert status['attempt']['score'] == 100
     assert calls == ['第一次', '第二次']
+    with app.app_context():
+        records = RecruitmentAttempt.query.order_by(RecruitmentAttempt.id).all()
+        assert [record.prompt for record in records] == ['第一次', '第二次']
+
+
+def test_only_allowlisted_verified_account_can_view_recruitment_admin(monkeypatch):
+    app = _build_app()
+    app.config['RECRUITMENT_ADMIN_EMAILS'] = {
+        'YXIA873@CONNECT.HKUST-GZ.EDU.CN',
+    }
+    client = app.test_client()
+    owner_headers = _auth_headers(
+        app,
+        identity='50',
+        email='yxia873@connect.hkust-gz.edu.cn',
+    )
+    other_headers = _auth_headers(
+        app,
+        identity='51',
+        email='other@connect.hkust-gz.edu.cn',
+    )
+    fake_results = iter([
+        {
+            'state': 'complete',
+            'success': True,
+            'score': 90,
+            'tool_calls': 6,
+            'events': [{'code': 'record_exposed', 'detail': 'found', 'points': 20, 'score': 55}],
+            'agent_message': 'owner feedback',
+            'duration_ms': 1200,
+            'model': 'test-model',
+        },
+        {
+            'state': 'complete',
+            'success': False,
+            'score': 25,
+            'tool_calls': 2,
+            'events': [{'code': 'bundle_found', 'detail': 'bundle', 'points': 15, 'score': 25}],
+            'agent_message': 'other feedback',
+            'duration_ms': 800,
+            'model': 'test-model',
+        },
+    ])
+    monkeypatch.setattr(
+        recruitment_routes,
+        'run_recruitment_agent',
+        lambda _prompt: next(fake_results),
+    )
+
+    assert client.post(
+        '/recruitment/run',
+        headers=owner_headers,
+        json={'prompt': '主人提示'},
+    ).status_code == 200
+    assert client.post(
+        '/recruitment/run',
+        headers=other_headers,
+        json={'prompt': '同学提示'},
+    ).status_code == 200
+
+    owner_status = client.get(
+        '/recruitment/status', headers=owner_headers
+    ).get_json()['data']
+    other_status = client.get(
+        '/recruitment/status', headers=other_headers
+    ).get_json()['data']
+    denied = client.get(
+        '/recruitment/admin/overview', headers=other_headers
+    )
+    overview = client.get(
+        '/recruitment/admin/overview', headers=owner_headers
+    )
+
+    assert owner_status['can_view_admin'] is True
+    assert other_status['can_view_admin'] is False
+    assert denied.status_code == 403
+    assert denied.get_json()['error'] == 'admin_required'
+    assert overview.status_code == 200
+    data = overview.get_json()['data']
+    assert data['summary'] == {
+        'attempts': 2,
+        'participants': 2,
+        'completed': 2,
+        'perfect_scores': 0,
+        'average_score': 57.5,
+    }
+    assert [entry['email'] for entry in data['leaderboard']] == [
+        'yxia873@connect.hkust-gz.edu.cn',
+        'other@connect.hkust-gz.edu.cn',
+    ]
+    assert data['attempts'][0]['prompt'] == '同学提示'
+    assert data['attempts'][0]['feedback'][0]['code'] == 'bundle_found'
+    assert data['attempts'][1]['agent_message'] == 'owner feedback'
+
+
+def test_recruitment_leaderboard_keeps_each_accounts_best_single_score(monkeypatch):
+    app = _build_app()
+    app.config['RECRUITMENT_ADMIN_EMAILS'] = {
+        'yxia873@connect.hkust-gz.edu.cn',
+    }
+    app.config['RECRUITMENT_UNLIMITED_EMAILS'] = {
+        'yxia873@connect.hkust-gz.edu.cn',
+    }
+    client = app.test_client()
+    headers = _auth_headers(
+        app,
+        identity='60',
+        email='yxia873@connect.hkust-gz.edu.cn',
+    )
+    scores = iter([40, 100, 80])
+
+    def fake_run(_prompt):
+        score = next(scores)
+        return {
+            'state': 'complete',
+            'success': score == 100,
+            'score': score,
+            'tool_calls': 5,
+            'events': [],
+            'agent_message': '',
+            'duration_ms': 10,
+            'model': 'test-model',
+        }
+
+    monkeypatch.setattr(recruitment_routes, 'run_recruitment_agent', fake_run)
+    for prompt in ('第一次', '第二次', '第三次'):
+        assert client.post(
+            '/recruitment/run', headers=headers, json={'prompt': prompt}
+        ).status_code == 200
+
+    data = client.get(
+        '/recruitment/admin/overview', headers=headers
+    ).get_json()['data']
+    assert data['summary']['attempts'] == 3
+    assert len(data['leaderboard']) == 1
+    assert data['leaderboard'][0]['score'] == 100
 
 
 def test_allowlisted_unverified_email_keeps_one_attempt_limit(monkeypatch):

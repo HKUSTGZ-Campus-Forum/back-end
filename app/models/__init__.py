@@ -56,3 +56,4 @@ from .course_domain import (
     CoursePostOfferingTarget,
 )
 from .home_carousel_slide import HomeCarouselSlide
+from .recruitment_attempt import RecruitmentAttempt
