@@ -481,9 +481,10 @@ def test_post_migration_snapshot_allows_only_empty_new_tables(tmp_path):
             "public.home_carousel_slides": 3,
             "public.agent_conversations": 0,
             "public.agent_messages": 0,
+            "public.recruitment_attempts": 0,
         },
-        "alembic_heads": ["20260826_agent_chat"],
-        "foreign_keys": 21,
+        "alembic_heads": ["20260903_merge_agent_recruit"],
+        "foreign_keys": 24,
     }
     source_path = tmp_path / "source.json"
     target_path = tmp_path / "target.json"
