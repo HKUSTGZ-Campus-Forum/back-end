@@ -21,7 +21,38 @@ from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
+# The strategy a participant writes is bound by a weighted budget. A Chinese
+# (Han) character consumes one full "word" of the budget; every other visible
+# character consumes 0.3 of a word (so roughly three English characters weigh
+# about as much as one Chinese character). PROMPT_LIMIT is that budget in word
+# units (default 100).
 PROMPT_LIMIT = 100
+
+# Internal exact arithmetic keeps the limit integer-exact on both the frontend
+# and backend. Each character contributes a weight in tenths of a word, chosen
+# so Han = 1.0 (10 tenths) and non-Han = 0.3 (3 tenths). The budget is
+# PROMPT_LIMIT words = PROMPT_LIMIT * 10 tenths.
+_HAN_TENTHS = 10
+_OTHER_TENTHS = 3
+
+# Ranges that count as Chinese (Script = Han) in the prompts participants type:
+# the two BMP CJK ideograph blocks, plus compatibility ideographs. Everything
+# else (Latin, digits, spaces, punctuation, full-width marks, emoji, …) is
+# treated as non-Chinese. These exact ranges are mirrored by the frontend's
+# countRecruitmentPromptCharacters so live counters agree with server checks.
+_CJK_HAN_RANGES = (
+    (0x3400, 0x4DBF),  # CJK Unified Ideographs Extension A
+    (0x4E00, 0x9FFF),  # CJK Unified Ideographs
+    (0xF900, 0xFAFF),  # CJK Compatibility Ideographs
+)
+
+
+def _is_cjk_han(character):
+    code_point = ord(character)
+    return any(
+        start <= code_point <= end
+        for start, end in _CJK_HAN_RANGES
+    )
 
 
 def normalize_recruitment_prompt(value):
@@ -37,8 +68,26 @@ def normalize_recruitment_prompt(value):
     return normalized.strip()
 
 
+def _recruitment_prompt_tenths(value):
+    """Weight of a prompt in tenths of a Chinese-character word (exact)."""
+    total = 0
+    for character in normalize_recruitment_prompt(value):
+        total += _HAN_TENTHS if _is_cjk_han(character) else _OTHER_TENTHS
+    return total
+
+
 def count_recruitment_prompt_characters(value):
-    return len(normalize_recruitment_prompt(value))
+    """Weighted prompt length in Chinese-character-equivalent units.
+
+    One Chinese character counts as 1.0; one non-Chinese character counts as
+    0.3. Computed from exact integer tenths then divided to a float.
+    """
+    return _recruitment_prompt_tenths(value) / 10.0
+
+
+def is_recruitment_prompt_within_limit(value, prompt_limit=PROMPT_LIMIT):
+    """Confirm a prompt stays at or under the weighted budget (exact)."""
+    return _recruitment_prompt_tenths(value) <= prompt_limit * 10
 
 
 @dataclass

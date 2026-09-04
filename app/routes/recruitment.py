@@ -15,6 +15,7 @@ from app.models.user import User
 from app.services.recruitment_agent_service import (
     PROMPT_LIMIT,
     count_recruitment_prompt_characters,
+    is_recruitment_prompt_within_limit,
     normalize_recruitment_prompt,
     run_recruitment_agent,
 )
@@ -112,6 +113,8 @@ def get_recruitment_config():
         'data': {
             'enabled': _is_enabled(),
             'prompt_limit': PROMPT_LIMIT,
+            'cjk_unit_weight': 1.0,
+            'non_cjk_unit_weight': 0.3,
             'attempt_limit': None,
             'repeatable': True,
             'max_tool_calls': current_app.config['RECRUITMENT_AGENT_MAX_TOOL_CALLS'],
@@ -327,7 +330,7 @@ def run_recruitment_challenge():
     character_count = count_recruitment_prompt_characters(prompt)
     if character_count == 0:
         return _response({'success': False, 'error': 'prompt_required'}, 400)
-    if character_count > PROMPT_LIMIT:
+    if not is_recruitment_prompt_within_limit(prompt):
         return _response({
             'success': False,
             'error': 'prompt_too_long',

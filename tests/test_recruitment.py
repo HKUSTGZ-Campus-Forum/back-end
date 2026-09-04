@@ -64,10 +64,16 @@ def _auth_headers(app, identity='42', email=None, email_verified=True):
     return {'Authorization': f'Bearer {token}'}
 
 
-def test_prompt_normalization_matches_visible_character_limit():
+def test_prompt_normalization_matches_weighted_character_limit():
     assert normalize_recruitment_prompt('  Ａ\u200b计划  ') == 'A计划'
-    assert count_recruitment_prompt_characters('🙂计划') == 3
-    assert count_recruitment_prompt_characters('a' * PROMPT_LIMIT) == PROMPT_LIMIT
+    # 'A' is non-Chinese (0.3); 计 and 划 are each Chinese (1.0) => 2.3.
+    assert count_recruitment_prompt_characters('A计划') == 2.3
+    # 100 Chinese characters weigh exactly the full 100-unit budget.
+    assert count_recruitment_prompt_characters('汉' * PROMPT_LIMIT) == PROMPT_LIMIT
+    # 100 ASCII (non-Chinese) characters weigh only 30 units.
+    assert count_recruitment_prompt_characters('a' * PROMPT_LIMIT) == 30.0
+    # Emoji and full-width marks are non-Chinese (0.3 each).
+    assert count_recruitment_prompt_characters('🙂计划') == 2.3
 
 
 def test_virtual_target_is_isolated_and_has_a_complete_scored_route():
@@ -103,6 +109,8 @@ def test_public_config_does_not_require_authentication():
     assert response.get_json()['data'] == {
         'enabled': True,
         'prompt_limit': 100,
+        'cjk_unit_weight': 1.0,
+        'non_cjk_unit_weight': 0.3,
         'attempt_limit': None,
         'repeatable': True,
         'max_tool_calls': 20,
@@ -125,10 +133,11 @@ def test_run_validates_prompt_before_consuming_attempt():
     headers = _auth_headers(app)
 
     assert client.post('/recruitment/run', headers=headers, json={'prompt': '  '}).status_code == 400
+    # 101 Chinese characters exceed the 100-unit weighted budget.
     assert client.post(
         '/recruitment/run',
         headers=headers,
-        json={'prompt': 'a' * 101},
+        json={'prompt': '汉' * 101},
     ).status_code == 400
     status = client.get('/recruitment/status', headers=headers).get_json()
     assert status['data']['attempted'] is False
