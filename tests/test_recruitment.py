@@ -11,9 +11,11 @@ from app.models.recruitment_attempt import RecruitmentAttempt
 from app.routes import recruitment as recruitment_routes
 from app.services.recruitment_agent_service import (
     PROMPT_LIMIT,
+    RecruitmentStrategyPolicy,
     RecruitmentVirtualTarget,
     count_recruitment_prompt_characters,
     normalize_recruitment_prompt,
+    recruitment_strategy_policy,
     run_recruitment_agent,
 )
 from app.services import recruitment_agent_service
@@ -77,7 +79,10 @@ def test_prompt_normalization_matches_weighted_character_limit():
 
 
 def test_virtual_target_is_isolated_and_has_a_complete_scored_route():
-    target = RecruitmentVirtualTarget(flag='NODE{test-flag}')
+    target = RecruitmentVirtualTarget(
+        flag='NODE{test-flag}',
+        policy=RecruitmentStrategyPolicy(True, True, True, True, True),
+    )
 
     rejected = target.open_path('https://unikorn.hkust-gz.edu.cn/api/users')
     assert rejected['status'] == 404
@@ -99,6 +104,33 @@ def test_virtual_target_is_isolated_and_has_a_complete_scored_route():
         'flag_accepted',
         'efficiency_bonus',
     }
+
+
+def test_clipboard_shortcut_cannot_authorize_an_autonomous_solution():
+    policy = recruitment_strategy_policy('Ctrl C+V')
+    target = RecruitmentVirtualTarget(flag='NODE{test-flag}', policy=policy)
+
+    result = target.execute('open_path', {'path': '/'})
+
+    assert policy == RecruitmentStrategyPolicy()
+    assert result['error'] == 'strategy_not_authorized'
+    assert target.score == 0
+    assert target.events[0]['code'] == 'strategy_blocked'
+
+    app = _build_app()
+    with app.app_context():
+        attempt = run_recruitment_agent('Ctrl C+V')
+    assert attempt['score'] == 0
+    assert attempt['tool_calls'] == 0
+    assert attempt['events'][0]['code'] == 'strategy_too_vague'
+
+
+def test_plain_language_full_strategy_authorizes_each_scored_stage():
+    policy = recruitment_strategy_policy(
+        '先查看网页和加载的文件，寻找隐藏源码线索，按发现的身份读取数据，拿到通行证后提交'
+    )
+
+    assert policy == RecruitmentStrategyPolicy(True, True, True, True, True)
 
 
 def test_public_config_does_not_require_authentication():
@@ -179,7 +211,9 @@ def test_agent_uses_dedicated_provider_configuration(monkeypatch):
     monkeypatch.setattr(recruitment_agent_service, 'OpenAI', FakeClient)
 
     with app.app_context():
-        result = run_recruitment_agent('test strategy')
+        result = run_recruitment_agent(
+            'Open the page, inspect its loaded file and hidden source, read the record, then submit the flag.'
+        )
 
     assert captured['api_key'] == 'test-key'
     assert captured['base_url'] == 'https://agent.example.test/v1'
