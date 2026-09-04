@@ -191,9 +191,9 @@ class Config:
     DASHVECTOR_API_KEY = os.getenv('DASHVECTOR_API_KEY')
     DASHVECTOR_ENDPOINT = os.getenv('DASHVECTOR_ENDPOINT')
 
-    # NODE recruitment one-prompt agent challenge. The agent is deliberately
+    # NODE recruitment repeatable agent challenge. The agent is deliberately
     # restricted to an in-process virtual target; these values only control the
-    # model loop and the one-attempt receipt lifetime.
+    # model loop and the latest-attempt receipt lifetime.
     RECRUITMENT_CHALLENGE_ENABLED = get_env_bool(
         'RECRUITMENT_CHALLENGE_ENABLED', True
     )
@@ -218,11 +218,6 @@ class Config:
     )
     RECRUITMENT_ATTEMPT_TTL_SECONDS = max(
         60, get_env_nonnegative_int('RECRUITMENT_ATTEMPT_TTL_SECONDS', 2592000)
-    )
-    RECRUITMENT_UNLIMITED_EMAILS = frozenset(
-        email.strip().casefold()
-        for email in os.getenv('RECRUITMENT_UNLIMITED_EMAILS', '').split(',')
-        if email.strip()
     )
     RECRUITMENT_ADMIN_EMAILS = frozenset(
         email.strip().casefold()
