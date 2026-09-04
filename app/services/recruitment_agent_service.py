@@ -1,4 +1,4 @@
-"""Safe, one-prompt recruitment agent challenge.
+"""Safe recruitment agent challenge with repeatable short-prompt attempts.
 
 The model can only call the three in-process tools defined in this module. It
 cannot execute a shell, read the filesystem, query UniKorn data, or make an

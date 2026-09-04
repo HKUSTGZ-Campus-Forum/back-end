@@ -1,4 +1,4 @@
-"""Recruitment routes with one attempt except for verified test accounts."""
+"""Repeatable recruitment challenge routes and live best-score ranking."""
 
 import hashlib
 import logging
@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
-from sqlalchemy import func
+from sqlalchemy import String, cast, func
 from sqlalchemy.orm import joinedload
 
 from app.extensions import cache, db
@@ -83,10 +83,6 @@ def _has_allowlisted_email(identity, config_key):
     return user.email.strip().casefold() in allowlist
 
 
-def _has_unlimited_attempts(identity):
-    return _has_allowlisted_email(identity, 'RECRUITMENT_UNLIMITED_EMAILS')
-
-
 def _is_recruitment_admin(identity):
     return _has_allowlisted_email(identity, 'RECRUITMENT_ADMIN_EMAILS')
 
@@ -116,7 +112,8 @@ def get_recruitment_config():
         'data': {
             'enabled': _is_enabled(),
             'prompt_limit': PROMPT_LIMIT,
-            'attempt_limit': 1,
+            'attempt_limit': None,
+            'repeatable': True,
             'max_tool_calls': current_app.config['RECRUITMENT_AGENT_MAX_TOOL_CALLS'],
             'max_rounds': current_app.config['RECRUITMENT_AGENT_MAX_ROUNDS'],
         },
@@ -128,13 +125,12 @@ def get_recruitment_config():
 def get_recruitment_status():
     identity = get_jwt_identity()
     receipt = cache.get(_attempt_key(identity))
-    unlimited_attempts = _has_unlimited_attempts(identity)
     return _response({
         'success': True,
         'data': {
             'attempted': receipt is not None,
             'attempt': _public_attempt(receipt),
-            'unlimited_attempts': unlimited_attempts,
+            'unlimited_attempts': True,
             'can_view_admin': _is_recruitment_admin(identity),
         },
     })
@@ -149,61 +145,102 @@ def _admin_pagination_args():
     return page, per_page
 
 
-def _leaderboard(limit=100):
-    ordered = (
+def _leaderboard(include_private=False):
+    account_key = func.coalesce(
+        cast(RecruitmentAttempt.user_id, String),
+        func.lower(RecruitmentAttempt.email_snapshot),
+    )
+    ranked_attempts = (
+        db.session.query(
+            RecruitmentAttempt.id.label('attempt_id'),
+            func.row_number().over(
+                partition_by=account_key,
+                order_by=(
+                    RecruitmentAttempt.score.desc(),
+                    RecruitmentAttempt.completed_at.asc().nullslast(),
+                    RecruitmentAttempt.id.asc(),
+                ),
+            ).label('account_rank'),
+        )
+        .filter(RecruitmentAttempt.state == 'complete')
+        .subquery()
+    )
+    best_attempts = (
         RecruitmentAttempt.query
         .options(joinedload(RecruitmentAttempt.user))
-        .filter(RecruitmentAttempt.state == 'complete')
+        .join(
+            ranked_attempts,
+            RecruitmentAttempt.id == ranked_attempts.c.attempt_id,
+        )
+        .filter(ranked_attempts.c.account_rank == 1)
         .order_by(
             RecruitmentAttempt.score.desc(),
-            RecruitmentAttempt.tool_calls.asc(),
-            RecruitmentAttempt.duration_ms.asc().nullslast(),
             RecruitmentAttempt.completed_at.asc().nullslast(),
             RecruitmentAttempt.id.asc(),
         )
         .all()
     )
-    best_by_account = []
-    seen_accounts = set()
-    for attempt in ordered:
-        account_key = (
-            f'user:{attempt.user_id}'
-            if attempt.user_id is not None
-            else f'email:{attempt.email_snapshot.casefold()}'
-        )
-        if account_key in seen_accounts:
-            continue
-        seen_accounts.add(account_key)
-        best_by_account.append(attempt)
-        if len(best_by_account) >= limit:
-            break
 
-    return [
-        {
+    entries = []
+    for rank, attempt in enumerate(best_attempts, start=1):
+        entry = {
             'rank': rank,
-            'attempt_id': attempt.id,
-            'user_id': attempt.user_id,
             'username': (
                 attempt.user.username
                 if attempt.user and not attempt.user.is_deleted
                 else attempt.username_snapshot
             ),
-            'email': (
-                attempt.user.email
-                if attempt.user and attempt.user.email
-                else attempt.email_snapshot
-            ),
             'score': attempt.score,
-            'tool_calls': attempt.tool_calls,
-            'duration_ms': attempt.duration_ms,
-            'completed_at': (
+            'achieved_at': (
                 attempt.completed_at.isoformat()
                 if attempt.completed_at
                 else None
             ),
         }
-        for rank, attempt in enumerate(best_by_account, start=1)
+        if include_private:
+            entry.update({
+                'attempt_id': attempt.id,
+                'user_id': attempt.user_id,
+                'email': (
+                    attempt.user.email
+                    if attempt.user and attempt.user.email
+                    else attempt.email_snapshot
+                ),
+                'tool_calls': attempt.tool_calls,
+                'duration_ms': attempt.duration_ms,
+                'completed_at': entry['achieved_at'],
+            })
+        entries.append(entry)
+    return entries
+
+
+@bp.get('/leaderboard')
+@jwt_required()
+def get_recruitment_leaderboard():
+    identity = get_jwt_identity()
+    user = _active_user(identity)
+    if not user:
+        return _response({'success': False, 'error': 'account_required'}, 403)
+
+    ranked_entries = _leaderboard(include_private=True)
+    entries = [
+        {
+            'rank': entry['rank'],
+            'username': entry['username'],
+            'score': entry['score'],
+            'achieved_at': entry['achieved_at'],
+            'is_current_user': entry['user_id'] == user.id,
+        }
+        for entry in ranked_entries
     ]
+    return _response({
+        'success': True,
+        'data': {
+            'entries': entries,
+            'participants': len(entries),
+            'updated_at': _utc_now(),
+        },
+    })
 
 
 @bp.get('/admin/overview')
@@ -262,7 +299,7 @@ def get_recruitment_admin_overview():
                     else 0
                 ),
             },
-            'leaderboard': _leaderboard(),
+            'leaderboard': _leaderboard(include_private=True),
             'attempts': [attempt.to_admin_dict() for attempt in attempts],
             'pagination': {
                 'page': page,
@@ -305,32 +342,23 @@ def run_recruitment_challenge():
             'error': 'account_required',
         }, 403)
     key = _attempt_key(identity)
-    unlimited_attempts = _has_unlimited_attempts(identity)
     ttl = current_app.config['RECRUITMENT_ATTEMPT_TTL_SECONDS']
     started_at = _utc_now()
     running_receipt = {'state': 'running', 'started_at': started_at}
-    claim_key = _running_key(identity) if unlimited_attempts else key
-    claim_ttl = (
-        max(
-            300,
-            current_app.config['RECRUITMENT_AGENT_MAX_ROUNDS']
-            * current_app.config['RECRUITMENT_AGENT_TIMEOUT_SECONDS']
-            + 60,
-        )
-        if unlimited_attempts
-        else ttl
+    claim_key = _running_key(identity)
+    claim_ttl = max(
+        300,
+        current_app.config['RECRUITMENT_AGENT_MAX_ROUNDS']
+        * current_app.config['RECRUITMENT_AGENT_TIMEOUT_SECONDS']
+        + 60,
     )
     if not cache.add(claim_key, running_receipt, timeout=claim_ttl):
         return _response({
             'success': False,
-            'error': (
-                'attempt_in_progress'
-                if unlimited_attempts
-                else 'attempt_already_used'
-            ),
+            'error': 'attempt_in_progress',
             'data': {
                 'attempt': _public_attempt(cache.get(key)),
-                'unlimited_attempts': unlimited_attempts,
+                'unlimited_attempts': True,
             },
         }, 409)
 
@@ -381,7 +409,7 @@ def run_recruitment_challenge():
             'success': True,
             'data': {
                 'attempt': _public_attempt(receipt),
-                'unlimited_attempts': unlimited_attempts,
+                'unlimited_attempts': True,
             },
         })
     except Exception:
@@ -412,9 +440,8 @@ def run_recruitment_challenge():
             'error': 'agent_failed',
             'data': {
                 'attempt': _public_attempt(receipt),
-                'unlimited_attempts': unlimited_attempts,
+                'unlimited_attempts': True,
             },
         }, 502)
     finally:
-        if unlimited_attempts:
-            cache.delete(claim_key)
+        cache.delete(claim_key)
