@@ -1,5 +1,7 @@
 # Backend operations API
 
+Source references: [workflow](../.github/workflows/backend-operations.yml), [runner](../app/scripts/run_backend_operation.py), [tests](../tests/test_backend_operations.py). See [documentation index](README.md).
+
 > Environment scope: `target=production` in this GitHub workflow means the
 > former axfff production stack selected by the `production` branch. It does not
 > target the active school production site at

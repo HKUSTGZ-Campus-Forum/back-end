@@ -1,18 +1,21 @@
 # HKUST(GZ) Campus SSO integration
 
+Sources: [OIDC routes](app/routes/oidc.py), [campus service](app/services/campus_oidc.py), [auth routes](app/routes/auth.py), [user routes](app/routes/user.py), [OIDC tests](tests/test_campus_oidc.py). See [API/auth guide](docs/features/auth-api.md) and [documentation index](docs/README.md).
+
 UniKorn is an OpenID Connect relying party for the HKUST(GZ) SSO provider. The
 implementation uses Authorization Code Flow, PKCE S256, OIDC nonce/state
 validation through Authlib, server-side token exchange, and the `openid
 profile` scopes documented by the school.
 
-## Public endpoints
+## Public URL paths (authentication requirements still apply)
 
 - Start login: `GET /api/auth/oidc/login`
 - Registered callback: `GET /api/auth/oidc/callback`
 - Exchange the one-time UniKorn ticket: `POST /api/auth/oidc/exchange`
 - Capability status: `GET /api/auth/oidc/status`
 - Local logout: `POST /api/auth/logout` (returns the provider logout URL for an
-  active OIDC session)
+  active OIDC session; the current frontend clears the UniKorn session and
+  returns to localized site home without navigating to that URL)
 
 The callback never places UniKorn access or refresh tokens in a URL. It creates
 a random, hashed, single-use database ticket with a two-minute lifetime. The
@@ -100,7 +103,7 @@ The client secret must remain in the protected server environment and must
 never be committed or written into application logs. Restart the production
 API after changing any OIDC setting.
 
-## Database migration
+## Database migration history and current constraints
 
 Revision `20260819_campus_oidc` merges the two existing Alembic heads and adds:
 

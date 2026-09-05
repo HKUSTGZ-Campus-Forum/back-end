@@ -1,6 +1,8 @@
 # Course relationship source of truth and migration plan
 
-Status: implementation complete; production data migration approved by the user on 2026-08-24; execution pending.
+Status: the runtime contract is present in source. The migration plan below is a historical 2026-08-24 record; its approval and pending-execution statement are not evidence of current target state or authorization for a new operation.
+
+Sources: [relationship service](app/services/course_relationships.py), [official catalog sync](app/services/official_course_catalog_sync.py), [course routes](app/routes/course.py), [relationship tests](tests/test_course_relationships.py). Start with [academic systems](docs/features/academic.md).
 
 ## Architecture decision
 

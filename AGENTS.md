@@ -1,109 +1,28 @@
-# UniKorn backend agent instructions
+# UniKorn backend — agent instructions
 
-This file contains backend-specific operational boundaries. Read
-`docs/production-environment.md`, `deploy/school/README.md`, and `CAMPUS_SSO.md`
-before changing authentication, deployment, migrations, Nginx, SISN ingest, or
-production data.
+This is the authoritative entry point for engineering in this repository. Claude users follow the same rules through [CLAUDE.md](CLAUDE.md).
 
-## Environments
+## Start here
 
-- Shared development is `https://dev.unikorn.axfff.com`; backend `main` still
-  deploys there through GitHub Actions.
-- Active production is `https://unikorn.hkust-gz.edu.cn` on the school host
-  reached locally as `unikorn-school` (`wtao@10.121.15.221`).
-- `https://unikorn.axfff.com`, `/data/prod_unikorn/*`, the `production` branch,
-  and GitHub workflows targeting them belong to the former axfff production
-  stack. They are not the active school-production release path.
-- The school host also runs CoursePlan at
-  `https://scheduler.unikorn.hkust-gz.edu.cn`; never modify or interrupt
-  `/srv/course-scheduler` or `courseplan.service` as a side effect of UniKorn work.
+1. Inspect this checkout's branch, upstream and working changes. This repository has its own Git history; a parent workspace or neighboring frontend is not the same worktree. Preserve unrelated work. Use a scoped branch from the agreed code baseline.
+2. Read [docs/README.md](docs/README.md), then the task's feature guide and source/test links. Read [architecture](docs/architecture.md) for cross-cutting changes.
+3. Follow [documentation maintenance](docs/maintenance.md): **update the relevant docs in the same change as every notable modification**, and add notable behavior/technical changes to [CHANGELOG.md](CHANGELOG.md). Do not defer documentation to a later task.
+4. Follow [operational boundaries](docs/operations/agent-boundaries.md). Before auth, deployment, migrations, Nginx, SISN or production data work, also read [production environment](docs/production-environment.md), [school runbook](deploy/school/README.md), and [SSO](CAMPUS_SSO.md).
 
-## School production releases
+## Implement
 
-- Release only clean committed frontend and backend checkouts identified by full
-  40-character SHAs. Never publish a dirty local worktree.
-- Routine production releases are controlled by the backend repository's
-  `school-production` branch. That branch may change only
-  `deploy/school/school-production-release.json`, which pairs one backend `main`
-  SHA with one frontend `main` SHA. Never merge or rebase `main` into the control
-  branch and never treat a push to either repository's `main` as production approval.
-- Update the manifest with `tools/update_school_production_release.py`, commit it
-  on `school-production`, and push. GitHub validates both candidates; the
-  root-owned school-host controller deploys only a successful validation and
-  only forward-moving SHAs. Do not manually manufacture the validation status.
-- Agents must not set `database_change.approved=true` or supply an approval
-  reference unless the user has explicitly approved the required production
-  migration/data plan in the current task. Changes below `migrations/` or
-  `app/data/` are blocked otherwise.
-- The installed controller is the only exception to the interactive-sudo rule:
-  its root-owned systemd oneshot may invoke the trusted installed copy of
-  `deploy-release.sh`. Installing/updating the controller, manual fallback
-  releases, Nginx changes, restores and rollback remain interactive-sudo actions.
-- `deploy-release.sh --activate` owns the verified backup, Alembic, immutable
-  release, `current`/`previous` switch, service restart and health gates; do not
-  bypass those protections.
-- Run `deploy/school/activate-nginx.sh` only when reviewed Nginx templates changed
-  or a specifically approved migration gate must be removed. It creates a
-  rollback snapshot before reloading.
-- A green release requires public checks for `/`, `/health`, `/api/healthz`,
-  `/api/auth/oidc/status`, and every newly changed proxy/write route, plus a
-  check that `courseplan.service` remains active. `systemctl active` alone is
-  not sufficient evidence.
-- Except for the installed production-controller oneshot described above,
-  host-changing scripts and formal `verify-local.sh` checks require interactive
-  `sudo`. Never put a sudo password in arguments, files, logs, CI, or chat.
+- Follow the Flask app factory, registered blueprints, SQLAlchemy models and existing service/task structure. [Source map](docs/source-map.md) identifies owners.
+- Public `/api` is a proxy prefix; Flask routes omit it. Verify the route, frontend caller and proxy together.
+- School OIDC is the only end-user login. Preserve JWT refresh, account linking, onboarding and token revocation. UniKorn's downstream OAuth provider is a different interface.
+- Keep course catalog rules, semester offerings, academic records, scheduler carts and saved plans distinct. Preserve source provenance and popularity privacy rules.
+- Schema changes belong in the existing Alembic lineage; do not use startup schema helpers as a production migration strategy. Keep external service calls out of tests using the established fixtures/mocks.
+- MeetCampus has its own repository/runtime. Never add its removed runtime back. Do not alter the independent CoursePlan service as a side effect of UniKorn work.
+- Keep changes small and relevant. Do not add speculative fallback layers or defensive machinery. Never expose credentials or live user data.
 
-## Database and product data
+## Verify and hand off
 
-- Before any production schema, seed, course, offering, curriculum, repair,
-  replacement, deletion, or backfill, give the user a migration plan covering
-  source, target, tables, operation type, estimated rows, overwrite behavior,
-  dry-run, backup, and rollback; wait for explicit approval.
-- Runtime/test users, posts, comments and debugging records do not move from dev
-  to production. Only required schema and reviewed product data move.
-- Prefer idempotent, repeatable, dry-runnable migrations. Production schema is
-  forward-only after activation unless writes are stopped and a verified backup
-  is deliberately restored with the matching application release.
-- Never allow the school database and former axfff production database to accept
-  writes concurrently.
+Choose checks from [testing](docs/testing.md) based on the failure they detect. Run appropriate backend and migration checks for code changes; report missing services/dependencies and skipped checks truthfully. Check docs links and source claims for documentation-only changes.
 
-## Authentication and SISN
+Honor the user's authorized scope; do not repeat permission requests already settled in the task. Commit, push, PR, merge and deployment actions require applicable user authorization. Production schema/data approval must satisfy the explicit operational boundaries. Never infer production approval from a `main` push.
 
-- HKUST(GZ) OIDC SSO is the only end-user login method. Do not restore password
-  login, registration, recovery, reset, or password-change routes.
-- Keep SSO secrets server-side. Production must use
-  `FRONTEND_BASE_URL=https://unikorn.hkust-gz.edu.cn` and the exact callback in
-  `CAMPUS_SSO.md`.
-- The official SISN production feed is local to the school host: CoursePlan
-  fetches the allowlisted source and signs a loopback push to UniKorn. Public and
-  SSR Nginx listeners must return `404` for the ingest path.
-- Enabling SISN receiver/push/timer and applying offering changes are separate
-  privileged operations. Review the signed dry-run and create a verified DB
-  backup before the first apply; do not infer activation merely because code is
-  present on `main`.
-
-## Server and secret boundaries
-
-- MeetCampus is an independent private repository (`taowenxiang/meetcampus`)
-  with its own frontend, API, worker, migrations and production controller under
-  `/srv/meetcampus`. Do not add MeetCampus runtime code, routes, models, assets,
-  environment variables or scheduler jobs back to UniKorn. The two historical
-  `20260828_meetcampus_persistent_world.py` and
-  `20260829_meetcampus_simulation_runtime.py` files remain only because later
-  UniKorn Alembic revisions depend on that immutable lineage.
-- UniKorn runs under `/srv/unikorn` using `unikorn-backend.service`,
-  `unikorn-frontend.service`, `unikorn-redis.service`, local PostgreSQL database
-  `prod_unikorn`, and loopback ports documented in
-  `docs/production-environment.md`.
-- `/etc/unikorn/unikorn.env` is root-managed, mode `0640`, and parsed by systemd;
-  never shell-source it or copy secret values into repository files.
-- UniKorn, CampusA2A, and PlaceHelper are different projects. Do not borrow
-  unrelated hosts, SSH aliases, or credentials for UniKorn production work.
-- For school IP-limited APIs, confirm the approved egress environment instead of
-  guessing from the phrase “IP limited”.
-
-## Verification
-
-Run the backend test suite and migration tests appropriate to the change. School
-deployment scripts are covered by `tests/test_school_production_deployment.py`;
-update that contract when changing `deploy/school/*`.
+Report behavior changed, docs updated, checks/outcomes, and remaining limitations. Git archives and past plans are history, not instructions to execute.

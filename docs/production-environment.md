@@ -1,5 +1,7 @@
 # UniKorn school production environment
 
+> Source/runbook contract reconciled 2026-09-05. Host state, controller installation, current flags and successful deployments were not rechecked in this documentation task. Inspect the target before operations.
+
 This is the current environment and operations reference for UniKorn. The
 executable safety contract remains `deploy/school/README.md` and the scripts in
 that directory.
@@ -187,4 +189,4 @@ Do not hardcode a mutable current release SHA here. Inspect
 `/srv/unikorn/current/release.json`, `/health`, and both repositories'
 `origin/main` whenever exact versions matter.
 
-Last reconciled: 2026-08-23.
+Documentation routing reconciled: 2026-09-05. Historical host/version observations above retain their original dates.

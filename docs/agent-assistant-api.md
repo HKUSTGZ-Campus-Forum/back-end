@@ -1,5 +1,7 @@
 # 论坛助手 API
 
+Source references: [routes](../app/routes/agent.py), [service](../app/services/agent_chat_service.py), [tests](../tests/test_agent_chat.py), [AI guide](features/ai.md). See [documentation index](README.md).
+
 第一版论坛助手提供 OpenAI 兼容模型调用和按登录用户隔离的对话历史。模型调用只发生在 Flask 后端，`AGENT_API_KEY` 不进入 API 响应、日志或前端构建。
 
 ## 配置
