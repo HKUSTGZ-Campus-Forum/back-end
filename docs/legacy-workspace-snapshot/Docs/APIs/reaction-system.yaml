@@ -1,0 +1,273 @@
+openapi: 3.0.0
+info:
+  title: Reaction System API
+  version: 1.0.0
+  description: API for emoji reactions in the campus forum.
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  
+  schemas:
+    Emoji:
+      type: object
+      properties:
+        emoji_id:
+          type: integer
+        emoji_code:
+          type: string
+        description:
+          type: string
+        image_url:
+          type: string
+        display_order:
+          type: integer
+
+    Reaction:
+      type: object
+      properties:
+        reaction_id:
+          type: integer
+        user_id:
+          type: integer
+        post_id:
+          type: integer
+          nullable: true
+        comment_id:
+          type: integer
+          nullable: true
+        emoji_id:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+    
+    ReactionCount:
+      type: object
+      properties:
+        emoji:
+          $ref: '#/components/schemas/Emoji'
+        count:
+          type: integer
+        users:
+          type: array
+          items:
+            type: integer
+          description: IDs of users who reacted with this emoji
+
+paths:
+  /emojis:
+    get:
+      summary: Retrieve a list of available emojis
+      responses:
+        '200':
+          description: A list of emojis
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Emoji'
+        '500':
+          description: Internal server error
+
+  /posts/{post_id}/reactions:
+    get:
+      summary: Get reactions for a post
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: user_id
+          in: query
+          required: false
+          description: Filter to see if a specific user has reacted
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Reactions for the post
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reactions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReactionCount'
+                  user_reactions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Emoji'
+                    description: Emojis that the specified user has reacted with
+        '404':
+          description: Post not found
+        '500':
+          description: Internal server error
+    
+    post:
+      summary: React to a post
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - emoji_id
+              properties:
+                emoji_id:
+                  type: integer
+      responses:
+        '201':
+          description: Reaction added successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reaction'
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '404':
+          description: Post or emoji not found
+        '500':
+          description: Internal server error
+    
+    delete:
+      summary: Remove a reaction from a post
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: emoji_id
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Reaction removed successfully
+        '401':
+          description: Unauthorized
+        '404':
+          description: Reaction not found
+        '500':
+          description: Internal server error
+
+  /comments/{comment_id}/reactions:
+    get:
+      summary: Get reactions for a comment
+      parameters:
+        - name: comment_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: user_id
+          in: query
+          required: false
+          description: Filter to see if a specific user has reacted
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Reactions for the comment
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reactions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReactionCount'
+                  user_reactions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Emoji'
+                    description: Emojis that the specified user has reacted with
+        '404':
+          description: Comment not found
+        '500':
+          description: Internal server error
+    
+    post:
+      summary: React to a comment
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: comment_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - emoji_id
+              properties:
+                emoji_id:
+                  type: integer
+      responses:
+        '201':
+          description: Reaction added successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reaction'
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '404':
+          description: Comment or emoji not found
+        '500':
+          description: Internal server error
+    
+    delete:
+      summary: Remove a reaction from a comment
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: comment_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: emoji_id
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Reaction removed successfully
+        '401':
+          description: Unauthorized
+        '404':
+          description: Reaction not found
+        '500':
+          description: Internal server error

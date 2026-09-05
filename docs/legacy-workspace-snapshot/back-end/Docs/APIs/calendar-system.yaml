@@ -1,0 +1,185 @@
+openapi: 3.0.0
+info:
+  title: Calendar System API
+  version: 1.0.0
+  description: API for calendar features in the campus forum.
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  
+  schemas:
+    Emoji:
+      type: object
+      properties:
+#        emoji_id:
+#          type: integer
+        emoji_code:
+          type: string
+#        description:
+#          type: string
+        image_url:
+          type: string
+#        display_order:
+#          type: integer
+#        probability:
+#          type: number
+#          format: float
+#        is_active:
+#          type: boolean
+
+    CalendarEmojiHistory:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        emoji:
+          $ref: '#/components/schemas/Emoji'
+    
+    CalendarStreak:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        current_streak:
+          type: integer
+        longest_streak:
+          type: integer
+        last_active_date:
+          type: string
+          format: date
+        streak_start_date:
+          type: string
+          format: date
+
+paths:
+  /calendar/{user_id}/emojis:
+    get:
+      summary: Retrieve emoji history for a user in the calendar
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: year
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: month
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Emoji history for the user
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CalendarEmojiHistory'
+        '401':
+          description: Unauthorized
+        '404':
+          description: User not found
+        '500':
+          description: Internal server error
+
+  /calendar/{user_id}/pull-emoji:
+    post:
+      summary: Pull a random emoji for the user based on probability
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Emoji pulled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Emoji'
+        '400':
+          description: Bad request - user already pulled emoji today
+        '401':
+          description: Unauthorized
+        '404':
+          description: User not found
+        '500':
+          description: Internal server error
+
+#  /calendar/streaks/{user_id}:
+#    get:
+#      summary: Get streak information for a user
+#      security:
+#        - BearerAuth: []
+#      parameters:
+#        - name: user_id
+#          in: path
+#          required: true
+#          schema:
+#            type: integer
+#      responses:
+#        '200':
+#          description: User streak information
+#          content:
+#            application/json:
+#              schema:
+#                $ref: '#/components/schemas/CalendarStreak'
+#        '401':
+#          description: Unauthorized
+#        '404':
+#          description: User not found
+#        '500':
+#          description: Internal server error
+
+#  /calendar/stats:
+#    get:
+#      summary: Get calendar statistics
+#      security:
+#        - BearerAuth: []
+#      parameters:
+#        - name: period
+#          in: query
+#          schema:
+#            type: string
+#            enum: [daily, weekly, monthly, yearly]
+#            default: monthly
+#      responses:
+#        '200':
+#          description: Calendar statistics
+#          content:
+#            application/json:
+#              schema:
+#                type: object
+#                properties:
+#                  active_users:
+#                    type: integer
+#                  top_emojis:
+#                    type: array
+#                    items:
+#                      type: object
+#                      properties:
+#                        emoji:
+#                          $ref: '#/components/schemas/Emoji'
+#                        count:
+#                          type: integer
+#                  average_streak:
+#                    type: number
+#        '401':
+#          description: Unauthorized
+#        '500':
+#          description: Internal server error

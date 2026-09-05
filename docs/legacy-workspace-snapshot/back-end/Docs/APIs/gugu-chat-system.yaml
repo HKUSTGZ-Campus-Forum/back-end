@@ -1,0 +1,338 @@
+openapi: 3.0.0
+info:
+  title: Gugu Chat System API
+  description: 咕咕聊天室实时消息系统API
+  version: 1.0.0
+  contact:
+    name: UniKorn Campus Forum
+    email: support@unikorn.axfff.com
+
+servers:
+  - url: https://dev.unikorn.axfff.com/api
+    description: Development server
+  - url: https://api.unikorn.axfff.com/api
+    description: Production server
+
+paths:
+  /api/gugu/messages:
+    get:
+      summary: 获取聊天消息
+      description: 获取咕咕聊天室的消息列表
+      tags:
+        - Gugu Chat
+      parameters:
+        - name: limit
+          in: query
+          description: 限制返回的消息数量 (最大100)
+          required: false
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: 成功获取消息列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  messages:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/GuguMessage'
+                  count:
+                    type: integer
+                    example: 10
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      summary: 发送聊天消息
+      description: 发送新的咕咕聊天消息
+      tags:
+        - Gugu Chat
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - content
+              properties:
+                content:
+                  type: string
+                  description: 消息内容
+                  minLength: 1
+                  maxLength: 1000
+                  example: "大家好，今天天气真不错！"
+      responses:
+        '201':
+          description: 消息发送成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "消息发送成功"
+                  data:
+                    $ref: '#/components/schemas/GuguMessage'
+        '400':
+          description: 请求参数错误或内容审核失败
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ErrorResponse'
+                  - $ref: '#/components/schemas/ContentModerationErrorResponse'
+        '401':
+          description: 未授权访问
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 用户不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/gugu/messages/{message_id}:
+    delete:
+      summary: 删除聊天消息
+      description: 删除指定的咕咕聊天消息（仅消息作者可删除）
+      tags:
+        - Gugu Chat
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: message_id
+          in: path
+          required: true
+          description: 消息ID
+          schema:
+            type: integer
+            example: 123
+      responses:
+        '200':
+          description: 消息删除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "消息删除成功"
+        '401':
+          description: 未授权访问
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 没有权限删除此消息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: 消息不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/gugu/recent:
+    get:
+      summary: 获取最近消息
+      description: 获取最近的咕咕聊天消息（用于主页预览）
+      tags:
+        - Gugu Chat
+      parameters:
+        - name: limit
+          in: query
+          description: 限制返回的消息数量 (最大10)
+          required: false
+          schema:
+            type: integer
+            default: 3
+            minimum: 1
+            maximum: 10
+      responses:
+        '200':
+          description: 成功获取最近消息
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  messages:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/GuguMessage'
+                  count:
+                    type: integer
+                    example: 3
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/gugu/stats:
+    get:
+      summary: 获取聊天统计
+      description: 获取咕咕聊天室的统计信息
+      tags:
+        - Gugu Chat
+      responses:
+        '200':
+          description: 成功获取统计信息
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  stats:
+                    type: object
+                    properties:
+                      total_messages:
+                        type: integer
+                        description: 总消息数
+                        example: 1234
+                      today_messages:
+                        type: integer
+                        description: 今日消息数
+                        example: 56
+                      active_users:
+                        type: integer
+                        description: 活跃用户数
+                        example: 78
+        '500':
+          description: 服务器内部错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    GuguMessage:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: 消息ID
+          example: 123
+        content:
+          type: string
+          description: 消息内容
+          example: "大家好，今天天气真不错！"
+        author_id:
+          type: integer
+          description: 作者用户ID
+          example: 456
+        author:
+          type: string
+          description: 作者用户名
+          example: "张三"
+        author_avatar:
+          type: string
+          nullable: true
+          description: 作者头像URL
+          example: "https://oss.example.com/avatars/user_456.jpg"
+        created_at:
+          type: string
+          format: date-time
+          description: 创建时间
+          example: "2025-01-25T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: 更新时间
+          example: "2025-01-25T10:30:00Z"
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          description: 错误信息
+          example: "操作失败"
+        error:
+          type: string
+          description: 详细错误信息
+          example: "详细的错误描述"
+
+    ContentModerationErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          description: 内容审核失败消息
+          example: "您的消息违反了社区准则，无法发送"
+        details:
+          type: string
+          description: 违规具体原因
+          example: "Content violates policy: spam, abuse"
+        risk_level:
+          type: string
+          description: 风险等级
+          enum: [none, low, medium, high]
+          example: "high"
+
+tags:
+  - name: Gugu Chat
+    description: 咕咕聊天室相关接口

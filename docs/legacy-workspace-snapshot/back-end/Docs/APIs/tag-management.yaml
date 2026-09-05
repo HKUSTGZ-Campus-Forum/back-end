@@ -1,0 +1,278 @@
+openapi: 3.0.0
+info:
+  title: Tag Management API
+  version: 1.0.0
+  description: API for tag management in the campus forum.
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  
+  schemas:
+    Tag:
+      type: object
+      properties:
+        tag_id:
+          type: integer
+        name:
+          type: string
+        tag_type:
+          type: string
+          enum: [system, user]
+        description:
+          type: string
+        isImportant:
+          type: boolean
+        tagcolor:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    NewTag:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        tag_type:
+          type: string
+          enum: [system, user]
+          default: user
+        description:
+          type: string
+        isImportant:
+          type: boolean
+          default: false
+        tagcolor:
+          type: string
+
+    TagUsage:
+      type: object
+      properties:
+        tag:
+          $ref: '#/components/schemas/Tag'
+        post_count:
+          type: integer
+
+paths:
+  /tags:
+    get:
+      summary: List all tags
+      parameters:
+        - name: type
+          in: query
+          description: Filter by tag type
+          schema:
+            type: string
+            enum: [system, user]
+        - name: q
+          in: query
+          description: Search query
+          schema:
+            type: string
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+            enum: [name, created_at, usage]
+            default: name
+        - name: sort_order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+      responses:
+        '200':
+          description: List of tags
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Tag'
+        '500':
+          description: Internal server error
+    
+    post:
+      summary: Create a new tag
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewTag'
+      responses:
+        '201':
+          description: Tag created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tag'
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal server error
+
+  /tags/{tag_id}:
+    get:
+      summary: Get a specific tag
+      parameters:
+        - name: tag_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Tag details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tag'
+        '404':
+          description: Tag not found
+        '500':
+          description: Internal server error
+    
+    put:
+      summary: Update a tag
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: tag_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewTag'
+      responses:
+        '200':
+          description: Tag updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tag'
+        '400':
+          description: Bad request
+        '401':
+          description: Unauthorized
+        '404':
+          description: Tag not found
+        '500':
+          description: Internal server error
+    
+    delete:
+      summary: Delete a tag
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: tag_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Tag deleted successfully
+        '401':
+          description: Unauthorized
+        '404':
+          description: Tag not found
+        '500':
+          description: Internal server error
+
+  /posts/tags/{tag_id}:
+    get:
+      summary: Get posts with a specific tag
+      parameters:
+        - name: tag_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: sort_by
+          in: query
+          schema:
+            type: string
+            enum: [created_at, updated_at, views_count, reaction_count, comment_count]
+            default: created_at
+        - name: sort_order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+      responses:
+        '200':
+          description: List of posts with the specified tag
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  posts:
+                    type: array
+                    items:
+                      $ref: 'post-management.yaml#/components/schemas/Post'
+                  total_count:
+                    type: integer
+                  total_pages:
+                    type: integer
+                  current_page:
+                    type: integer
+        '404':
+          description: Tag not found
+        '500':
+          description: Internal server error
+
+  /tags/trending:
+    get:
+      summary: Get trending tags
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [day, week, month, all_time]
+            default: week
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: List of trending tags
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TagUsage'
+        '500':
+          description: Internal server error
