@@ -1,9 +1,9 @@
 {
-  "backend_sha": "d3c4e5d8bb2c2442c93d27b5f47b239057cf3f4c",
+  "schema_version": 1,
+  "backend_sha": "96faa515b6a4f266d123d9f3a1ba43af1e425076",
+  "frontend_sha": "49bee6e792f043616745d307defd5887b82c3be2",
   "database_change": {
-    "approval_reference": null,
-    "approved": false
-  },
-  "frontend_sha": "aae60405636c1e9436e0ec8a70d547289f18ff8c",
-  "schema_version": 1
+    "approved": true,
+    "approval_reference": "codex:01a07a68-92bb-79f1-8396-f7e405107df7:2026-09-07:user-approved-makerspace-plan"
+  }
 }
