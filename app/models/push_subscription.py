@@ -54,6 +54,11 @@ class PushSubscription(db.Model):
     @classmethod
     def get_or_create_subscription(cls, user_id, endpoint, p256dh_key, auth_key, user_agent=None):
         """Get existing subscription or create new one"""
+        # An endpoint is one browser installation, not a cross-account inbox.
+        # Runtime reassignment only; no bulk cleanup or migration is performed.
+        cls.query.filter(cls.endpoint == endpoint, cls.user_id != user_id).update(
+            {"is_active": False}, synchronize_session="fetch",
+        )
         # Try to find existing subscription
         existing = cls.query.filter_by(user_id=user_id, endpoint=endpoint).first()
         
