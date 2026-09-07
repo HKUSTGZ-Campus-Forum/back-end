@@ -347,6 +347,9 @@ def logout():
         expires=expires
     )
     db.session.add(token)
+    # Private creator previews must not survive logout on a shared browser.
+    from app.models.makerspace import MakerSession
+    MakerSession.query.filter_by(viewer_id=user_id).delete()
     db.session.commit()
     
     from app.services.campus_oidc import build_oidc_logout_url

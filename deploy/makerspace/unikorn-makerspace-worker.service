@@ -1,0 +1,25 @@
+[Unit]
+Description=UniKorn MakerSpace trusted sandbox worker
+Requires=docker.service unikorn-makerspace-firewall.service
+After=docker.service unikorn-makerspace-firewall.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+UMask=0077
+RuntimeDirectory=unikorn-makerspace
+RuntimeDirectoryMode=0711
+ExecStart=/usr/bin/python3 /usr/local/libexec/unikorn-makerspace/runtime.py
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=30
+# Limit the trusted fetch/control process; sandbox containers have separate,
+# stricter Docker cgroup limits and do not inherit platform credentials.
+MemoryMax=512M
+TasksMax=64
+LimitNOFILE=512
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

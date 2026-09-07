@@ -1,0 +1,14 @@
+[Unit]
+Description=UniKorn MakerSpace network isolation
+Requires=docker.service
+After=docker.service
+Before=unikorn-makerspace-worker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/libexec/unikorn-makerspace/firewall.py
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -480,8 +480,14 @@ def test_post_migration_snapshot_allows_only_empty_new_tables(tmp_path):
             "public.meetcampus_resident_plans": 0,
             "public.home_carousel_slides": 3,
             "public.recruitment_attempts": 0,
+            "public.maker_spaces": 1,
+            "public.maker_audit_events": 1,
+            "public.maker_deployments": 0,
+            "public.maker_runtime_sessions": 0,
+            "public.maker_webhook_deliveries": 0,
+            "public.maker_workers": 0,
         },
-        "alembic_heads": ["20260903_recruitment_admin"],
+        "alembic_heads": ["20260907_teamup_makerspace"],
         "foreign_keys": 22,
     }
     source_path = tmp_path / "source.json"

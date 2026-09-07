@@ -1,0 +1,49 @@
+# MakerSpace control plane
+
+MakerSpace keeps creator repositories independent while UniKorn owns account attribution, the published catalog, private build admission and exact-version review. The frontend entrance is `/makerspace`; this backend registers `/makerspace` and the public proxy adds `/api`.
+
+## Source and contracts
+
+- [Models](../../app/models/makerspace.py): six tables, separate private settings and published metadata, immutable deployment snapshots, audit events, browser sessions, signed webhook deliveries and worker heartbeats.
+- [Service](../../app/services/makerspace_service.py): verified-account ownership, three-space quota, per-space repository keys, encrypted environments, deployment/review transitions, session checks and log redaction.
+- [Routes](../../app/routes/makerspace.py): catalog, owner management, admin review/source download, signed push intake and token-protected worker protocol.
+- [Resource gateway](../../app/services/makerspace_proxy.py): fixed loopback destinations, bounded HTTP proxy, rewritten relative assets, opaque CSP sandbox and credential stripping.
+- [Trusted runner](../../deploy/makerspace/runtime.py): root-owned platform code, read-only Git credentials, runsc execution, fixed-size filesystems and fixed resource/network policy. Creator commands run only inside the container.
+- [School plan](../../deploy/makerspace/migration-plan.md) and [operations](../../deploy/makerspace/README.md): prerequisites, approval, verification and rollback. Source implementation is not evidence that a host has been installed or activated.
+
+## State and permission rules
+
+Catalog queries return only published metadata. Draft edits never change the public title, description, category or deployment. Only the verified owner can edit settings, rotate repository keys, change environment variables, queue a build, archive or submit a ready deployment. Unsubmitted private work is not browseable by another administrator; a pending review grants the reviewer access to that snapshot and preview.
+
+Source SHA and artifact SHA-256 are checked again on review. Authors cannot approve their own work. Approval queues a public runtime using the reviewed artifact and separate public storage. Only its successful worker receipt updates the public pointer. New pushes are signed, deduplicated, and coalesced into a durable desired SHA while builds run. GitHub delivery failures require redelivery or a manual build; there is no claim of automatic GitHub retries.
+
+Repository private keys, webhook secrets and environment values use the dedicated Fernet `MAKERSPACE_ENCRYPTION_KEY`; no fallback to the JWT key is allowed. The API returns only public deploy keys and environment names. A rotated webhook secret is shown once. Worker jobs use a distinct random `MAKERSPACE_WORKER_TOKEN`; public Nginx must block `/api/makerspace/worker/`.
+
+## Browser session isolation
+
+Each launch requires a fresh random path and an independent HttpOnly/Secure/Partitioned cookie. A platform-only bootstrap exchanges a one-use, 60-second ticket inside the opaque iframe to establish the correct CHIPS partition before any creator HTML runs. This supports browsers blocking ordinary third-party cookies without granting `allow-same-origin`. Session cookies, JWTs and host headers are never forwarded to creator processes. All runtime responses enforce HTTP CSP sandbox, including direct navigation; the host iframe enforces the same restriction.
+
+Every resource checks the session, expiry, owner/reviewer eligibility and current published pointer. Logout revokes viewer sessions; account recovery/deletion also invalidates private access. The PWA service worker must bypass all MakerSpace API paths. `/makerspace/<slug>` is the stable shared entrance; a private runtime URL alone is not authorization.
+
+## API groups
+
+| Public suffix after `/api/makerspace` | Access / purpose |
+|---|---|
+| `GET /capabilities`, `GET /` | Hosting state, quotas, approved catalog |
+| `GET /mine`, `POST /`, `PUT /<slug>` | Verified owner management |
+| `GET /<slug>` | Public metadata, or permission-scoped private detail |
+| `POST /<slug>/credentials`, `PUT /<slug>/environment` | Owner repository credentials and encrypted variables |
+| `POST /<slug>/deployments` | Queue a private build |
+| `POST /<slug>/deployments/<id>/{submit,withdraw,retry-publication}` | Owner publication workflow |
+| `POST /<slug>/{launch,archive}` | Session launch or owner archive |
+| `GET /admin/reviews` | Independent admin review queue |
+| `GET /admin/<slug>/deployments/<id>/source` | Authenticated exact source archive; never a public URL |
+| `POST /admin/<slug>/deployments/<id>/review` | Approve/reject the specified SHA and digest |
+| `POST /admin/<slug>/suspend` | Emergency platform suspension; revokes sessions |
+| `POST /hooks/<space-id>` | HMAC-verified GitHub pushes |
+| `/worker/*` | Loopback-only, separate worker token; no browser use |
+| `/run/<session>/*` | Session-authorized opaque runtime resources |
+
+## Verification
+
+Run `tests/test_makerspace.py` for ownership, independent review, publication isolation, webhook replay, secret snapshots, one-use bootstrap and logout. `tests/test_makerspace_rollout.py` rehearses the current school revision to the two MakerSpace revisions on a disposable PostgreSQL database; it must not target production. `deploy/makerspace/verify-sandbox.py` runs real gVisor resource/network/storage/backup checks only on an empty prepared host and refuses live worker state.

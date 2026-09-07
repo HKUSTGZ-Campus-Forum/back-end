@@ -107,3 +107,7 @@ production data.
 Run the backend test suite and migration tests appropriate to the change. School
 deployment scripts are covered by `tests/test_school_production_deployment.py`;
 update that contract when changing `deploy/school/*`.
+
+## MakerSpace
+
+New independently maintained creator repositories use `/makerspace` with author-only opaque sandbox previews, independent exact-artifact review and bounded hosting. Read `docs/features/makerspace.md` and `deploy/makerspace/README.md`. Trusted same-origin apps are an explicitly reviewed exception. Production schema, attribution and host installation require the current `deploy/makerspace/migration-plan.md` approval.

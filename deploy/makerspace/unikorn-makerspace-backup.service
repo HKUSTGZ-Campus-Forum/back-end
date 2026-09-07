@@ -1,0 +1,13 @@
+[Unit]
+Description=Back up UniKorn MakerSpace creator data
+After=unikorn-makerspace-worker.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+ExecStart=/usr/bin/python3 /usr/local/libexec/unikorn-makerspace/backup.py
+TimeoutStartSec=30min
+Nice=10
+IOSchedulingClass=idle
+MemoryMax=128M
