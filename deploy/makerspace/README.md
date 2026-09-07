@@ -46,8 +46,12 @@ The browser contract requires recent CHIPS-capable browsers. Check real module i
 
 ## School network verification
 
-The school host blocks DNS to `1.1.1.1`; the tested public resolver is `223.5.5.5`. Both Docker DNS and the exact UDP/TCP 53 firewall rules use that address. Keep all private/host/lateral denials. Verify npm and PyPI HTTPS from a real sandbox before enabling hosting. An existing installation needs a reviewed replacement of only its two DNS rules while the worker and creator containers are stopped; `firewall.py` deliberately refuses mismatched existing chains.
+The school host blocks DNS to `1.1.1.1`; the tested public resolver is `223.5.5.5`. Both Docker DNS and the exact UDP/TCP 53 firewall rules use that address. Keep all private/host/lateral denials. Verify npm and PyPI HTTPS from the isolated **build** sandbox; preview/public runtimes must fail new outbound DNS/HTTP/HTTPS connections. An existing installation needs a reviewed replacement of only its two DNS rules while the worker and creator containers are stopped; `firewall.py` deliberately refuses mismatched existing chains.
 
 If Docker Hub transport is blocked, transfer verified OCI content over SSH, retain the original index and amd64 manifest/layer digests, import with `docker load --platform linux/amd64`, and verify the original pinned image references resolve locally. Do not substitute a moving mirror tag. Finish protected configuration backup, unit validation and `verify-sandbox.py` before activation.
 
 The trusted runner mounts a root-owned `resolv.conf` read-only because gVisor does not reach Docker’s embedded loopback DNS resolver. DNS still passes through the MakerSpace egress policy.
+
+## Closed-runtime upgrade candidate
+
+`upgrade-closed-runtime.py` is a separately approved operation for the existing school installation with no creator deployments. It retains backups, creates the build network, installs only reviewed platform files, and requires real runsc/network/volume verification before restarting the worker. Do not infer installation from a main deploy. The gateway requires a fresh `closed_runtime:v1` capability before approving or executing exchanges.
