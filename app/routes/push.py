@@ -22,7 +22,7 @@ def get_vapid_public_key():
     try:
         public_key = current_app.config.get('VAPID_PUBLIC_KEY')
         
-        if not public_key:
+        if not public_key or not current_app.config.get('VAPID_PRIVATE_KEY'):
             return jsonify({"error": "VAPID public key not configured"}), 500
         
         return jsonify({"vapid_public_key": public_key}), 200
@@ -38,7 +38,9 @@ def subscribe_to_push():
     """Subscribe user to push notifications"""
     try:
         user_id = get_jwt_identity()
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
+        if not isinstance(data, dict):
+            return jsonify({"error": "Invalid push subscription"}), 400
         
         endpoint = data.get('endpoint')
         keys = data.get('keys')
@@ -84,7 +86,9 @@ def unsubscribe_from_push():
     """Unsubscribe user from push notifications"""
     try:
         user_id = get_jwt_identity()
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
+        if not isinstance(data, dict):
+            return jsonify({"error": "Invalid push subscription"}), 400
         
         endpoint = data.get('endpoint')
         
@@ -100,7 +104,7 @@ def unsubscribe_from_push():
                 db.session.commit()
                 return jsonify({"message": "Unsubscribed from push notifications"}), 200
             else:
-                return jsonify({"error": "Subscription not found"}), 404
+                return jsonify({"message": "Subscription already inactive"}), 200
         else:
             # Unsubscribe all endpoints for user
             subscriptions = PushSubscription.query.filter_by(user_id=user_id, is_active=True).all()
@@ -146,7 +150,21 @@ def test_push_notification():
     try:
         user_id = get_jwt_identity()
         
-        result = PushService.test_push_notification(user_id)
+        data = request.get_json(silent=True) or {}
+        if not isinstance(data, dict):
+            return jsonify({"error": "Invalid push test"}), 400
+        endpoint = data.get('endpoint')
+        if endpoint is not None:
+            if not is_valid_push_endpoint(endpoint):
+                return jsonify({"error": "Invalid push subscription"}), 400
+            owned = PushSubscription.query.filter_by(
+                user_id=user_id, endpoint=endpoint, is_active=True,
+            ).first()
+            if not owned:
+                return jsonify({"error": "Active subscription not found"}), 404
+        result = PushService.test_push_notification(
+            user_id, endpoint=endpoint, locale='en' if data.get('locale') == 'en' else 'zh',
+        )
         
         if result['success']:
             return jsonify({

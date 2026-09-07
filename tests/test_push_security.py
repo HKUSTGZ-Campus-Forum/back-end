@@ -248,3 +248,116 @@ def test_target_user_push_test_allows_admin(app, client, monkeypatch):
 
     assert response.status_code == 200
     assert push_calls == [777]
+
+
+def add_subscription(user_id, suffix):
+    sub = PushSubscription(user_id=user_id, endpoint=f"https://web.push.apple.com/{suffix}",
+                           p256dh_key="valid-key", auth_key="valid-auth", is_active=True)
+    db.session.add(sub)
+    db.session.commit()
+    return sub
+
+
+def test_device_test_cannot_target_another_users_subscription(app, client, monkeypatch):
+    calls = []
+    monkeypatch.setattr(PushService, "test_push_notification", staticmethod(lambda *a, **kw: calls.append(kw)))
+    with app.app_context():
+        owner = create_user("device_owner")
+        other = create_user("device_other")
+        endpoint = add_subscription(owner.id, "owned").endpoint
+        headers = auth_headers(other.id)
+    result = client.post('/push/test', headers=headers, json={"endpoint": endpoint})
+    assert result.status_code == 404
+    assert calls == []
+
+
+def test_device_test_targets_only_one_owned_device(app, client, monkeypatch):
+    calls = []
+    class Accepted:
+        status_code = 201
+    monkeypatch.setattr("app.services.push_service.webpush", lambda **kw: calls.append(kw) or Accepted())
+    with app.app_context():
+        user = create_user("two_devices")
+        endpoint = add_subscription(user.id, "iphone").endpoint
+        add_subscription(user.id, "desktop")
+        headers = auth_headers(user.id)
+    result = client.post('/push/test', headers=headers, json={"endpoint": endpoint, "locale": "en"})
+    assert result.status_code == 200
+    assert len(calls) == 1
+    assert calls[0]['subscription_info']['endpoint'] == endpoint
+    assert calls[0]['timeout'] == 8
+    import json
+    payload = json.loads(calls[0]['data'])
+    assert payload['title'] == 'UniKorn test notification'
+    assert payload['data']['url'] == '/en/notifications'
+
+
+@pytest.mark.parametrize('status', [404, 410])
+def test_expired_subscription_is_deactivated_even_for_falsey_http_error(app, monkeypatch, status):
+    import requests
+    from pywebpush import WebPushException
+    response = requests.Response()
+    response.status_code = status
+    def expired(**kwargs):
+        raise WebPushException('expired', response=response)
+    monkeypatch.setattr('app.services.push_service.webpush', expired)
+    with app.app_context():
+        user = create_user('expired_device')
+        sub = add_subscription(user.id, 'expired')
+        result = PushService.send_notification_to_user(user.id, {'title': 'test'})
+        assert result['success'] is False
+        assert sub.is_active is False
+        assert result['results'][0]['status_code'] == status
+
+
+def test_registering_device_for_new_account_stops_previous_account_delivery(app, client):
+    with app.app_context():
+        old_user = create_user('old_account')
+        new_user = create_user('new_account')
+        sub = add_subscription(old_user.id, 'shared-device')
+        endpoint, old_id = sub.endpoint, sub.id
+        headers = auth_headers(new_user.id)
+    for _ in range(2):
+        response = client.post('/push/subscribe', headers=headers, json={
+            'endpoint': endpoint, 'keys': {'p256dh': 'valid-key', 'auth': 'valid-auth'},
+        })
+        assert response.status_code == 201
+    with app.app_context():
+        assert db.session.get(PushSubscription, old_id).is_active is False
+        assert PushSubscription.query.filter_by(endpoint=endpoint, is_active=True).count() == 1
+        assert PushSubscription.query.filter_by(endpoint=endpoint).count() == 2
+
+
+def test_marking_read_never_sends_empty_or_silent_push(app, client, monkeypatch):
+    from app.models.notification import Notification
+    calls = []
+    monkeypatch.setattr(PushService, 'send_notification_to_user', staticmethod(lambda *a, **kw: calls.append(a)))
+    with app.app_context():
+        user = create_user('reading_device')
+        notification = Notification(recipient_id=user.id, type='post_comment', title='A reply', message='Hello')
+        db.session.add(notification)
+        db.session.commit()
+        notification_id = notification.id
+        headers = auth_headers(user.id)
+    assert client.put(f'/notifications/{notification_id}/read', headers=headers).status_code == 200
+    assert client.put('/notifications/mark-all-read', headers=headers).status_code == 200
+    assert calls == []
+
+
+def test_missing_private_key_reports_unavailable(app, client):
+    app.config['VAPID_PRIVATE_KEY'] = None
+    assert client.get('/push/vapid-public-key').status_code == 500
+
+
+def test_unsubscribe_is_idempotent_and_does_not_affect_other_devices(app, client):
+    with app.app_context():
+        user = create_user('disable_device')
+        first = add_subscription(user.id, 'one')
+        endpoint, first_id = first.endpoint, first.id
+        second_id = add_subscription(user.id, 'two').id
+        headers = auth_headers(user.id)
+    for _ in range(2):
+        assert client.post('/push/unsubscribe', headers=headers, json={'endpoint': endpoint}).status_code == 200
+    with app.app_context():
+        assert db.session.get(PushSubscription, first_id).is_active is False
+        assert db.session.get(PushSubscription, second_id).is_active is True

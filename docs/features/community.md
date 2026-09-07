@@ -24,8 +24,20 @@ Do not persist expiring URLs as identity. Public avatars are delivered through U
 
 [NotificationService](../../app/services/notification_service.py) creates stored notifications and invokes [PushService](../../app/services/push_service.py); [notification routes](../../app/routes/notification.py) expose recipient-owned reads, unread counts and updates. [Push routes](../../app/routes/push.py), [subscriptions](../../app/models/push_subscription.py) and [endpoint validation](../../app/utils/push_endpoints.py) handle web push registration/delivery. The frontend service worker is responsible for browser display, clicks and badge behavior.
 
+`GET /push/vapid-public-key` reports availability only when both VAPID keys are configured; it never exposes the private key. Subscription encryption keys use Base64URL. Re-registering an endpoint explicitly deactivates records for other accounts on that browser installation, while preserving the existing `(user_id, endpoint)` schema and idempotent same-account registration. This is normal subscription activity, not a data migration or bulk backfill.
+
+`POST /push/test` accepts optional JSON `{ "endpoint": "https://web.push.apple.com/…", "locale": "en" }`. An endpoint must be allowlisted, active and owned by the authenticated user; it limits delivery to that one device. Omitted endpoint preserves the legacy all-own-devices behavior. Only `en` selects English; otherwise test copy is Chinese. Acceptance by a provider is not proof of physical delivery. The admin target-user test retains its admin guard.
+
+Delivery uses a per-provider eight-second timeout, a one-hour TTL, a fresh VAPID claims dictionary per send (provider audiences differ), and deactivates expired subscriptions on HTTP 404 or 410. The exact provider allowlist remains enforced. Unsubscribe is idempotent and only alters the authenticated user's selected endpoint (legacy no-endpoint requests still disable all their devices).
+
+Read/mark-all-read no longer sends blank/silent badge-only Web Push, because Safari requires every push to display a notification. Foreground clients refresh badges from unread counts; closed devices catch up with the next visible notification or app visit. No schema, seed or product-data migration is introduced.
+
 VAPID configuration, actual browser permissions and the worker's availability are environment-dependent. Do not claim cross-device delivery is verified from database tests alone. New notification types must preserve recipient privacy and a valid frontend navigation destination.
 
 ## Verification and documentation
 
 Use [post](../../tests/test_post.py), [post tags](../../tests/test_post_tags.py), [course discussions](../../tests/test_course_discussions.py), [search previews](../../tests/test_search_preview.py), [upload flow](../../tests/test_file_upload_flow.py), [upload status](../../tests/test_file_upload_status.py), [avatars](../../tests/test_avatar_delivery.py), [push](../../tests/test_push_security.py), and [gugu](../../tests/test_gugu.py) tests. Update the frontend community/upload reference too when the wire contract changes.
+
+## 2026-09-07 notification-only school release
+
+The active school release is backend `5732d34c2b0dd0b6911b5d2123e535fffc70ee99` / frontend `ff65d6bc4a1921be39abc3b43245dfd916185184`, older than the last requested control manifest. The notification-only release candidates are backend `d3c4e5d8bb2c2442c93d27b5f47b239057cf3f4c` / frontend `4aa0b78317d4739940c0b837bffc3026d2b9c2ac`. Their direct production-baseline ancestry avoids bundling main's unrelated AI conversation migrations. The backend transition changes push behavior and tests only; no migrations or app/data files change. Merge candidate lineage into main, then use the existing paired-SHA controller with database approval false. This does not authorize any future schema transition.
