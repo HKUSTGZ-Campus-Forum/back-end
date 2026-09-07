@@ -489,7 +489,7 @@ def test_post_migration_snapshot_allows_only_empty_new_tables(tmp_path):
             "public.maker_webhook_deliveries": 0,
             "public.maker_workers": 0,
         },
-        "alembic_heads": ["20260907_merge_makerspace"],
+        "alembic_heads": ["20260907_merge_maker_social"],
         "foreign_keys": 24,
     }
     source_path = tmp_path / "source.json"

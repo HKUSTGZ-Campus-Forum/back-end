@@ -26,6 +26,9 @@ class File(db.Model):
     COMMENT_ATTACHMENT = 'comment_attachment'
     IDENTITY_DOCUMENT = 'identity_document'
     CAROUSEL_IMAGE = 'carousel_image'
+    MAKER_COVER = 'maker_cover'
+    MAKER_COVER_MIMES = {'image/jpeg', 'image/png', 'image/webp'}
+    MAX_MAKER_COVER_BYTES = 5 * 1024 * 1024
     GENERAL = 'general'
 
     # Upload limits enforced both before signing and after OSS verification.

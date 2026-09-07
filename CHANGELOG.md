@@ -6,6 +6,8 @@ Notable behavior and engineering changes belong here with their implementation. 
 
 ### MakerSpace
 
+- Added owner-controlled MakerSpace covers, idempotent likes/favorites, private saved-work lists and visibility-filtered creator profiles. Additive schema release remains pending separate school approval.
+
 - Added the bilingual creator workshop with private repository connections, bounded isolated previews, independent exact-version review and a published catalog. The sidebar opens MakerSpace and retains TeamUp through its existing integration. Platform attribution, secrets, session revocation and deployment gates are documented in `docs/features/makerspace.md`; this entry does not imply production activation.
 ### Fixed
 

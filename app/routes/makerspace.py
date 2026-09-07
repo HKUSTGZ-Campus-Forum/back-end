@@ -17,6 +17,7 @@ from app.extensions import db
 from app.models.makerspace import MakerAudit, MakerDeployment, MakerSession, MakerSpace, MakerWebhookDelivery, MakerWorker, now
 from app.models.user import User
 from app.services import makerspace_service as service
+from app.services import makerspace_social as social
 from app.utils.permissions import get_authenticated_user
 
 
@@ -72,11 +73,13 @@ def capabilities():
 
 
 @bp.get("")
+@jwt_required(optional=True)
 def catalog():
     query = MakerSpace.query.filter_by(status="published")
     # Search published metadata only: draft edits must never leak through search.
     items = query.order_by(MakerSpace.updated_at.desc()).limit(500).all()
-    values = [service.serialize(space) for space in items]
+    user = get_authenticated_user()
+    values = social.decorate([service.serialize(space, user) for space in items], user)
     search = request.args.get("q", "")[:100].casefold()
     category = request.args.get("category", "")
     if search:
@@ -91,7 +94,7 @@ def catalog():
 def mine():
     user = service.active_user(get_authenticated_user())
     items = MakerSpace.query.filter(MakerSpace.owner_id == user.id, MakerSpace.status != "archived").order_by(MakerSpace.updated_at.desc()).all()
-    return jsonify({"spaces": [service.serialize(item, user, private=True) for item in items]})
+    return jsonify({"spaces": social.decorate([service.serialize(item, user, private=True) for item in items], user)})
 
 
 @bp.post("")
@@ -109,7 +112,87 @@ def detail(slug):
     user = get_authenticated_user()
     space = service.get_space(slug, user)
     private = service.can_manage(space, user) or service.reviewing(space, user)
-    return jsonify(service.serialize(space, user, private=private))
+    return jsonify(social.decorate([service.serialize(space, user, private=private)], user)[0])
+
+
+@bp.get("/users/<int:user_id>")
+@jwt_required(optional=True)
+def creator_spaces(user_id):
+    owner = User.query.filter_by(id=user_id, is_deleted=False).first()
+    if not owner:
+        raise service.MakerError("not_found", 404)
+    viewer = get_authenticated_user()
+    own = bool(viewer and viewer.id == user_id and not viewer.is_deleted and viewer.email_verified)
+    query = MakerSpace.query.filter_by(owner_id=user_id)
+    query = query.filter(MakerSpace.status != "archived") if own else query.filter_by(status="published")
+    items = query.order_by(MakerSpace.updated_at.desc()).limit(500).all()
+    # Other users see only reviewed public metadata; private settings never enter profiles.
+    values = [service.serialize(item, viewer) for item in items]
+    if own:
+        for value, item in zip(values, items):
+            value.update(service.metadata(item))
+    return jsonify({"spaces": social.decorate(values, viewer)})
+
+
+@bp.get("/favorites")
+@jwt_required()
+def favorite_spaces():
+    user = service.active_user(get_authenticated_user())
+    from app.models.makerspace import MakerFavorite
+    items = (MakerSpace.query.join(MakerFavorite, MakerFavorite.space_id == MakerSpace.id)
+             .filter(MakerFavorite.user_id == user.id, MakerSpace.status == "published")
+             .order_by(MakerFavorite.created_at.desc()).limit(500).all())
+    return jsonify({"spaces": social.decorate([service.serialize(item, user) for item in items], user)})
+
+
+@bp.route("/<slug>/likes", methods=["PUT", "DELETE"])
+@bp.route("/<slug>/favorites", methods=["PUT", "DELETE"])
+@jwt_required()
+def space_reaction(slug):
+    user = service.active_user(get_authenticated_user())
+    from app.models.makerspace import MakerLike, MakerFavorite
+    model = MakerLike if request.path.endswith('/likes') else MakerFavorite
+    space = MakerSpace.query.filter_by(slug=slug, status="published").with_for_update().first()
+    if not space:
+        raise service.MakerError("not_found", 404)
+    existing = db.session.get(model, (space.id, user.id))
+    if request.method == "PUT" and not existing:
+        db.session.add(model(space_id=space.id, user_id=user.id))
+    elif request.method == "DELETE" and existing:
+        db.session.delete(existing)
+    db.session.commit()
+    return jsonify(social.decorate([{"id": space.id}], user)[0])
+
+
+@bp.put("/<slug>/cover")
+@jwt_required()
+def set_cover(slug):
+    space, user = owner_space(slug)
+    data = body()
+    if "file_id" not in data:
+        raise service.MakerError("invalid_cover")
+    social.set_cover(space, user, data["file_id"])
+    db.session.commit()
+    return jsonify({"cover_url": f"/api/makerspace/{space.slug}/cover?v={space.cover_file_id}" if space.cover_file_id else None})
+
+
+@bp.get("/<slug>/cover")
+@jwt_required(optional=True)
+def get_cover(slug):
+    from app.models.file import File
+    from app.routes.file import _stream_file_from_oss
+    space = service.get_space(slug, get_authenticated_user())
+    record = File.query.filter_by(id=space.cover_file_id, file_type=File.MAKER_COVER, status="uploaded", is_deleted=False).first() if space.cover_file_id else None
+    if not record or record.mime_type not in File.MAKER_COVER_MIMES:
+        raise service.MakerError("not_found", 404)
+    try:
+        response = _stream_file_from_oss(record, cache_control="no-store")
+        if hasattr(response, 'headers'):
+            response.headers['Content-Security-Policy'] = "default-src 'none'; sandbox"
+        return response
+    except Exception:
+        current_app.logger.warning("MakerSpace cover delivery failed for %s", space.id)
+        raise service.MakerError("cover_unavailable", 502)
 
 
 @bp.put("/<slug>")

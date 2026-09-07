@@ -44,3 +44,19 @@ def test_school_revision_to_makerspace_preserves_existing_data(monkeypatch):
             assert connection.execute(text('SELECT count(*) FROM maker_audit_events')).scalar_one() == 1
             assert connection.execute(text('SELECT count(*) FROM maker_deployments')).scalar_one() == 0
             assert connection.execute(text("SELECT to_regclass('public.agent_conversations')")).scalar_one() is None
+
+        # Rehearse the additive social release from the actual school schema.
+        with db.engine.connect() as connection:
+            before_space = dict(connection.execute(text("SELECT * FROM maker_spaces WHERE slug='teamup'")).mappings().one())
+        command.upgrade(migrate.get_config(), '20260907_maker_social')
+        command.upgrade(migrate.get_config(), '20260907_maker_social')
+        with db.engine.connect() as connection:
+            after_space = dict(connection.execute(text("SELECT * FROM maker_spaces WHERE slug='teamup'")).mappings().one())
+            assert after_space.pop('cover_file_id') is None
+            assert after_space == before_space
+            assert before == {name: connection.execute(text(f'SELECT count(*) FROM {name}')).scalar_one() for name in before}
+            for table in ('maker_likes', 'maker_favorites'):
+                assert connection.execute(text(f'SELECT count(*) FROM {table}')).scalar_one() == 0
+                assert inspect(connection).get_pk_constraint(table)['constrained_columns'] == ['space_id', 'user_id']
+                assert len(inspect(connection).get_foreign_keys(table)) == 2
+            assert connection.execute(text("SELECT to_regclass('public.agent_conversations')")).scalar_one() is None

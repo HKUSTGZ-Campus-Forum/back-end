@@ -121,6 +121,10 @@ def _validate_upload_request(filename, file_type, content_type):
     if ext in _UPLOAD_BLOCKED_EXTENSIONS:
         return False, '该文件类型不允许上传'
 
+    if file_type == File.MAKER_COVER:
+        if ext not in {'.jpg', '.jpeg', '.png', '.webp'} or content_type not in File.MAKER_COVER_MIMES:
+            return False, 'MakerSpace covers require JPEG, PNG or WebP'
+
     if file_type in {File.POST_IMAGE, File.CAROUSEL_IMAGE}:
         if ext and ext not in _POST_IMAGE_EXTENSIONS:
             return False, '图片附件仅支持常见图片格式'
@@ -168,6 +172,7 @@ def generate_upload_url():
         File.COMMENT_ATTACHMENT,
         File.IDENTITY_DOCUMENT,
         File.CAROUSEL_IMAGE,
+        File.MAKER_COVER,
         File.GENERAL
     ]
     if file_type not in allowed_file_types:
@@ -195,7 +200,7 @@ def generate_upload_url():
     # Validate entity_id if entity_type is provided (optional)
     # Some flows upload files before the entity record exists.
     # Keep this list explicit to avoid weakening validation globally.
-    entity_types_allow_pending_id = {'post', 'identity_verification', 'home_carousel'}
+    entity_types_allow_pending_id = {'post', 'identity_verification', 'home_carousel', 'makerspace'}
     if entity_type and entity_type not in entity_types_allow_pending_id and entity_id is None:
          return jsonify({"error": "entity_id is required when entity_type is provided"}), 400
     if entity_type and entity_id is not None and not isinstance(entity_id, int):
@@ -210,6 +215,12 @@ def generate_upload_url():
     if not user:
         current_app.logger.warning(f"Upload attempt by non-existent or inactive user ID: {user_id}")
         return jsonify({"error": "User not found or inactive"}), 404
+
+    if file_type == File.MAKER_COVER:
+        if entity_type != 'makerspace' or entity_id is not None:
+            return jsonify({"error": "MakerSpace cover uploads must be unbound"}), 400
+        if not user.email_verified:
+            return jsonify({"error": "Verified email required"}), 403
 
     if file_type == File.CAROUSEL_IMAGE:
         if entity_type != 'home_carousel':
@@ -391,6 +402,12 @@ def delete_file_route(file_id):
         and existing_file.entity_id is not None
     ):
         return jsonify({"error": "Attached files cannot be deleted directly"}), 409
+
+    if existing_file and existing_file.file_type == File.MAKER_COVER:
+        from app.models.makerspace import MakerSpace
+        db.session.query(File).filter_by(id=file_id).with_for_update().first()
+        if MakerSpace.query.filter_by(cover_file_id=file_id).first():
+            return jsonify({"error": "Remove the cover from its space first"}), 409
 
     deletion = OSSService.delete_file(file_id, user_id)
 

@@ -29,7 +29,7 @@ REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,99}\Z")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 RUNTIMES = {"static", "node", "python"}
 CATEGORIES = {"tools", "learning", "campus", "games", "other"}
-RESERVED = {"new", "mine", "guide", "review", "run", "admin", "api", "settings", "teamup"}
+RESERVED = {"new", "mine", "guide", "review", "run", "admin", "api", "settings", "teamup", "users", "favorites"}
 QUOTA = {"cpu": 0.5, "memory_mb": 256, "storage_mb": 256, "build_memory_mb": 768, "build_seconds": 300, "build_storage_mb": 1024, "processes": 64}
 
 
@@ -135,7 +135,7 @@ def deployment_payload(deployment, *, private=False):
 def serialize(space, user=None, *, private=False):
     owner = space.owner
     visible = metadata(space) if private else (space.published_metadata or metadata(space))
-    value = {"id": space.id, "slug": space.slug, **visible, "kind": space.kind, "status": space.status, "owner": {"id": owner.id, "username": owner.username} if owner and not owner.is_deleted else None, "is_owner": can_manage(space, user), "published_deployment_id": space.published_deployment_id, "created_at": space.created_at.isoformat(), "updated_at": space.updated_at.isoformat()}
+    value = {"id": space.id, "slug": space.slug, **visible, "kind": space.kind, "status": space.status, "owner": {"id": owner.id, "username": owner.username} if owner and not owner.is_deleted else None, "is_owner": can_manage(space, user), "cover_url": f"/api/makerspace/{space.slug}/cover?v={space.cover_file_id}" if space.cover_file_id else None, "published_deployment_id": space.published_deployment_id, "created_at": space.created_at.isoformat(), "updated_at": space.updated_at.isoformat()}
     if space.kind == "external" and space.status == "published":
         value["launch_path"] = space.external_path
     if private:
