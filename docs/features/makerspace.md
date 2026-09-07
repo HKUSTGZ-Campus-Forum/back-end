@@ -2,6 +2,8 @@
 
 MakerSpace keeps creator repositories independent while UniKorn owns account attribution, the published catalog, private build admission and exact-version review. The frontend entrance is `/makerspace`; this backend registers `/makerspace` and the public proxy adds `/api`.
 
+School hosting was activated on 2026-09-07. See the [verified release record](../../deploy/makerspace/school-release-20260907.md); recheck live capabilities before claiming a new repository is connected.
+
 ## Source and contracts
 
 - [Models](../../app/models/makerspace.py): six tables, separate private settings and published metadata, immutable deployment snapshots, audit events, browser sessions, signed webhook deliveries and worker heartbeats.

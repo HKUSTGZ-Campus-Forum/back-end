@@ -1,6 +1,8 @@
 # MakerSpace school production plan
 
-Status: **UNAPPROVED — do not install, migrate, enable hosting or activate a school release yet.**
+Status: **Approved and executed on 2026-09-07.** Approval reference: `codex:01a07a68-92bb-79f1-8396-f7e405107df7:2026-09-07:user-approved-makerspace-plan`.
+
+The school controller activated backend `96faa515b6a4f266d123d9f3a1ba43af1e425076` and frontend `49bee6e792f043616745d307defd5887b82c3be2` under control commit `c1949dc5b8618e2e6269c895b202c0657bfae413`. Hosting and credentials are ready; this historical approval covers only the two migrations and installation below, never future changes. See [deployment record](school-release-20260907.md).
 
 ## Observed target and source
 
@@ -40,7 +42,7 @@ Recheck the creator match and table state immediately before activation using th
 
 Completed locally: PostgreSQL pristine migrations; rehearsal from the exact current school revision with a synthetic creator record (6 tables, 1 catalog, 1 audit, existing table counts unchanged); permission/review/bootstrap/logout tests; real gVisor build, health, hard disk limit, network denial, preview/public data isolation and verified filesystem backup; Chromium real HTTP gateway with third-party cookies blocked; Chinese/English desktop/mobile interface checks.
 
-Still required before production activation: final source/CI gates, fixed candidate SHAs, this plan's explicit current approval, interactive host installation, school-host sandbox test and Nginx checks, and paired release activation. Local sandbox verification used a generated source fixture and does not establish a real private repository's GitHub authorization; each creator must complete the Deploy Key connection and a real build.
+Activation gates (all completed for the recorded release): final source/CI gates, fixed candidate SHAs, this plan's explicit current approval, interactive host installation, school-host sandbox test and Nginx checks, and paired release activation. Local sandbox verification used a generated source fixture and does not establish a real private repository's GitHub authorization; each creator must complete the Deploy Key connection and a real build.
 
 ## Backup and rollback
 
