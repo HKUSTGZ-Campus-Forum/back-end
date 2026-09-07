@@ -25,17 +25,20 @@ class PushService:
             return None
     
     @staticmethod
-    def send_notification_to_user(user_id: int, notification_data: Dict[str, Any]) -> Dict[str, Any]:
+    def send_notification_to_user(user_id: int, notification_data: Dict[str, Any], endpoint=None) -> Dict[str, Any]:
         """Send push notification to all active subscriptions of a user"""
         
         # Get all active subscriptions for the user
         subscriptions = PushSubscription.get_active_subscriptions(user_id)
         
+        if endpoint is not None:
+            subscriptions = [sub for sub in subscriptions if sub.endpoint == endpoint]
+
         if not subscriptions:
             return {"success": False, "message": "No active subscriptions found"}
         
         vapid_keys = PushService.get_vapid_keys()
-        if not vapid_keys:
+        if not vapid_keys or not vapid_keys['private_key'] or not vapid_keys['public_key']:
             return {"success": False, "message": "VAPID keys not configured"}
         
         results = []
@@ -71,7 +74,9 @@ class PushService:
                     subscription_info=subscription_info,
                     data=json.dumps(notification_data),
                     vapid_private_key=vapid_keys['private_key'],
-                    vapid_claims=vapid_keys['claims']
+                    vapid_claims=dict(vapid_keys['claims']),
+                    timeout=8,
+                    ttl=3600
                 )
                 
                 # Update last used timestamp
@@ -85,7 +90,7 @@ class PushService:
                 successful_sends += 1
                 
             except WebPushException as e:
-                status_code = e.response.status_code if e.response else None
+                status_code = e.response.status_code if e.response is not None else None
                 current_app.logger.warning(
                     "WebPush failed for subscription %s (status %s)",
                     subscription.id,
@@ -93,7 +98,7 @@ class PushService:
                 )
                 
                 # Handle subscription errors (410 = Gone, subscription invalid)
-                if e.response and e.response.status_code == 410:
+                if e.response is not None and e.response.status_code in (404, 410):
                     subscription.is_active = False
                     db.session.commit()
                     current_app.logger.info(f"Deactivated invalid subscription {subscription.id}")
@@ -180,43 +185,26 @@ class PushService:
         return "/notifications"
     
     @staticmethod
-    def test_push_notification(user_id: int) -> Dict[str, Any]:
+    def test_push_notification(user_id: int, endpoint=None, locale="zh") -> Dict[str, Any]:
         """Send a test push notification to a user"""
+        english = locale == "en"
         test_data = {
-            "title": "测试通知",
-            "body": "这是一个测试推送通知，用于验证推送功能是否正常工作。",
-            "icon": "/icons/topbar_logo.svg",
+            "title": "UniKorn test notification" if english else "UniKorn 测试通知",
+            "body": "Notifications are working on this device." if english else "这台设备已成功收到通知。",
+            "icon": "/image/uniKorn.png",
             "badge": "/favicon.ico",
             "data": {
                 "test": True,
                 "timestamp": "now",
-                "url": "/notifications"
+                "url": "/en/notifications" if english else "/notifications"
             },
             "actions": [
                 {
                     "action": "view",
-                    "title": "查看通知"
+                    "title": "View notifications" if english else "查看通知"
                 }
             ],
             "tag": "test-notification"
         }
         
-        return PushService.send_notification_to_user(user_id, test_data)
-    
-    @staticmethod
-    def send_badge_update(user_id: int, unread_count: int) -> Dict[str, Any]:
-        """Send a silent push notification to update app badge only"""
-        badge_data = {
-            "title": "",  # Silent notification
-            "body": "",   # Silent notification
-            "silent": True,
-            "unread_count": unread_count,
-            "data": {
-                "badge_update": True,
-                "unread_count": unread_count,
-                "timestamp": "now"
-            },
-            "tag": "badge-update"
-        }
-        
-        return PushService.send_notification_to_user(user_id, badge_data)
+        return PushService.send_notification_to_user(user_id, test_data, endpoint=endpoint)
