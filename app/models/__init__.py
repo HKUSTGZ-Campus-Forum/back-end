@@ -58,3 +58,4 @@ from .course_domain import (
 from .home_carousel_slide import HomeCarouselSlide
 from .recruitment_attempt import RecruitmentAttempt
 from .makerspace import MakerSpace, MakerDeployment, MakerAudit, MakerSession, MakerWebhookDelivery, MakerWorker, MakerLike, MakerFavorite
+from .makerspace_sync import MakerIdentity, MakerSyncGrant, MakerSyncReceipt, MakerSyncAudit

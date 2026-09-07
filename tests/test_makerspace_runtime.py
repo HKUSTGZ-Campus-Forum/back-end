@@ -39,3 +39,22 @@ def test_emergency_stop_targets_only_valid_makerspace_names(monkeypatch):
     module.stop_sandboxes()
     assert '--filter' in calls[0] and 'label=unikorn.makerspace=1' in calls[0]
     assert calls[1:] == [['docker', 'stop', '--time', '1', valid]]
+
+
+def test_runtime_has_no_outbound_network_and_build_is_separate(monkeypatch):
+    module = runtime()
+    monkeypatch.setattr(module, 'trusted', lambda _: None)
+    work = Path('/synthetic/work')
+    build = module.sandbox_options('build', work, 'image', build=True)
+    live = module.sandbox_options('runtime', work, 'image', data=Path('/synthetic/data'), port=20001)
+    assert build[build.index('--network') + 1] == 'unikorn-makerbuild'
+    assert live[live.index('--network') + 1] == 'unikorn-makerspace'
+    assert not any('/synthetic/data' in arg for arg in build)
+    path = Path(__file__).resolve().parents[1] / 'deploy/makerspace/firewall.py'
+    spec = importlib.util.spec_from_file_location('maker_firewall_test', path)
+    firewall = importlib.util.module_from_spec(spec); spec.loader.exec_module(firewall)
+    assert firewall.EGRESS == [
+        ['-m', 'conntrack', '--ctstate', 'ESTABLISHED,RELATED', '--ctdir', 'REPLY', '-j', 'RETURN'],
+        ['-j', 'DROP'],
+    ]
+    assert ['-p', 'tcp', '-m', 'multiport', '--dports', '80,443', '-j', 'RETURN'] in firewall.BUILD

@@ -29,7 +29,7 @@ REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,99}\Z")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 RUNTIMES = {"static", "node", "python"}
 CATEGORIES = {"tools", "learning", "campus", "games", "other"}
-RESERVED = {"new", "mine", "guide", "review", "run", "admin", "api", "settings", "teamup", "users", "favorites"}
+RESERVED = {"new", "mine", "guide", "review", "run", "admin", "api", "settings", "teamup", "users", "favorites", "sync", "exchange"}
 QUOTA = {"cpu": 0.5, "memory_mb": 256, "storage_mb": 256, "build_memory_mb": 768, "build_seconds": 300, "build_storage_mb": 1024, "processes": 64}
 
 
@@ -325,6 +325,9 @@ def authorize_session(session):
     item = db.session.get(MakerDeployment, session.deployment_id)
     user = db.session.get(User, session.viewer_id) if session.viewer_id else None
     if not space or space.status in ("suspended", "archived") or not item or item.status != "ready":
+        raise MakerError("not_found", 404)
+    if session.viewer_id and (not user or user.is_deleted or not user.email_verified or
+                             (user.auth_valid_after and aware(session.created_at) <= aware(user.auth_valid_after))):
         raise MakerError("not_found", 404)
     if session.private:
         if user and user.auth_valid_after and aware(session.created_at) <= aware(user.auth_valid_after):

@@ -111,6 +111,8 @@ def main():
         install(SOURCE / name, '/etc/systemd/system/' + name)
     if subprocess.run(['docker', 'network', 'inspect', 'unikorn-makerspace'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
         run('docker', 'network', 'create', '--driver', 'bridge', '--subnet', '172.30.91.0/24', '--opt', 'com.docker.network.bridge.name=br-makerspace', '--opt', 'com.docker.network.bridge.enable_icc=false', 'unikorn-makerspace')
+    if subprocess.run(['docker', 'network', 'inspect', 'unikorn-makerbuild'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
+        run('docker', 'network', 'create', '--driver', 'bridge', '--subnet', '172.30.92.0/24', '--opt', 'com.docker.network.bridge.name=br-makerbuild', '--opt', 'com.docker.network.bridge.enable_icc=false', 'unikorn-makerbuild')
     run('python3', str(library / 'firewall.py'))
     config = json.loads((config_dir / 'worker.json').read_text())
     for image in set(config['images'].values()): run('docker', 'pull', image)

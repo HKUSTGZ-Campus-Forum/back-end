@@ -28,6 +28,7 @@ import urllib.request
 ROOT = Path('/srv/unikorn-makerspace')
 CONFIG = Path('/etc/unikorn-makerspace/worker.json')
 NETWORK = 'unikorn-makerspace'
+BUILD_NETWORK = 'unikorn-makerbuild'
 LABEL = 'unikorn.makerspace=1'
 IDENTIFIER = re.compile(r'[a-f0-9]{32}\Z')
 SHA = re.compile(r'[a-f0-9]{40}\Z')
@@ -132,7 +133,7 @@ def sandbox_options(name, work, image, *, build=False, data=None, port=None):
     resolver = Path(__file__).with_name('resolv.conf')
     trusted(resolver)
     args = ['docker', 'run', '--detach', '--name', name, '--label', LABEL,
-            '--runtime', 'runsc', '--network', NETWORK, '--dns', '223.5.5.5',
+            '--runtime', 'runsc', '--network', BUILD_NETWORK if build else NETWORK, '--dns', '223.5.5.5',
             '--mount', f'type=bind,src={resolver},dst=/etc/resolv.conf,readonly',
             '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
             '--read-only', '--user', '65532:65532', '--cpus', '0.5',
@@ -161,20 +162,23 @@ def check_sandbox(config):
     trusted(daemon)
     if json.loads(daemon.read_text()).get('runtimes', {}).get('runsc', {}).get('path') != '/usr/local/bin/runsc':
         raise RuntimeFailure('unexpected sandbox runtime path')
-    command(['iptables', '-C', 'DOCKER-USER', '-i', 'br-makerspace', '-j', 'MAKERSPACE-EGRESS'])
+    command(['iptables', '-C', 'DOCKER-USER', '-i', 'br-makerspace', '-j', 'MAKERSPACE-CLOSED'])
     command(['iptables', '-C', 'INPUT', '-i', 'br-makerspace', '-j', 'MAKERSPACE-HOST'])
-    command(['iptables', '-C', 'MAKERSPACE-EGRESS', '-j', 'DROP'])
+    command(['iptables', '-C', 'MAKERSPACE-CLOSED', '-j', 'DROP'])
     command(['iptables', '-C', 'MAKERSPACE-HOST', '-j', 'DROP'])
-    from firewall import EGRESS, HOST
-    for chain, rules in [('MAKERSPACE-EGRESS', EGRESS), ('MAKERSPACE-HOST', HOST)]:
+    from firewall import EGRESS, HOST, BUILD
+    for chain, rules in [('MAKERSPACE-CLOSED', EGRESS), ('MAKERSPACE-HOST', HOST), ('MAKERSPACE-BUILD', BUILD)]:
         actual = command(['iptables', '-S', chain])
         if len([line for line in actual.splitlines() if line.startswith('-A ')]) != len(rules):
             raise RuntimeFailure('sandbox firewall policy changed')
         for rule in rules:
             command(['iptables', '-C', chain] + rule)
-    network = json.loads(command(['docker', 'network', 'inspect', NETWORK]))[0]
-    if network.get('EnableIPv6') or network['Options'].get('com.docker.network.bridge.name') != 'br-makerspace':
-        raise RuntimeFailure('unexpected sandbox network')
+    command(['iptables', '-C', 'DOCKER-USER', '-i', 'br-makerbuild', '-j', 'MAKERSPACE-BUILD'])
+    command(['iptables', '-C', 'INPUT', '-i', 'br-makerbuild', '-j', 'MAKERSPACE-HOST'])
+    for name, bridge in [(NETWORK, 'br-makerspace'), (BUILD_NETWORK, 'br-makerbuild')]:
+        network = json.loads(command(['docker', 'network', 'inspect', name]))[0]
+        if network.get('EnableIPv6') or network['Options'].get('com.docker.network.bridge.name') != bridge:
+            raise RuntimeFailure('unexpected sandbox network')
 
 
 def validate_job(job):
@@ -271,10 +275,8 @@ def run_job(config, state, job):
         if settings['build_command']:
             args = sandbox_options(build_name, work / 'repo', image, build=True)
             args += ['--workdir', '/workspace/' + settings['directory']]
-            with tempfile.NamedTemporaryFile(mode='w', dir='/run/unikorn-makerspace', prefix='env-', delete=True) as environment:
-                environment.write('\n'.join(name + '=' + value for name, value in job['environment'].items()))
-                environment.flush()
-                command(args + ['--env-file', environment.name, '--entrypoint', '/bin/sh', image, '-lc', settings['build_command']])
+            # Build has network access but no runtime environment or data volume.
+            command(args + ['--entrypoint', '/bin/sh', image, '-lc', settings['build_command']])
             try:
                 result = command(['docker', 'wait', build_name], timeout=300)
                 log = container_log(build_name)
@@ -291,7 +293,7 @@ def run_job(config, state, job):
     with tempfile.NamedTemporaryFile(mode='w', dir='/run/unikorn-makerspace', prefix='env-', delete=True) as environment:
         environment.write('\n'.join(name + '=' + value for name, value in job['environment'].items()))
         environment.flush()
-        args += ['--env-file', environment.name]
+        args += ['--env-file', environment.name, '--env', 'UNIKORN_RUNTIME_CONTEXT=' + ('public' if public else 'preview')]
         if settings['runtime'] == 'static':
             server = Path(__file__).with_name('static-server.mjs')
             trusted(server)
@@ -410,7 +412,7 @@ def main():
                 stop_sandboxes()
                 raise
             try:
-                response = call_api(config, '/worker/lease', {'worker_id': 'school-makerspace', 'capabilities': {'runtime': 'runsc', 'disk_quota': True, 'network_isolation': True}})
+                response = call_api(config, '/worker/lease', {'worker_id': 'school-makerspace', 'capabilities': {'runtime': 'runsc', 'disk_quota': True, 'network_isolation': True, 'closed_runtime': 'v1'}})
                 job = response.get('job')
                 collect(state, set(response['keep_deployments']) | ({job['id']} if job else set()))
                 recover(state)

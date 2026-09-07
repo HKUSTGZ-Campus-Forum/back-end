@@ -54,10 +54,10 @@ def verify():
         # Real writes beyond the persistent filesystem quota must fail.
         quota = runtime.command(['docker', 'exec', name, 'node', '-e', "const fs=require('fs');try{const fd=fs.openSync('/data/quota-test','w');for(let i=0;i<300;i++)fs.writeSync(fd,Buffer.alloc(1024*1024));console.log('UNBOUNDED')}catch(e){console.log(e.code)}finally{fs.rmSync('/data/quota-test',{force:true})}"])
         assert 'ENOSPC' in quota, quota
-        for address in ('10.121.15.221', '169.254.169.254', '172.30.91.1'):
-            script = f"const s=require('net').connect(8001,'{address}');s.setTimeout(1000);s.on('connect',()=>{{console.log('UNSAFE');s.destroy()}});s.on('timeout',()=>{{console.log('blocked');s.destroy()}});s.on('error',()=>console.log('blocked'));"
+        for address in ('10.121.15.221', '169.254.169.254', '172.30.91.1', '1.1.1.1', '223.5.5.5'):
+            script = f"const s=require('net').connect(443,'{address}');s.setTimeout(1000);s.on('connect',()=>{{console.log('UNSAFE');s.destroy()}});s.on('timeout',()=>{{console.log('blocked');s.destroy()}});s.on('error',()=>console.log('blocked'));"
             assert runtime.command(['docker', 'exec', name, 'node', '-e', script]) == 'blocked'
-        print(json.dumps({'real_runsc_build': True, 'runtime_health': True, 'resource_configuration': True, 'disk_quota_enforced': True, 'private_network_blocked': True, 'preview_public_data_separate': True, 'data_backup_verified': True}))
+        print(json.dumps({'real_runsc_build': True, 'runtime_health': True, 'resource_configuration': True, 'disk_quota_enforced': True, 'private_network_blocked': True, 'public_runtime_egress_blocked': True, 'preview_public_data_separate': True, 'data_backup_verified': True}))
     finally:
         for kind in ('build', 'preview', 'public'):
             runtime.command(['docker', 'rm', '-f', f'maker-{kind}-{identifier}'], check=False)
