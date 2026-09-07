@@ -42,3 +42,7 @@ Read and follow [AGENTS.md](AGENTS.md), then the selected application's own `AGE
 
 Use [DOCUMENTATION.md](DOCUMENTATION.md) to locate documentation and Git archives. Update the relevant docs in the same change as **every notable modification**, according to the selected repository's documentation maintenance policy. Do not rely on an old development log as current architecture or deployment evidence.
 ```
+
+## Creator repository routing
+
+The workspace root now routes ordinary external repositories through `docs/makerspace.md` and `docs/integrations/README.md`. MakerSpace uses private repository Deploy Keys, browser-bound opaque previews, resource-limited gVisor execution and independent exact-version publication review. Trusted same-origin integrations remain a separate explicit exception. Check the live deployment state before claiming an external repository is connected.

@@ -15,6 +15,7 @@ Current implementation references, reconciled against backend `d02ce0e` and fron
 | Forum assistant or recruitment | [AI features](features/ai.md) | [assistant API](agent-assistant-api.md) |
 | Worker, cache, embeddings, matching | [services and jobs](features/services.md) | [source map](source-map.md) |
 | Deploy, migrate, change production data | [operational boundaries](operations/agent-boundaries.md), [production environment](production-environment.md) | [school runbook](../deploy/school/README.md), [operations API](backend-operations-api.md), [pending data](../app/data/pending/README.md) |
+| Creative spaces and private external repositories | [MakerSpace](features/makerspace.md) | Creator ownership, isolation, builds and publication review |
 | Find an old design or document | [history and retrieval](history.md) | Git archive, never assumed current |
 
 The current API contract is the registered route, service, serializer and caller together. The separate legacy `Docs` repositories and their OpenAPI YAML are historical; they do not cover the current route set. [Source map](source-map.md) covers every registered blueprint, plus models, services, migrations and tools.

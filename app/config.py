@@ -71,6 +71,14 @@ _database_uri, _database_engine_options = normalize_database_config(
 
 
 class Config:
+    # MakerSpace control-plane credentials are never exposed in public config.
+    MAKERSPACE_ENCRYPTION_KEY = os.getenv('MAKERSPACE_ENCRYPTION_KEY', '')
+    MAKERSPACE_WORKER_TOKEN = os.getenv('MAKERSPACE_WORKER_TOKEN', '')
+    MAKERSPACE_WORKER_ID = os.getenv('MAKERSPACE_WORKER_ID', 'school-makerspace')
+    MAKERSPACE_REVIEW_DIRECTORY = os.getenv('MAKERSPACE_REVIEW_DIRECTORY', '/srv/unikorn-makerspace/reviews')
+    MAKERSPACE_PUBLIC_ORIGIN = os.getenv('MAKERSPACE_PUBLIC_ORIGIN', 'https://unikorn.hkust-gz.edu.cn')
+    MAKERSPACE_HOSTING_ENABLED = get_env_bool('MAKERSPACE_HOSTING_ENABLED', False)
+    MAKERSPACE_MAX_PER_USER = get_env_nonnegative_int('MAKERSPACE_MAX_PER_USER', 3)
     APP_ENV = os.getenv(
         'APP_ENV',
         os.getenv('ENVIRONMENT', os.getenv('FLASK_ENV', 'development')),

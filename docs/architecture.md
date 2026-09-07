@@ -34,3 +34,7 @@ The web process and [background worker](../app/background_worker.py) share the f
 ## Changing architecture
 
 Update the affected feature reference and this page in the same change. For new structural decisions, add a dated decision with status, rationale, source/test links and consequences; do not copy an old plan's completion or production approval claim. [Maintenance policy](maintenance.md) defines documentation completion.
+
+## MakerSpace boundary (2026-09-07)
+
+[MakerSpace](features/makerspace.md) owns catalog, verified creator attribution and approval of exact source/artifact versions. Independent repositories retain their business code. Creator documents remain opaque-origin sandboxes behind browser-bound resource sessions, and untrusted builds/runtime use the dedicated gVisor worker with enforced quotas. Preview data and public data are separate. Historical trusted integrations retain their existing identity and release boundaries.

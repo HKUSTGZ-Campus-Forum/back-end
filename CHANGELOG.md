@@ -4,6 +4,11 @@ Notable behavior and engineering changes belong here with their implementation. 
 
 ## Unreleased
 
+### MakerSpace
+
+- Added the bilingual creator workshop with private repository connections, bounded isolated previews, independent exact-version review and a published catalog. The sidebar opens MakerSpace and retains TeamUp through its existing integration. Platform attribution, secrets, session revocation and deployment gates are documented in `docs/features/makerspace.md`; this entry does not imply production activation.
+
+
 ### Changed
 
 - Rebuilt developer/agent documentation with task indexes, architecture, complete route/model navigation, feature contracts, setup/testing guidance and a same-change documentation maintenance policy. `CLAUDE.md` now routes to the shared `AGENTS.md` rules.

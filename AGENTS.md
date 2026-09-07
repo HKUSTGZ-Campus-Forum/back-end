@@ -17,6 +17,7 @@ This is the authoritative entry point for engineering in this repository. Claude
 - Keep course catalog rules, semester offerings, academic records, scheduler carts and saved plans distinct. Preserve source provenance and popularity privacy rules.
 - Schema changes belong in the existing Alembic lineage; do not use startup schema helpers as a production migration strategy. Keep external service calls out of tests using the established fixtures/mocks.
 - MeetCampus has its own repository/runtime. Never add its removed runtime back. Do not alter the independent CoursePlan service as a side effect of UniKorn work.
+- Ordinary external creator repositories default to [MakerSpace](docs/features/makerspace.md). Preserve private previews, exact-version independent review and both browser/server sandbox boundaries. Do not copy creator runtime code into this repository or infer deployment from a plan.
 - Keep changes small and relevant. Do not add speculative fallback layers or defensive machinery. Never expose credentials or live user data.
 
 ## Verify and hand off

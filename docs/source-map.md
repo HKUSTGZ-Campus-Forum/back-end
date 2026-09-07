@@ -25,6 +25,7 @@ Static source inventory at `d02ce0e`, reconciled 2026-09-05. Start from the feat
 | [health](../app/routes/health.py) | Liveness and database/Redis readiness |
 | [home_carousel](../app/routes/home_carousel.py) | Public carousel and admin slide lifecycle |
 | [identity](../app/routes/identity.py) | Identity badge requests, review and display selection |
+| [makerspace](../app/routes/makerspace.py) | Creator catalog, private repository/build management, exact-version review and sandbox resource gateway |
 | [matching](../app/routes/matching.py) | Project/teammate recommendations, search and compatibility |
 | [notification](../app/routes/notification.py) | Recipient notifications, unread count and read/delete state |
 | [oauth](../app/routes/oauth.py) | UniKorn as OAuth provider and client management |

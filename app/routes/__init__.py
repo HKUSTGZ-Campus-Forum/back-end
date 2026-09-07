@@ -2,6 +2,8 @@
 from flask import Blueprint
 
 def register_blueprints(app):
+    from app.routes import makerspace
+    app.register_blueprint(makerspace.bp)
     from app.routes import auth, oidc, user, post, comment, tag, reaction, file, course, analytics, search, gugu, oauth, notification, push, cache, identity, profile, project, matching, project_interview, background_tasks, contest, feedback, feedback_admin, academic_map, scheduler, scheduler_plan, admin, health, home_carousel, recruitment, agent
 
     app.register_blueprint(health.bp)
