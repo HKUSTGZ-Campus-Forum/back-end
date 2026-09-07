@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, inspect, text
 
 
 DATABASE_URL_ENV = "PRISTINE_POSTGRES_DATABASE_URL"
-EXPECTED_HEADS = {"20260907_merge_maker_social"}
+EXPECTED_HEADS = {"20260907_merge_maker_sync"}
 
 
 @pytest.fixture(scope="module")

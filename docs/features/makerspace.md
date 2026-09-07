@@ -61,3 +61,7 @@ Run `tests/test_makerspace.py` for ownership, independent review, publication is
 Cover display edits do not change code/settings snapshots or activate a new runtime. Published titles/descriptions retain the existing review boundary. Neither reactions nor display uploads forward identity to creator code. `users` and `favorites` are reserved slug segments.
 
 Schema and rollout: [social migration plan](../../deploy/makerspace/social-migration-plan.md). School deployment needs new approval; initial MakerSpace approval cannot be reused. Tests: `test_makerspace_social.py`, existing file tests, and PostgreSQL rollout/pristine tests.
+
+## Closed runtime and external exchange
+
+The candidate introduces [directional exchange](makerspace-sync.md), separate approvals, scoped viewer identities and a closed runtime network. Deployment and the TeamUp cutover require the current migration plan; the historical trusted-app description above remains the live state until that cutover.

@@ -75,3 +75,5 @@ Static source inventory at `d02ce0e`, reconciled 2026-09-05. Start from the feat
 | [tests](../tests) | Unit, route, migration, tool and shell/deployment contract tests |
 
 The root also retains one-off utilities (`add_club_tag.py`, `temp_identity_manager.py`) and OAuth HTML test clients. Inspect their target and side effects before use; they are not normal initialization instructions. Tracked IDE files, `.codex-venv` and `.codex-feedback-dev.db` are historical artifacts, not a reproducible development environment or a production data source. No calendar blueprint is registered despite retained calendar models. No MeetCampus runtime blueprint is registered.
+
+MakerSpace directional exchange uses `app/models/makerspace_sync.py` and `app/services/makerspace_sync.py`, exposed by the existing MakerSpace blueprint. The scope-bound browser identity lives only in `maker_identities`; app payloads stay in isolated runtimes. `tests/test_makerspace_sync.py` covers authorization and contracts; `tests/test_makerspace_school_upgrade.py` rehearses the additive school revision.

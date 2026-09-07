@@ -38,3 +38,7 @@ Update the affected feature reference and this page in the same change. For new 
 ## MakerSpace boundary (2026-09-07)
 
 [MakerSpace](features/makerspace.md) owns catalog, verified creator attribution and approval of exact source/artifact versions. Independent repositories retain their business code. Creator documents remain opaque-origin sandboxes behind browser-bound resource sessions, and untrusted builds/runtime use the dedicated gVisor worker with enforced quotas. Preview data and public data are separate. Historical trusted integrations retain their existing identity and release boundaries.
+
+## Closed MakerSpace data boundary (candidate, 2026-09-07)
+
+[Directional exchange](features/makerspace-sync.md) keeps independent databases and grants export/import separately through a typed, version-bound platform gateway. Runtime networking is closed; networked builds receive no live data or environment secrets. Application-scoped subjects replace host credentials in migrated applications.

@@ -2,13 +2,17 @@
 """Install only MakerSpace-owned chains. Never flush host or Docker policy."""
 import subprocess
 
-EGRESS = [
+BUILD = [
     ['-m', 'conntrack', '--ctstate', 'ESTABLISHED,RELATED', '-j', 'RETURN'],
     *[['-d', network, '-j', 'DROP'] for network in ['0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12', '192.0.0.0/24', '192.0.2.0/24', '192.168.0.0/16', '198.18.0.0/15', '198.51.100.0/24', '203.0.113.0/24', '224.0.0.0/4', '240.0.0.0/4']],
     ['-o', 'br-makerspace', '-j', 'DROP'],
     ['-p', 'tcp', '-m', 'multiport', '--dports', '80,443', '-j', 'RETURN'],
     ['-d', '223.5.5.5', '-p', 'udp', '--dport', '53', '-j', 'RETURN'],
     ['-d', '223.5.5.5', '-p', 'tcp', '--dport', '53', '-j', 'RETURN'],
+    ['-j', 'DROP'],
+]
+EGRESS = [
+    ['-m', 'conntrack', '--ctstate', 'ESTABLISHED,RELATED', '--ctdir', 'REPLY', '-j', 'RETURN'],
     ['-j', 'DROP'],
 ]
 HOST = [
@@ -38,12 +42,14 @@ def ensure_chain(name, rules):
 
 
 def main():
-    ensure_chain('MAKERSPACE-EGRESS', EGRESS)
-    ensure_chain('MAKERSPACE-HOST', HOST)
-    for parent, target in [('DOCKER-USER', 'MAKERSPACE-EGRESS'), ('INPUT', 'MAKERSPACE-HOST')]:
-        rule = ['-i', 'br-makerspace', '-j', target]
-        if run(['-C', parent] + rule, check=False).returncode:
-            run(['-I', parent, '1'] + rule)
+    # New chains precede the legacy rules; no live chain is flushed or relaxed.
+    for chain, rules in [('MAKERSPACE-CLOSED', EGRESS), ('MAKERSPACE-BUILD', BUILD), ('MAKERSPACE-HOST', HOST)]:
+        ensure_chain(chain, rules)
+    for bridge, target in [('br-makerspace', 'MAKERSPACE-CLOSED'), ('br-makerbuild', 'MAKERSPACE-BUILD')]:
+        for parent, chain in [('DOCKER-USER', target), ('INPUT', 'MAKERSPACE-HOST')]:
+            rule = ['-i', bridge, '-j', chain]
+            if run(['-C', parent] + rule, check=False).returncode:
+                run(['-I', parent, '1'] + rule)
 
 
 if __name__ == '__main__':

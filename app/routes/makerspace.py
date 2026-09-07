@@ -47,6 +47,8 @@ def private_response(response):
 
 
 def body():
+    if len(request.get_data(cache=True)) > 65536:
+        raise service.MakerError("request_too_large", 413)
     value = request.get_json(silent=True)
     if not isinstance(value, dict):
         raise service.MakerError("invalid_request")
@@ -558,3 +560,104 @@ def complete(identifier):
 def runtime(identifier, path):
     from app.services.makerspace_proxy import proxy_runtime
     return proxy_runtime(identifier, path)
+
+
+# Exchange authorization is separate from source/publication approval.
+@bp.get('/<slug>/sync')
+@jwt_required()
+def sync_list(slug):
+    from app.models.makerspace_sync import MakerSyncGrant
+    from app.services import makerspace_sync as sync
+    space, _user = owner_space(slug)
+    grants = MakerSyncGrant.query.filter_by(space_id=space.id).order_by(MakerSyncGrant.created_at.desc()).limit(100).all()
+    return jsonify({'grants': [sync.payload(grant) for grant in grants], 'runtime_ready': sync.runtime_ready()})
+
+
+@bp.post('/<slug>/sync')
+@jwt_required()
+def sync_create(slug):
+    from app.services import makerspace_sync as sync
+    space, user = owner_space(slug)
+    grant = sync.create(space, user, body())
+    db.session.commit()
+    return jsonify(sync.payload(grant)), 201
+
+
+@bp.get('/admin/sync')
+@jwt_required()
+def sync_review_queue():
+    from app.models.makerspace_sync import MakerSyncGrant
+    from app.services import makerspace_sync as sync
+    user = service.active_user(get_authenticated_user())
+    if not service.administrator(user):
+        raise service.MakerError('admin_required', 403)
+    grants = MakerSyncGrant.query.order_by(MakerSyncGrant.created_at.desc()).limit(200).all()
+    return jsonify({'grants': [sync.payload(grant) for grant in grants], 'runtime_ready': sync.runtime_ready()})
+
+
+@bp.post('/admin/sync/<identifier>/review')
+@jwt_required()
+def sync_review(identifier):
+    from app.services import makerspace_sync as sync
+    user = service.active_user(get_authenticated_user())
+    if not service.administrator(user):
+        raise service.MakerError('admin_required', 403)
+    grant = sync.locked_grant(identifier)
+    sync.review(grant, user, body())
+    db.session.commit()
+    return jsonify(sync.payload(grant))
+
+
+def managed_grant(identifier, *, owner_only=False):
+    from app.services import makerspace_sync as sync
+    user = service.active_user(get_authenticated_user())
+    grant = sync.locked_grant(identifier)
+    if not service.can_manage(grant.space, user) and (owner_only or not service.administrator(user)):
+        raise service.MakerError('not_found', 404)
+    return grant, user
+
+
+@bp.post('/sync/<identifier>/revoke')
+@jwt_required()
+def sync_revoke(identifier):
+    from app.services import makerspace_sync as sync
+    grant, user = managed_grant(identifier)
+    sync.revoke(grant, user)
+    db.session.commit()
+    return jsonify(sync.payload(grant))
+
+
+@bp.post('/sync/<identifier>/credential')
+@jwt_required()
+def sync_credential(identifier):
+    from app.services import makerspace_sync as sync
+    grant, user = managed_grant(identifier, owner_only=True)
+    token = sync.rotate(grant, user)
+    db.session.commit()
+    return jsonify({'token': token, 'gateway_path': f'/api/makerspace/exchange/{grant.id}'})
+
+
+@bp.get('/sync/<identifier>/audit')
+@jwt_required()
+def sync_audit(identifier):
+    from app.models.makerspace_sync import MakerSyncAudit
+    grant, _user = managed_grant(identifier)
+    events = MakerSyncAudit.query.filter_by(grant_id=grant.id).order_by(MakerSyncAudit.id.desc()).limit(100).all()
+    return jsonify({'events': [{'id': event.id, 'action': event.action, 'record_count': event.record_count,
+                               'created_at': service.aware(event.created_at).isoformat()} for event in events]})
+
+
+@bp.post('/exchange/<identifier>')
+def sync_exchange(identifier):
+    from app.services import makerspace_sync as sync
+    data = body()
+    grant = sync.authenticate(identifier, request.headers.get('Authorization', ''))
+    try:
+        result = sync.exchange(grant, data)
+    except service.MakerError as error:
+        # Count failed authenticated calls too; do not persist student payloads.
+        sync.log(grant, 'exchange_failed')
+        db.session.commit()
+        raise error
+    db.session.commit()
+    return jsonify(result)

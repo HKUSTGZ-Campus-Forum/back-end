@@ -112,6 +112,9 @@ def proxy_runtime(identifier, path):
         response.set_cookie("makerspace_session", secret, max_age=3600, httponly=True, secure=True, samesite="None", partitioned=True, path=prefix)
         return response
     session, item = runtime_session(identifier, request.cookies.get("makerspace_session"))
+    # Sync adapters are platform-only. A browser session is not an exchange grant.
+    if path.lstrip('/').split('/', 1)[0] == '__unikorn':
+        raise MakerError('not_found', 404)
     if not path and request.method == "GET" and request.args.get("__makerspace_ready") != "1":
         # CHIPS distinguishes first-party and opaque-frame cookie partitions.
         # A trusted bootstrap runs BEFORE creator HTML. It exchanges a one-use
@@ -139,6 +142,22 @@ def proxy_runtime(identifier, path):
         if query:
             url += "?" + urlencode(query)
     forwarded = {"Accept": request.headers.get("Accept", "*/*"), "Accept-Encoding": "identity", "Content-Type": request.headers.get("Content-Type", "application/octet-stream"), "X-Forwarded-Prefix": prefix, "X-Makerspace-Deployment": item.id}
+    # Application-scoped identity; neither host user IDs nor emails leave the gateway.
+    if session.viewer_id:
+        from app.models.makerspace_sync import MakerIdentity
+        from sqlalchemy.exc import IntegrityError
+        identity = db.session.get(MakerIdentity, (session.space_id, session.viewer_id))
+        if not identity:
+            try:
+                with db.session.begin_nested():
+                    identity = MakerIdentity(space_id=session.space_id, user_id=session.viewer_id)
+                    db.session.add(identity)
+                    db.session.flush()
+            except IntegrityError:
+                identity = db.session.get(MakerIdentity, (session.space_id, session.viewer_id))
+            db.session.commit()
+        forwarded['X-Unikorn-Subject'] = identity.subject
+    forwarded['X-Unikorn-Context'] = 'preview' if session.private else 'public'
     client = requests.Session()
     client.trust_env = False
     try:
