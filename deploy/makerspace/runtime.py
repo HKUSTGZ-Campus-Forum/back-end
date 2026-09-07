@@ -356,13 +356,28 @@ def recover(state):
                     command(['docker', 'start', name])
 
 
+def stop_sandboxes():
+    # An isolation failure must stop existing workloads, not just new admission.
+    names = command(['docker', 'ps', '--filter', 'label=' + LABEL, '--format', '{{.Names}}']).splitlines()
+    for name in names:
+        if re.fullmatch(r'maker-(build|preview|public)-[a-f0-9]{32}', name):
+            command(['docker', 'stop', '--time', '1', name], check=False)
+
+
 def heartbeat(config, stopped):
     while not stopped.wait(20):
         try:
             check_sandbox(config)
+        except Exception:
+            stopped.set()
+            try:
+                stop_sandboxes()
+            except Exception:
+                pass
+            return
+        try:
             call_api(config, '/worker/heartbeat', {'worker_id': 'school-makerspace'})
         except Exception:
-            # Do not keep advertising a worker with broken isolation.
             pass
 
 
@@ -374,16 +389,28 @@ def main():
     with (ROOT / 'worker.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         state = json.loads((ROOT / 'state.json').read_text()) if (ROOT / 'state.json').exists() else {}
-        check_sandbox(config)
+        try:
+            check_sandbox(config)
+        except Exception:
+            stop_sandboxes()
+            raise
         recover(state)
         stopped = threading.Event()
         threading.Thread(target=heartbeat, args=(config, stopped), daemon=True).start()
         while True:
             try:
+                if stopped.is_set():
+                    raise RuntimeFailure('isolation monitor failed')
                 check_sandbox(config)
+            except Exception:
+                stopped.set()
+                stop_sandboxes()
+                raise
+            try:
                 response = call_api(config, '/worker/lease', {'worker_id': 'school-makerspace', 'capabilities': {'runtime': 'runsc', 'disk_quota': True, 'network_isolation': True}})
                 job = response.get('job')
                 collect(state, set(response['keep_deployments']) | ({job['id']} if job else set()))
+                recover(state)
                 if job:
                     try:
                         receipt = run_job(config, state, job)

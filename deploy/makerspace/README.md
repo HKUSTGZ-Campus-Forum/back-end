@@ -31,6 +31,7 @@ Worker configuration admits only the fixed loopback main API, digest-pinned imag
 
 ## Failure, data and recovery
 
+- A failed sandbox/firewall check stops only MakerSpace containers and exits the worker. Systemd retries the worker; recovery starts retained containers only after isolation checks pass. Normal reconciliation also restarts retained exited runtimes.
 - Expired jobs fail rather than silently replay. Lost callbacks retain local state/ports until control-plane reconciliation revokes stale session targets. Old build volumes are collected; creator persistent data is retained.
 - Public pointer changes only after the approved artifact starts with public storage and passes health checks. A failed new build/release leaves the existing public pointer unchanged. A creator can retry a failed approved publication without changing its artifact.
 - `POST /api/makerspace/admin/<slug>/suspend` with an authenticated administrator and a reason removes visibility and revokes sessions. The next worker reconciliation stops its runtimes. External historical integrations need their own incident procedure.

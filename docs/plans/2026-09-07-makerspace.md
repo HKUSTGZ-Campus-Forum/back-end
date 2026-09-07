@@ -1,6 +1,6 @@
 # 创意空间 / MakerSpace
 
-Status: in progress. Backend baseline `3e804da`; frontend baseline `2836b88`.
+Status: implemented and locally verified; production installation/migration await the concrete approval plan. Development baselines: backend `3e804da`, frontend `2836b88`. School candidates are separately backported from the audited production pair.
 
 ## Accepted product
 
@@ -31,6 +31,8 @@ on the 2026-09-07 read-only audit. Installation and production database migratio
 need a concrete, separately approved plan and interactive sudo.
 
 ## Acceptance / remaining work
+
+The implementation, local sandbox/browser checks and initial migration rehearsal below are complete. Source gates are being repeated for the isolated school backport. Only the final approval/activation item remains an operational gate; see `deploy/makerspace/migration-plan.md`.
 
 - Implement schema, owner and admin authorization, repository keys, jobs and
   browser-bound preview gateway; test private access and version publication.
