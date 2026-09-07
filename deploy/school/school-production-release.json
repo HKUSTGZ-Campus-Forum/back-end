@@ -1,9 +1,9 @@
 {
   "backend_sha": "24baf0fd54ffeab7209e6a15ebe794cef67ce3d5",
   "database_change": {
-    "approval_reference": "codex:01a07a68-92bb-79f1-8396-f7e405107df7:2026-09-07:user-approved-maker-social-migration",
-    "approved": true
+    "approval_reference": null,
+    "approved": false
   },
-  "frontend_sha": "9b87665cd2a86405b4b2cf18728b00f8a202c249",
+  "frontend_sha": "281c014877b12440f2ad3f7bd532ea2bcc8497ef",
   "schema_version": 1
 }
