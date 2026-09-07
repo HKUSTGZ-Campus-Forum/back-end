@@ -41,6 +41,7 @@ class MakerSpace(db.Model):
     version = db.Column(db.Integer, nullable=False, default=1)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now)
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now, onupdate=now)
+    cover_file_id = db.Column(db.Integer, db.ForeignKey("files.id"), nullable=True, index=True)
     owner = db.relationship("User", foreign_keys=[owner_id])
 
 
@@ -111,3 +112,17 @@ class MakerWorker(db.Model):
     id = db.Column(db.String(64), primary_key=True)
     last_seen_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now)
     capabilities = db.Column(db.JSON, nullable=False, default=dict)
+
+
+class MakerLike(db.Model):
+    __tablename__ = "maker_likes"
+    space_id = db.Column(db.String(32), db.ForeignKey("maker_spaces.id"), primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), primary_key=True, index=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now)
+
+
+class MakerFavorite(db.Model):
+    __tablename__ = "maker_favorites"
+    space_id = db.Column(db.String(32), db.ForeignKey("maker_spaces.id"), primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), primary_key=True, index=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=now)

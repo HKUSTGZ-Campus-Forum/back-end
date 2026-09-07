@@ -341,6 +341,8 @@ class OSSService:
     @staticmethod
     def max_upload_bytes(file_type, mime_type=None):
         """Return the authoritative byte limit for a file category."""
+        if file_type == File.MAKER_COVER:
+            return File.MAX_MAKER_COVER_BYTES
         normalized_mime = (mime_type or '').lower()
         if file_type == File.POST_ATTACHMENT and normalized_mime.startswith('video/'):
             return File.MAX_VIDEO_UPLOAD_BYTES
@@ -384,6 +386,9 @@ class OSSService:
                 raise UploadVerificationError(
                     f'File exceeds maximum size of {max_bytes} bytes'
                 )
+
+            if file_record.file_type == File.MAKER_COVER and actual_mime not in File.MAKER_COVER_MIMES:
+                raise UploadVerificationError('MakerSpace covers require JPEG, PNG or WebP')
 
             if file_record.file_type == File.POST_IMAGE and not actual_mime.startswith('image/'):
                 raise UploadVerificationError('Image upload has an invalid content type')
@@ -462,10 +467,13 @@ class OSSService:
     @staticmethod
     def delete_file(file_id, user_id):
         """Remove an unbound draft upload and queue cleanup when OSS is unavailable."""
-        file_record = File.query.filter_by(id=file_id, user_id=user_id, is_deleted=False).first()
+        file_record = File.query.filter_by(id=file_id, user_id=user_id, is_deleted=False).with_for_update().first()
         if not file_record:
             return None # Not found or already deleted
 
+        from app.models.makerspace import MakerSpace
+        if file_record.file_type == File.MAKER_COVER and MakerSpace.query.filter_by(cover_file_id=file_id).first():
+            return None
         if file_record.entity_type == 'post' and file_record.entity_id is not None:
             return None
 
@@ -507,6 +515,7 @@ class OSSService:
         also eligible because a user can remove them from an unpublished draft
         while the immediate OSS cleanup request is unavailable.
         """
+        from app.models.makerspace import MakerSpace
         cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
         stale_files = File.query.filter(
             File.entity_id.is_(None),
@@ -515,18 +524,23 @@ class OSSService:
                 File.status.in_(('pending', 'error')),
                 and_(
                     File.status == 'uploaded',
-                    File.entity_type == 'post',
-                    File.file_type.in_((File.POST_IMAGE, File.POST_ATTACHMENT)),
+                    File.file_type.in_((File.POST_IMAGE, File.POST_ATTACHMENT, File.MAKER_COVER)),
+                    File.entity_type.in_(('post', 'makerspace')),
                 ),
             ),
             File.created_at < cutoff,
-        ).limit(200).all()
+            ~db.session.query(MakerSpace.id).filter(MakerSpace.cover_file_id == File.id).exists(),
+        ).limit(200).with_for_update(skip_locked=True).all()
         if not stale_files:
             return 0
 
         bucket = OSSService._create_management_bucket()
         cleaned = 0
         for file_record in stale_files:
+            # Recheck after acquiring file locks: a cover bind can commit after
+            # the candidate query's snapshot but before its row lock is taken.
+            if file_record.file_type == File.MAKER_COVER and MakerSpace.query.filter_by(cover_file_id=file_record.id).first():
+                continue
             try:
                 bucket.delete_object(file_record.object_name)
                 file_record.is_deleted = True

@@ -47,3 +47,15 @@ Every resource checks the session, expiry, owner/reviewer eligibility and curren
 ## Verification
 
 Run `tests/test_makerspace.py` for ownership, independent review, publication isolation, webhook replay, secret snapshots, one-use bootstrap and logout. `tests/test_makerspace_rollout.py` rehearses the current school revision to the two MakerSpace revisions on a disposable PostgreSQL database; it must not target production. `deploy/makerspace/verify-sandbox.py` runs real gVisor resource/network/storage/backup checks only on an empty prepared host and refuses live worker state.
+
+## Covers and social collections
+
+- `GET /makerspace/users/<user_id>` returns published work and reviewed metadata to other viewers; the verified owner additionally sees private drafts. Repository settings are excluded from profile serialization.
+- `GET /makerspace/favorites` requires a verified active user and returns only that user's currently published saved works. There is no endpoint exposing another user's saved list.
+- `PUT/DELETE /makerspace/<slug>/likes` and `/favorites` require a published space and an active verified account. Composite `(space_id,user_id)` primary keys and a space row lock make requests idempotent. Catalog/detail/profile results add aggregate counts and viewer-specific booleans.
+- Cover uploads reuse `/files/upload` and authenticated `/files/<id>/complete`, with `file_type=maker_cover`, `entity_type=makerspace`, no `entity_id`, PNG/JPEG/WebP only and a 5 MiB limit checked against OSS metadata. `PUT /makerspace/<slug>/cover` accepts an owner-uploaded, verified file ID or null. Only the creator may bind/remove it; historical TeamUp ownership grants this display operation without granting runtime deployment rights.
+- `GET /makerspace/<slug>/cover` rechecks space visibility on every request. Responses are no-store/nosniff and sandboxed; private images need the owner's or pending reviewer's bearer token. The general public file endpoint cannot deliver these files. Referenced images cannot be directly deleted or swept as abandoned uploads. Detached uploads become eligible for normal stale-file cleanup.
+
+Cover display edits do not change code/settings snapshots or activate a new runtime. Published titles/descriptions retain the existing review boundary. Neither reactions nor display uploads forward identity to creator code. `users` and `favorites` are reserved slug segments.
+
+Schema and rollout: [social migration plan](../../deploy/makerspace/social-migration-plan.md). School deployment needs new approval; initial MakerSpace approval cannot be reused. Tests: `test_makerspace_social.py`, existing file tests, and PostgreSQL rollout/pristine tests.
