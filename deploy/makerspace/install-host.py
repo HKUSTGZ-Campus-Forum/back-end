@@ -86,7 +86,7 @@ def main():
     review = directory(root / 'reviews', 0o750)
     run('chown', 'root:unikorn-maker-review', str(review))
     library = directory('/usr/local/libexec/unikorn-makerspace', 0o755)
-    for name in ('runtime.py', 'firewall.py', 'static-server.mjs', 'backup.py'):
+    for name in ('runtime.py', 'firewall.py', 'static-server.mjs', 'backup.py', 'resolv.conf'):
         install(SOURCE / name, library / name, 0o755)
     config_dir = directory('/etc/unikorn-makerspace', 0o750)
     if not (config_dir / 'worker.json').exists():
