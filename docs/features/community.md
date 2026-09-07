@@ -24,6 +24,14 @@ Do not persist expiring URLs as identity. Public avatars are delivered through U
 
 [NotificationService](../../app/services/notification_service.py) creates stored notifications and invokes [PushService](../../app/services/push_service.py); [notification routes](../../app/routes/notification.py) expose recipient-owned reads, unread counts and updates. [Push routes](../../app/routes/push.py), [subscriptions](../../app/models/push_subscription.py) and [endpoint validation](../../app/utils/push_endpoints.py) handle web push registration/delivery. The frontend service worker is responsible for browser display, clicks and badge behavior.
 
+`GET /push/vapid-public-key` reports availability only when both VAPID keys are configured; it never exposes the private key. Subscription encryption keys use Base64URL. Re-registering an endpoint explicitly deactivates records for other accounts on that browser installation, while preserving the existing `(user_id, endpoint)` schema and idempotent same-account registration. This is normal subscription activity, not a data migration or bulk backfill.
+
+`POST /push/test` accepts optional JSON `{ "endpoint": "https://web.push.apple.com/…", "locale": "en" }`. An endpoint must be allowlisted, active and owned by the authenticated user; it limits delivery to that one device. Omitted endpoint preserves the legacy all-own-devices behavior. Only `en` selects English; otherwise test copy is Chinese. Acceptance by a provider is not proof of physical delivery. The admin target-user test retains its admin guard.
+
+Delivery uses a per-provider eight-second timeout, a one-hour TTL, a fresh VAPID claims dictionary per send (provider audiences differ), and deactivates expired subscriptions on HTTP 404 or 410. The exact provider allowlist remains enforced. Unsubscribe is idempotent and only alters the authenticated user's selected endpoint (legacy no-endpoint requests still disable all their devices).
+
+Read/mark-all-read no longer sends blank/silent badge-only Web Push, because Safari requires every push to display a notification. Foreground clients refresh badges from unread counts; closed devices catch up with the next visible notification or app visit. No schema, seed or product-data migration is introduced.
+
 VAPID configuration, actual browser permissions and the worker's availability are environment-dependent. Do not claim cross-device delivery is verified from database tests alone. New notification types must preserve recipient privacy and a valid frontend navigation destination.
 
 ## Verification and documentation
