@@ -80,6 +80,7 @@ def main():
     except KeyError: run('useradd', '--system', '--no-create-home', '--shell', '/usr/sbin/nologin', 'unikorn-maker-fetch')
     run('usermod', '-a', '-G', 'unikorn-maker-review', 'unikorn')
     root = directory('/srv/unikorn-makerspace', 0o755)
+    directory('/run/unikorn-makerspace', 0o711)
     for name in ('volumes', 'backups'): directory(root / name)
     directory(root / 'mounts', 0o711)
     review = directory(root / 'reviews', 0o750)

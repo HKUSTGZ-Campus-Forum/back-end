@@ -43,3 +43,9 @@ Worker configuration admits only the fixed loopback main API, digest-pinned imag
 Run backend permission and rollout tests from [the feature guide](../../docs/features/makerspace.md). Real gVisor verification requires an empty Linux host with this directory installed root-owned, prepared quota directories/network/firewall, and pinned images. Use an isolated disposable VM; never point the verifier at active creator state.
 
 The browser contract requires recent CHIPS-capable browsers. Check real module imports and relative fetch with third-party cookies blocked, parent/main localStorage denial, copied preview URL denial, logout revocation, and forced uncached access. Do not add `allow-same-origin` to address a compatibility problem.
+
+## School network verification
+
+The school host blocks DNS to `1.1.1.1`; the tested public resolver is `223.5.5.5`. Both Docker DNS and the exact UDP/TCP 53 firewall rules use that address. Keep all private/host/lateral denials. Verify npm and PyPI HTTPS from a real sandbox before enabling hosting. An existing installation needs a reviewed replacement of only its two DNS rules while the worker and creator containers are stopped; `firewall.py` deliberately refuses mismatched existing chains.
+
+If Docker Hub transport is blocked, transfer verified OCI content over SSH, retain the original index and amd64 manifest/layer digests, import with `docker load --platform linux/amd64`, and verify the original pinned image references resolve locally. Do not substitute a moving mirror tag. Finish protected configuration backup, unit validation and `verify-sandbox.py` before activation.

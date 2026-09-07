@@ -130,7 +130,7 @@ def digest_tree(root):
 
 def sandbox_options(name, work, image, *, build=False, data=None, port=None):
     args = ['docker', 'run', '--detach', '--name', name, '--label', LABEL,
-            '--runtime', 'runsc', '--network', NETWORK, '--dns', '1.1.1.1',
+            '--runtime', 'runsc', '--network', NETWORK, '--dns', '223.5.5.5',
             '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
             '--read-only', '--user', '65532:65532', '--cpus', '0.5',
             '--memory', '768m' if build else '256m', '--memory-swap', '768m' if build else '256m',
