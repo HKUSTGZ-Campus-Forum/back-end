@@ -37,3 +37,7 @@ VAPID configuration, actual browser permissions and the worker's availability ar
 ## Verification and documentation
 
 Use [post](../../tests/test_post.py), [post tags](../../tests/test_post_tags.py), [course discussions](../../tests/test_course_discussions.py), [search previews](../../tests/test_search_preview.py), [upload flow](../../tests/test_file_upload_flow.py), [upload status](../../tests/test_file_upload_status.py), [avatars](../../tests/test_avatar_delivery.py), [push](../../tests/test_push_security.py), and [gugu](../../tests/test_gugu.py) tests. Update the frontend community/upload reference too when the wire contract changes.
+
+## 2026-09-07 notification-only school release
+
+The active school release is backend `5732d34c2b0dd0b6911b5d2123e535fffc70ee99` / frontend `ff65d6bc4a1921be39abc3b43245dfd916185184`, older than the last requested control manifest. The notification-only release candidates are backend `d3c4e5d8bb2c2442c93d27b5f47b239057cf3f4c` / frontend `4aa0b78317d4739940c0b837bffc3026d2b9c2ac`. Their direct production-baseline ancestry avoids bundling main's unrelated AI conversation migrations. The backend transition changes push behavior and tests only; no migrations or app/data files change. Merge candidate lineage into main, then use the existing paired-SHA controller with database approval false. This does not authorize any future schema transition.
