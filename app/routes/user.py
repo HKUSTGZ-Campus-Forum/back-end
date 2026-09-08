@@ -21,6 +21,13 @@ from sqlalchemy.sql import func
 
 bp = Blueprint('user', __name__, url_prefix='/users')
 
+
+@bp.after_request
+def user_response_privacy(response):
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
 # Validation patterns  
 # Updated to support Unicode characters including Chinese, emojis, accented letters
 USERNAME_PATTERN = re.compile(r'^[\w\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\u1100-\u11ff\u3130-\u318f\uac00-\ud7af\u00c0-\u017f\u1e00-\u1eff\u0100-\u024f\u1ea0-\u1ef9\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\U00002600-\U000027BF\U0001f900-\U0001f9ff\U0001f600-\U0001f64f]+$', re.UNICODE)
@@ -118,6 +125,42 @@ def create_user():
     from app.routes.auth import legacy_auth_disabled
 
     return legacy_auth_disabled()
+
+@bp.route('/me/profile-visibility', methods=['GET', 'PUT'])
+@jwt_required()
+def profile_visibility():
+    user = db.session.get(User, int(get_jwt_identity()))
+    if not user or user.is_deleted:
+        return jsonify({"code": "account_unavailable"}), 401
+    if request.method == 'PUT':
+        data = request.get_json(silent=True)
+        keys = {'favorite_spaces', 'created_spaces', 'recent_posts'}
+        if not isinstance(data, dict) or set(data) != keys or any(type(value) is not bool for value in data.values()):
+            return jsonify({"code": "invalid_profile_visibility"}), 400
+        for key, value in data.items():
+            setattr(user, 'show_' + key, value)
+        db.session.commit()
+    response = jsonify(user.profile_visibility)
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
+@bp.get('/<int:user_id>/profile-posts')
+@jwt_required(optional=True)
+def profile_posts(user_id):
+    user = User.query.filter_by(id=user_id, is_deleted=False).first()
+    if not user:
+        return jsonify({"code": "not_found"}), 404
+    if str(get_jwt_identity()) != str(user_id) and not user.show_recent_posts:
+        response = jsonify({"code": "profile_section_hidden"})
+        response.status_code = 403
+    else:
+        posts = (Post.query.filter_by(user_id=user_id, is_deleted=False)
+                 .order_by(Post.created_at.desc(), Post.id.desc()).limit(10).all())
+        response = jsonify({"posts": [post.to_dict(include_tags=True, include_author=True) for post in posts]})
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
 
 @bp.route('/<int:user_id>', methods=['GET'])
 @jwt_required()
@@ -323,6 +366,7 @@ def get_public_user_info(user_id):
     return jsonify({
         "id": user.id,
         "username": user.username,
+        "profile_visibility": user.profile_visibility,
         "profile_picture_url": user.avatar_url,  # Stable same-origin avatar URL
         "role_name": user.get_role_name()
     })

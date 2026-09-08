@@ -125,6 +125,8 @@ def creator_spaces(user_id):
         raise service.MakerError("not_found", 404)
     viewer = get_authenticated_user()
     own = bool(viewer and viewer.id == user_id and not viewer.is_deleted and viewer.email_verified)
+    if not own and not owner.show_created_spaces:
+        raise service.MakerError("profile_section_hidden", 403)
     query = MakerSpace.query.filter_by(owner_id=user_id)
     query = query.filter(MakerSpace.status != "archived") if own else query.filter_by(status="published")
     items = query.order_by(MakerSpace.updated_at.desc()).limit(500).all()
@@ -134,6 +136,24 @@ def creator_spaces(user_id):
         for value, item in zip(values, items):
             value.update(service.metadata(item))
     return jsonify({"spaces": social.decorate(values, viewer)})
+
+
+@bp.get("/users/<int:user_id>/favorites")
+@jwt_required(optional=True)
+def profile_favorite_spaces(user_id):
+    owner = User.query.filter_by(id=user_id, is_deleted=False).first()
+    if not owner:
+        raise service.MakerError("not_found", 404)
+    viewer = get_authenticated_user()
+    own = bool(viewer and viewer.id == owner.id and not viewer.is_deleted)
+    if not own and not owner.show_favorite_spaces:
+        raise service.MakerError("profile_section_hidden", 403)
+    from app.models.makerspace import MakerFavorite
+    items = (MakerSpace.query.join(MakerFavorite, MakerFavorite.space_id == MakerSpace.id)
+             .filter(MakerFavorite.user_id == owner.id, MakerSpace.status == "published")
+             .order_by(MakerFavorite.created_at.desc(), MakerSpace.id.desc()).limit(500).all())
+    # The viewer's state and reviewed metadata must be used, never the collector's drafts or settings.
+    return jsonify({"spaces": social.decorate([service.serialize(item, viewer) for item in items], viewer)})
 
 
 @bp.get("/favorites")

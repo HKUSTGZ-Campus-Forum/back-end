@@ -30,6 +30,18 @@ class User(db.Model):
     onboarding_completed_at = db.Column(db.DateTime(timezone=True), nullable=True)
     display_identity_id = db.Column(db.Integer, db.ForeignKey('user_identities.id'), nullable=True)
 
+    show_favorite_spaces = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    show_created_spaces = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())
+    show_recent_posts = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())
+
+    @property
+    def profile_visibility(self):
+        return {
+            "favorite_spaces": self.show_favorite_spaces is True,
+            "created_spaces": self.show_created_spaces is not False,
+            "recent_posts": self.show_recent_posts is not False,
+        }
+
     # Relationships
     role = db.relationship('UserRole', backref=db.backref('users', lazy='dynamic'))
     posts = db.relationship('Post', backref='author', lazy='dynamic', cascade='all, delete-orphan')
@@ -147,6 +159,7 @@ class User(db.Model):
         data = {
             "id": self.id,
             "username": self.username,
+            "profile_visibility": self.profile_visibility,
             "profile_picture_url": avatar_url,  # Legacy response field
             "avatar_url": avatar_url,  # Same-origin alias for newer clients
             "role_id": self.role_id,
