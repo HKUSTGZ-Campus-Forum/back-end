@@ -14,7 +14,10 @@ LIBRARY = Path('/usr/local/libexec/unikorn-makerspace')
 ROOT = Path('/srv/unikorn-makerspace')
 
 def run(*args):
-    return subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout
+    result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode:
+        raise RuntimeError(f'{args[0]} failed ({result.returncode}):\n' + result.stdout.decode(errors='replace') + result.stderr.decode(errors='replace'))
+    return result.stdout
 
 
 def main():
@@ -47,6 +50,9 @@ def main():
         os.chown(LIBRARY / name, 0, 0); (LIBRARY / name).chmod(0o755 if name.endswith('.py') else 0o644)
     run('python3', str(LIBRARY / 'firewall.py'))
     # This refuses nonempty state and verifies real runsc, volumes and egress.
+    # Stopping systemd removes its RuntimeDirectory; the offline verifier still
+    # needs the same root-owned directory for short-lived container env files.
+    run('install', '-d', '-o', 'root', '-g', 'root', '-m', '0711', '/run/unikorn-makerspace')
     run('python3', str(LIBRARY / 'verify-sandbox.py'))
     run('systemctl', 'start', 'unikorn-makerspace-worker.service')
     print(json.dumps({'closed_runtime': 'v1', 'backup': str(backup), 'verified': True}))
