@@ -53,7 +53,7 @@ Run `tests/test_makerspace.py` for ownership, independent review, publication is
 ## Covers and social collections
 
 - `GET /makerspace/users/<user_id>` returns published work and reviewed metadata to other viewers; the verified owner additionally sees private drafts. Repository settings are excluded from profile serialization.
-- `GET /makerspace/favorites` requires a verified active user and returns only that user's currently published saved works. There is no endpoint exposing another user's saved list.
+- `GET /makerspace/favorites` requires a verified active user and returns only that user's currently published saved works. The profile endpoint added below exposes saved works only after explicit owner opt-in.
 - `PUT/DELETE /makerspace/<slug>/likes` and `/favorites` require a published space and an active verified account. Composite `(space_id,user_id)` primary keys and a space row lock make requests idempotent. Catalog/detail/profile results add aggregate counts and viewer-specific booleans.
 - Cover uploads reuse `/files/upload` and authenticated `/files/<id>/complete`, with `file_type=maker_cover`, `entity_type=makerspace`, no `entity_id`, PNG/JPEG/WebP only and a 5 MiB limit checked against OSS metadata. `PUT /makerspace/<slug>/cover` accepts an owner-uploaded, verified file ID or null. Only the creator may bind/remove it; historical TeamUp ownership grants this display operation without granting runtime deployment rights.
 - `GET /makerspace/<slug>/cover` rechecks space visibility on every request. Responses are no-store/nosniff and sandboxed; private images need the owner's or pending reviewer's bearer token. The general public file endpoint cannot deliver these files. Referenced images cannot be directly deleted or swept as abandoned uploads. Detached uploads become eligible for normal stale-file cleanup.
@@ -65,3 +65,7 @@ Schema and rollout: [social migration plan](../../deploy/makerspace/social-migra
 ## Closed runtime and external exchange
 
 The candidate introduces [directional exchange](makerspace-sync.md), separate approvals, scoped viewer identities and a closed runtime network. Deployment and the TeamUp cutover require the current migration plan; the historical trusted-app description above remains the live state until that cutover.
+
+### Profile collection visibility
+
+Account preferences now gate author and saved-work sections for visitors. Favorites remain private by default and become public only after the owner opts in. `GET /makerspace/users/<id>/favorites` checks that opt-in, returns only published/reviewed metadata, and decorates reactions for the viewer (not the collector). Hidden creator sections reject visitor requests to `/makerspace/users/<id>`. Owners retain private access; `/makerspace/favorites` remains owner-only. These controls never reveal drafts or unpublish catalog entries. See the [account contract](auth-api.md#profile-visibility) and its migration approval plan; this documents candidate behavior, not production activation.

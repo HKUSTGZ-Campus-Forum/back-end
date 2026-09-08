@@ -5,7 +5,7 @@ from sqlalchemy import create_engine, inspect, text
 
 
 DATABASE_URL_ENV = "PRISTINE_POSTGRES_DATABASE_URL"
-EXPECTED_HEADS = {"20260907_merge_maker_sync"}
+EXPECTED_HEADS = {"20260908_merge_profile"}
 
 
 @pytest.fixture(scope="module")
@@ -109,6 +109,11 @@ def test_pristine_postgres_upgrade_reaches_existing_heads(
                 {"user_id": grandfathered_user_id},
             ).scalar_one()
         assert completed_at >= rollout_floor
+        with db.engine.connect() as connection:
+            visibility = connection.execute(text(
+                "SELECT show_favorite_spaces, show_created_spaces, show_recent_posts FROM users WHERE id = :user_id"
+            ), {"user_id": grandfathered_user_id}).one()
+        assert tuple(visibility) == (False, True, True)
 
         inspector = inspect(db.engine)
         contest_columns = {

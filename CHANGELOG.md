@@ -4,6 +4,10 @@ Notable behavior and engineering changes belong here with their implementation. 
 
 ## Unreleased
 
+### Profile visibility
+
+- Added account-owned visibility settings for saved works, published works and recent posts; favorites remain private by default and visitor endpoints enforce opt-outs. Requires the profile visibility schema migration.
+
 ### MakerSpace
 
 - Added immutable directional exchange approvals, typed gateway adapters, scoped application identities and metadata-only audit. Runtime tooling separates dependency builds from closed public/preview networks. School schema and TeamUp cutover still require the current production plan.
