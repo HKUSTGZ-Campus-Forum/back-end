@@ -1,6 +1,6 @@
 # Profile visibility migration plan
 
-Status: implemented and locally verified; frontend and backend successfully deployed to shared dev; production approval pending (2026-09-08).
+Status: implemented and locally verified; frontend and backend successfully deployed to shared dev; production approval received on 2026-09-08: user replied “确认” to the exact three-column, 1,270-account migration and release plan.
 
 ## Scope and source
 
@@ -34,3 +34,5 @@ No production migration, release manifest update or existing OAuth grant deletio
 - Local full suites: frontend 582 passed; backend 952 passed, 8 skipped. The merged backend candidate was also tested by dev CI.
 - Local browser fixture, port 3000 server and disposable PostgreSQL container were stopped/removed after verification.
 - School production has not been updated by this task.
+
+School candidate migration head is `20260908_profile_sync`, a no-op merge of the existing school sync and approved profile settings branches. Shared dev retains both immutable histories through `20260908_merge_profile_sync`. These merge revisions execute no product-data SQL.
