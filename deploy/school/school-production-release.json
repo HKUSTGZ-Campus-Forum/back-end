@@ -1,9 +1,9 @@
 {
-  "backend_sha": "2ef575723f740147417edfca9853bb7de60f7c9f",
+  "backend_sha": "6bd3c849ac7d8d86febbcfe1c9c7d1e7bf334059",
   "database_change": {
-    "approval_reference": "MS-SYNC-20260907: user approved in current Codex task on 2026-09-08",
+    "approval_reference": "PROFILE-VISIBILITY-20260908: user confirmed the three-column, 1270-account plan in this Codex task on 2026-09-08; docs/plans/2026-09-08-profile-visibility-migration.md",
     "approved": true
   },
-  "frontend_sha": "f7c52006c235d7a4df63cdaa20a775c9f41d9c2d",
+  "frontend_sha": "1840408c28f38770ede670b84cf9f60125675626",
   "schema_version": 1
 }
