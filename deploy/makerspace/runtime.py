@@ -278,7 +278,7 @@ def run_job(config, state, job):
             args = sandbox_options(build_name, work / 'repo', image, build=True)
             args += ['--workdir', '/workspace/' + settings['directory']]
             # Build has network access but no runtime environment or data volume.
-            command(args + ['--entrypoint', '/bin/sh', image, '-lc', settings['build_command']])
+            command(args + ['--entrypoint', '/bin/sh', image, '-c', settings['build_command']])
             try:
                 result = command(['docker', 'wait', build_name], timeout=300)
                 log = container_log(build_name)
@@ -301,7 +301,7 @@ def run_job(config, state, job):
             trusted(server)
             args += ['--mount', f'type=bind,src={server},dst=/platform-server.mjs,readonly', '--entrypoint', 'node', image, '/platform-server.mjs', settings['output_directory']]
         else:
-            args += ['--entrypoint', '/bin/sh', image, '-lc', settings['start_command']]
+            args += ['--entrypoint', '/bin/sh', image, '-c', settings['start_command']]
         command(args)
     try:
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))

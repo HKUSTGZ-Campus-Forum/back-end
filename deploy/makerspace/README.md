@@ -42,6 +42,8 @@ Worker configuration admits only the fixed loopback main API, digest-pinned imag
 
 Repository fetch uses `/usr/sbin/runuser` explicitly: the clean fetch `PATH` is `/usr/bin:/bin` and cannot resolve administrative tools by name. Git still runs as `unikorn-maker-fetch`, with a per-space key and hooks/unsafe transports disabled. A runtime update must be installed through the approved host procedure; deploying the main web API does not replace the worker.
 
+Container commands use a non-login shell (`/bin/sh -c`) so image login profiles cannot overwrite the platform-controlled `PATH` and `PYTHONUSERBASE`. Python console scripts installed into `/workspace/.python/bin` remain available at startup.
+
 Run backend permission and rollout tests from [the feature guide](../../docs/features/makerspace.md). Real gVisor verification requires an empty Linux host with this directory installed root-owned, prepared quota directories/network/firewall, and pinned images. Use an isolated disposable VM; never point the verifier at active creator state.
 
 The browser contract requires recent CHIPS-capable browsers. Check real module imports and relative fetch with third-party cookies blocked, parent/main localStorage denial, copied preview URL denial, logout revocation, and forced uncached access. Do not add `allow-same-origin` to address a compatibility problem.

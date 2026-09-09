@@ -11,6 +11,7 @@ Notable behavior and engineering changes belong here with their implementation. 
 ### MakerSpace
 
 - Fixed private repository fetching with the restricted worker environment by invoking the host privilege-drop tool through its absolute path; repository commands still run as the dedicated fetch user.
+- Preserve the sandbox's controlled executable path by running build/start commands in a non-login shell, allowing installed Python console scripts to start correctly.
 
 - Added immutable directional exchange approvals, typed gateway adapters, scoped application identities and metadata-only audit. Runtime tooling separates dependency builds from closed public/preview networks. School schema and TeamUp cutover still require the current production plan.
 
