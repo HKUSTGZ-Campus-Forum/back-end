@@ -593,6 +593,16 @@ def sync_list(slug):
     return jsonify({'grants': [sync.payload(grant) for grant in grants], 'runtime_ready': sync.runtime_ready()})
 
 
+@bp.get('/<slug>/sync/catalog')
+@jwt_required()
+def sync_catalog(slug):
+    from app.services import makerspace_sync as sync
+    space, _user = owner_space(slug)
+    response = jsonify(sync.catalog(space))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
 @bp.post('/<slug>/sync')
 @jwt_required()
 def sync_create(slug):

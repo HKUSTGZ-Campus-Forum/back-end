@@ -4,11 +4,21 @@ Status: implemented in the candidate branch; see the task's deployment record fo
 
 ## Owner and administrator workflow
 
-The owner's space page exposes **External data exchange approvals**. Submit one request for each resource/direction. Provide an external service name and HTTPS origin (an identification label, not an outbound URL), exact field names/types, purpose, machine-readable record scope supported by the adapter, retention/deletion/conflict rules, and an expiry within 90 days. The current reviewed public deployment and artifact are bound automatically. The administrator uses `/makerspace/review`, independently checks the exact source/adapter and scope, and approves or rejects with a note. Authors cannot self-approve. Publication approval is distinct from exchange approval.
+The owner's space page exposes **External data exchange approvals**. Submit one request for each resource/direction. Load the owner-only `GET /api/makerspace/<slug>/sync/catalog` and select a declared resource, direction and fields. Scope and field types come from the work declaration. Provide an external service name and HTTPS origin (an identification label, not an outbound URL), purpose, retention/deletion/conflict rules, and an expiry within 90 days. The current reviewed public deployment and artifact are bound automatically. The administrator uses `/makerspace/review`, independently checks the exact source/adapter and scope, and approves or rejects with a note. Authors cannot self-approve. Publication approval is distinct from exchange approval.
 
 After approval the owner generates a one-time-visible random credential for the external **backend**. Only its hash is stored. Rotation invalidates the previous credential. Owners and administrators can revoke grants. Expiry, account disablement, application suspension, a changed published version or unavailable closed-runtime heartbeat blocks exchange. Revocation does not retrieve external copies already delivered.
 
 Before approving, the gateway queries the reviewed runtime's fixed `/__unikorn/sync/contract` endpoint and checks direction, resource, field types and record scope. A missing/mismatched adapter prevents approval. This technical check supplements the administrator's source and data-purpose review.
+
+## Published declaration catalog
+
+The catalog is owner-only, no-store and reads only the current reviewed public runtime, never a preview or client-supplied URL. A closed-runtime heartbeat is required. The internal contract call uses the fixed loopback listener and existing redirect/timeout/64 KiB protections; no host credentials are forwarded. The response allowlists only resource names, supported directions, field names/scalar types and record scopes, plus deployment ID, source SHA, artifact digest and normalized `contract_digest`. Extra runtime response properties are discarded; malformed or oversized declarations fail closed. Empty resources are valid and provide an author onboarding state.
+
+A declaration returns `{"resources":{"resource_name":{"directions":["export","import"],"record_scope":"scope_defined_by_author","fields":{"field_name":"string"}}}}`. Names use `[a-z][a-z0-9_]{0,47}`, there are at most 24 resources and 24 fields/resource, scalar types are string/integer/number/boolean, and record scope is a nonempty string up to 1,000 characters. Business names and scope belong to the author's repository; the platform has no TeamUp-specific field registry.
+
+Creating a sync request now requires the catalog's `deployment_id` and `contract_digest`. The server re-fetches the declaration, compares the binding and validates every selected field/type, scope and direction before adding a pending grant. Stale bindings return `sync_catalog_changed` (409); unsupported selections return 422. Approval rechecks both the selected contract and the stored digest. Existing older pending grants without a declaration digest still receive the original selection validation; existing credentials are not silently changed or revoked. No schema migration or data backfill is involved.
+
+The application UI separately explains protocol metadata: export records carry id/version/deleted with an outer next_cursor; imports supply record_id/event_id/expected_version/deleted. These are not author-selected business fields. Catalog reads do not export business records or grant external access.
 
 ## Gateway protocol
 

@@ -1,5 +1,8 @@
 # Changelog
 
+- Add an owner-only published sync declaration catalog; validate selected resource fields, direction and version again on submission without opening data exchange.
+
+
 Notable behavior and engineering changes belong here with their implementation. This log starts with the documentation reconstruction; earlier application history remains in Git. No version or deployment is implied by an Unreleased entry.
 
 ## Unreleased
