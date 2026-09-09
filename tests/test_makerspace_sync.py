@@ -11,13 +11,13 @@ from app.services import makerspace_sync as sync
 
 @pytest.fixture(autouse=True)
 def adapter_contract(monkeypatch):
-    original = sync.adapter
+    original = sync.runtime_request
     def call(grant, operation, body):
         if operation == 'contract':
             return {'resources': {'groups': {'fields': {'title': 'string', 'members': 'integer'},
                 'record_scope': 'Public synthetic groups only', 'directions': ['export', 'import']}}}
         return original(grant, operation, body)
-    monkeypatch.setattr(sync, 'adapter', call)
+    monkeypatch.setattr(sync, 'runtime_request', call)
 
 
 def setup(client, direction='export'):
@@ -31,6 +31,8 @@ def setup(client, direction='export'):
               'purpose': 'Show approved synthetic groups', 'record_scope': 'Public synthetic groups only',
               'retention_days': 7, 'deletion_policy': 'Remove mirrored data on revocation',
               'conflict_policy': 'School owns membership decisions', 'expires_at': (now() + timedelta(days=1)).isoformat()}
+    catalog = client.get('/makerspace/campus-tool/sync/catalog', headers=headers()).json
+    policy.update(deployment_id=item.id, contract_digest=catalog['contract_digest'])
     response = client.post('/makerspace/campus-tool/sync', headers=headers(), json=policy)
     assert response.status_code == 201, response.json
     return space, item, response.json, policy
@@ -163,7 +165,7 @@ def test_review_rejects_unsupported_adapter_contract(app, monkeypatch):
     monkeypatch.setattr(sync, 'adapter', lambda *args: {'resources': {}})
     response = client.post(f"/makerspace/admin/sync/{grant['id']}/review", headers=headers('reviewer'),
         json={'decision': 'approve', 'policy_digest': grant['policy_digest'], 'note': 'Reviewed'})
-    assert response.status_code == 422
+    assert response.status_code == 409
     assert MakerSyncGrant.query.one().status == 'pending'
 
 
@@ -184,3 +186,80 @@ def test_malformed_contracts_are_rejected_without_500(app, bad):
     client = app.test_client()
     _, _, _, data = setup(client)
     assert client.post('/makerspace/campus-tool/sync', headers=headers(), json=data | bad).status_code == 400
+
+
+def test_catalog_is_owner_only_read_only_and_bound_to_public_artifact(app):
+    client = app.test_client()
+    space, item, _, _ = setup(client)
+    path = '/makerspace/campus-tool/sync/catalog'
+    before = MakerSyncGrant.query.count()
+    for identity in ('stranger', 'reviewer'):
+        assert client.get(path, headers=headers(identity)).status_code == 404
+    assert client.get(path).status_code == 401
+    response = client.get(path, headers=headers())
+    assert response.status_code == 200
+    assert response.headers['Cache-Control'] == 'no-store'
+    assert response.json['deployment_id'] == item.id
+    assert response.json['artifact_digest'] == item.artifact_digest
+    assert response.json['resources']['groups']['fields'] == {'title': 'string', 'members': 'integer'}
+    assert MakerSyncGrant.query.count() == before
+    assert MakerSyncReceipt.query.count() == 0
+    space.published_deployment_id = None
+    db.session.commit()
+    assert client.get(path, headers=headers()).status_code == 409
+
+
+@pytest.mark.parametrize('change', [
+    {'fields': {'email': 'string'}}, {'fields': {'title': 'integer'}},
+    {'record_scope': 'all records'}, {'resource': 'private_users'},
+])
+def test_submission_revalidates_selected_schema(app, change):
+    client = app.test_client()
+    _, _, _, policy = setup(client)
+    response = client.post('/makerspace/campus-tool/sync', headers=headers(), json=policy | change)
+    assert response.status_code == 422
+    assert MakerSyncGrant.query.count() == 1
+
+
+def test_submission_rejects_stale_deployment_and_contract(app, monkeypatch):
+    client = app.test_client()
+    _, _, _, policy = setup(client)
+    for change in ({'deployment_id': 'stale'}, {'contract_digest': 'stale'}):
+        assert client.post('/makerspace/campus-tool/sync', headers=headers(), json=policy | change).status_code == 409
+    monkeypatch.setattr(sync, 'runtime_request', lambda *args: {'resources': {'groups': {
+        'fields': {'title': 'string'}, 'directions': ['export'], 'record_scope': policy['record_scope']}}})
+    assert client.post('/makerspace/campus-tool/sync', headers=headers(), json=policy).status_code == 409
+    assert MakerSyncGrant.query.count() == 1
+
+
+def test_catalog_strips_extra_payload_and_only_declared_direction_is_allowed(app, monkeypatch):
+    client = app.test_client()
+    _, _, _, policy = setup(client)
+    monkeypatch.setattr(sync, 'runtime_request', lambda *args: {'private': 'do not return', 'resources': {'groups': {
+        'fields': policy['fields'], 'directions': ['export'], 'record_scope': policy['record_scope'], 'rows': ['private']}}})
+    catalog = client.get('/makerspace/campus-tool/sync/catalog', headers=headers()).json
+    assert 'private' not in str(catalog) and 'rows' not in str(catalog)
+    policy['contract_digest'] = catalog['contract_digest']
+    assert client.post('/makerspace/campus-tool/sync', headers=headers(), json=policy | {'direction': 'import'}).status_code == 422
+    assert client.post('/makerspace/campus-tool/sync', headers=headers(), json=policy).status_code == 201
+
+
+@pytest.mark.parametrize('contract', [None, {'resources': []}, {'resources': {'invalid/name': {}}},
+    {'resources': {'groups': {'fields': {'bad': []}, 'directions': ['export'], 'record_scope': 'public'}}},
+    {'resources': {'groups': {'fields': {'title': 'string'}, 'directions': [{}], 'record_scope': 'public'}}}])
+def test_malformed_catalog_fails_closed(app, monkeypatch, contract):
+    client = app.test_client()
+    setup(client)
+    monkeypatch.setattr(sync, 'runtime_request', lambda *args: contract)
+    assert client.get('/makerspace/campus-tool/sync/catalog', headers=headers()).status_code == 422
+
+
+def test_unavailable_or_empty_catalog_does_not_create_grants(app, monkeypatch):
+    client = app.test_client()
+    setup(client)
+    monkeypatch.setattr(sync, 'runtime_request', lambda *args: {'resources': {}})
+    assert client.get('/makerspace/campus-tool/sync/catalog', headers=headers()).json['resources'] == {}
+    db.session.get(MakerWorker, 'school-makerspace').last_seen_at = now() - timedelta(minutes=5)
+    db.session.commit()
+    assert client.get('/makerspace/campus-tool/sync/catalog', headers=headers()).status_code == 503
+    assert MakerSyncGrant.query.count() == 1

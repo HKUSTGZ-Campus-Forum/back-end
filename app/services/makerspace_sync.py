@@ -45,6 +45,44 @@ def published(space):
     return item
 
 
+def normalize_contract(value):
+    """Only return bounded schema declarations, never arbitrary adapter payloads."""
+    resources = value.get('resources') if isinstance(value, dict) else None
+    if not isinstance(resources, dict) or len(resources) > 24:
+        raise maker.MakerError('sync_invalid_contract', 422)
+    clean = {}
+    for name, resource in resources.items():
+        if not isinstance(name, str) or not NAME.fullmatch(name) or not isinstance(resource, dict):
+            raise maker.MakerError('sync_invalid_contract', 422)
+        fields, directions, scope = resource.get('fields'), resource.get('directions'), resource.get('record_scope')
+        if (not isinstance(fields, dict) or not 1 <= len(fields) <= 24
+                or any(not isinstance(key, str) or not NAME.fullmatch(key) or not isinstance(kind, str) or kind not in TYPES for key, kind in fields.items())
+                or not isinstance(directions, list) or not directions or len(directions) > 2
+                or any(not isinstance(direction, str) or direction not in ('export', 'import') for direction in directions)
+                or len(set(directions)) != len(directions)
+                or not isinstance(scope, str) or not scope.strip() or len(scope) > 1000):
+            raise maker.MakerError('sync_invalid_contract', 422)
+        clean[name] = {'fields': dict(sorted(fields.items())), 'directions': sorted(directions), 'record_scope': scope}
+    return {'resources': dict(sorted(clean.items()))}
+
+
+def catalog(space):
+    item = published(space)
+    if not runtime_ready():
+        raise maker.MakerError('sync_runtime_unavailable', 503)
+    contract = normalize_contract(runtime_request(item, 'contract', {}))
+    return {**contract, 'deployment_id': item.id, 'source_sha': item.source_sha,
+            'artifact_digest': item.artifact_digest, 'contract_digest': digest(contract)}
+
+
+def validate_selection(policy, contract):
+    resource = contract['resources'].get(policy['resource'])
+    if (not resource or policy['direction'] not in resource['directions']
+            or policy['record_scope'] != resource['record_scope']
+            or any(resource['fields'].get(name) != kind for name, kind in policy['fields'].items())):
+        raise maker.MakerError('sync_invalid_contract', 422)
+
+
 def parse_policy(data, item):
     try:
         expires = datetime.fromisoformat(data['expires_at'].replace('Z', '+00:00'))
@@ -86,6 +124,11 @@ def parse_policy(data, item):
 def create(space, user, data):
     item = published(space)
     policy, expires = parse_policy(data, item)
+    contract = catalog(space)
+    if data.get('deployment_id') != item.id or data.get('contract_digest') != contract['contract_digest']:
+        raise maker.MakerError('sync_catalog_changed', 409)
+    validate_selection(policy, contract)
+    policy['contract_digest'] = contract['contract_digest']
     if MakerSyncGrant.query.filter_by(space_id=space.id, status='pending').count() >= 20:
         raise maker.MakerError('sync_request_limit', 429)
     grant = MakerSyncGrant(space_id=space.id, deployment_id=item.id, requested_by=user.id,
@@ -132,15 +175,10 @@ def review(grant, user, data):
             raise maker.MakerError('sync_review_changed', 409)
         if not runtime_ready():
             raise maker.MakerError('sync_runtime_unavailable', 503)
-        contract = adapter(grant, 'contract', {})
-        resources = contract.get('resources')
-        resource = resources.get(grant.policy['resource']) if isinstance(resources, dict) else None
-        if (not isinstance(resource, dict)
-                or grant.policy['direction'] not in resource.get('directions', [])
-                or resource.get('record_scope') != grant.policy['record_scope']
-                or not isinstance(resource.get('fields'), dict)
-                or any(resource['fields'].get(key) != kind for key, kind in grant.policy['fields'].items())):
-            raise maker.MakerError('sync_invalid_contract', 422)
+        contract = normalize_contract(adapter(grant, 'contract', {}))
+        if grant.policy.get('contract_digest') and grant.policy['contract_digest'] != digest(contract):
+            raise maker.MakerError('sync_catalog_changed', 409)
+        validate_selection(grant.policy, contract)
     grant.status = 'approved' if decision == 'approve' else 'rejected'
     grant.reviewed_by, grant.reviewed_at, grant.review_note = user.id, now(), note
     log(grant, grant.status, user)
@@ -210,14 +248,20 @@ def validate_record(value, fields):
 def adapter(grant, operation, body):
     """Fixed server-selected loopback port; no client URL, redirects, auth or cookies."""
     item = published(grant.space)
+    envelope = {'grant_id': grant.id, 'policy_digest': grant.policy_digest, 'resource': grant.policy['resource'],
+                'fields': grant.policy['fields'], 'record_scope': grant.policy['record_scope'],
+                'retention_days': grant.policy['retention_days'], 'expires_at': grant.policy['expires_at'], **body}
+    return runtime_request(item, operation, envelope)
+
+
+def runtime_request(item, operation, envelope):
+    # Only the published server-selected listener is used. Never accept a URL,
+    # caller credentials or response redirects from a creator/client.
     port = item.public_runtime_port
     if type(port) is not int or not 20000 <= port < 20100:
         raise maker.MakerError('sync_runtime_unavailable', 503)
     client = requests.Session()
     client.trust_env = False
-    envelope = {'grant_id': grant.id, 'policy_digest': grant.policy_digest, 'resource': grant.policy['resource'],
-                'fields': grant.policy['fields'], 'record_scope': grant.policy['record_scope'],
-                'retention_days': grant.policy['retention_days'], 'expires_at': grant.policy['expires_at'], **body}
     try:
         with client.post(f'http://127.0.0.1:{port}/__unikorn/sync/{operation}', json=envelope,
                          headers={'X-Unikorn-Sync': 'v1'}, timeout=(2, 8), allow_redirects=False, stream=True) as response:
