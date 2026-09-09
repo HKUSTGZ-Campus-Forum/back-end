@@ -227,7 +227,9 @@ def fetch_source(job, work):
         key.write_text(job['private_key']); key.chmod(0o600)
         os.chown(key, account.pw_uid, account.pw_gid)
         env = {'PATH': '/usr/bin:/bin', 'HOME': directory, 'GIT_CONFIG_NOSYSTEM': '1', 'GIT_TERMINAL_PROMPT': '0', 'GIT_SSH_COMMAND': f'/usr/bin/ssh -F /dev/null -i {key} -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/usr/local/libexec/unikorn-makerspace/github_known_hosts -o ConnectTimeout=15'}
-        git = ['runuser', '-u', account.pw_name, '--', 'git', '-c', 'core.hooksPath=/dev/null', '-c', 'protocol.file.allow=never', '-c', 'protocol.ext.allow=never']
+        # The fetch environment intentionally excludes sbin from PATH. Resolve
+        # the host privilege boundary explicitly rather than using that PATH.
+        git = ['/usr/sbin/runuser', '-u', account.pw_name, '--', 'git', '-c', 'core.hooksPath=/dev/null', '-c', 'protocol.file.allow=never', '-c', 'protocol.ext.allow=never']
         command(git + ['init', work / 'repo'], env=env)
         git += ['-C', work / 'repo']
         remote = 'git@github.com:' + job['snapshot']['repository'] + '.git'
