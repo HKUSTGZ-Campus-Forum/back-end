@@ -7,6 +7,8 @@ Notable behavior and engineering changes belong here with their implementation. 
 
 ## Unreleased
 
+- Course relationship reads expand official shorthand and grouped clauses consistently for details, downstream links and graph; add official graph scope and conditional-reference metadata without database writes.
+
 ### Profile visibility
 
 - Added account-owned visibility settings for saved works, published works and recent posts; favorites remain private by default and visitor endpoints enforce opt-outs. Requires the profile visibility schema migration.

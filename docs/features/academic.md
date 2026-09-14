@@ -10,7 +10,7 @@
 
 ## Course exploration and reviews
 
-[Course routes](../../app/routes/course.py) resolve identifiers, return filters and overview, expose relationships and course/semester discussions/reviews. Overview and graph consume shared normalized rules. [Post routes](../../app/routes/post.py) bind reviews through `CoursePostOfferingTarget`; browsing all course reviews should not lose the offering context of each review.
+[Course routes](../../app/routes/course.py) resolve identifiers, return filters and overview, expose relationships and course/semester discussions/reviews. Overview and graph consume the same read-time interpretation of authoritative raw rules, including abbreviated course numbers and bracketed boolean groups. `?catalog=official` limits graph targets to official records; mixed-condition lines are explicitly marked as references. This changes no stored snapshots or sync configuration. [Post routes](../../app/routes/post.py) bind reviews through `CoursePostOfferingTarget`; browsing all course reviews should not lose the offering context of each review.
 
 ## Academic progress
 

@@ -95,3 +95,11 @@ Regenerate counts against dev/production immediately before apply because existi
 - Keep legacy scheduler-map data until the official graph is successfully observed in production and a separate deletion plan is approved.
 
 Before setting `database_change.approved=true` in the school-production release manifest, obtain explicit approval referencing this plan and the final dev dry-run counts. Enabling `COURSE_CATALOG_SYNC_ENABLED=true` is part of that same product-data approval.
+
+## 2026-09-14 read-path correction
+
+`parse_display_requirement` expands catalog shorthand, square-bracket grouping and explicit enumerated AND clauses from the authoritative raw rule at read time. Overview linked courses, reverse downstream and graph all use this projection. Stored catalog versions, normalized requirement/edge rows, the persistent parser version and the sync task are unchanged; no product-data migration is needed.
+
+`GET /courses/relationships/graph?catalog=official` restricts target rules to official non-fallback records and includes their referenced course identities. It does not reinstate historical rules on those reference-only identities. Default graph scope is unchanged. Components are ordered by prerequisite depth with bounded cycle handling. Mixed rules emit `reference_only: true` lines and `requirement_text`; clients must not depict these as unconditional requirements. Parsed boolean groups retain AND/OR structure.
+
+See [current audit](docs/audits/2026-09-14-course-rule-audit.md) and `tests/test_course_relationships.py`. The audit found no production raw-rule differences across all 798 undergraduate fields; it is not a migration approval.
