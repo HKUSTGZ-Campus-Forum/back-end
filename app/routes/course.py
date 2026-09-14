@@ -521,7 +521,7 @@ def get_course_overview(code):
 @bp.route('/relationships/graph', methods=['GET'])
 def get_course_relationship_graph():
     """Return the graph derived from the same normalized rules as course detail."""
-    return jsonify(build_relationship_graph()), 200
+    return jsonify(build_relationship_graph(official_only=request.args.get("catalog") == "official")), 200
 
 
 @bp.route('/<int:course_id>', methods=['GET'])

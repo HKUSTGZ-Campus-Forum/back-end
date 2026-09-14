@@ -5,8 +5,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Iterable
 
-from sqlalchemy.orm import joinedload
-
 from app.extensions import db
 from app.models.course import Course
 from app.models.course_domain import (
@@ -162,6 +160,33 @@ def parse_requirement(value: Any) -> ParsedRequirement:
     )
 
 
+def parse_display_requirement(value: Any, relation_type: str) -> ParsedRequirement:
+    """Interpret catalog notation for reads without rewriting imported snapshots."""
+    raw = str(value).strip() if value is not None else ""
+    text = raw.replace("[", "(").replace("]", ")")
+    # The catalog abbreviates alternatives as "UFUG 1103 or 1106".
+    shorthand = re.compile(
+        r"\b([A-Za-z]{4})\s*([0-9]{4}[A-Za-z]?)(\s*(?:OR|AND|,)\s*)([0-9]{4}[A-Za-z]?)\b",
+        re.IGNORECASE,
+    )
+    while shorthand.search(text):
+        text = shorthand.sub(lambda m: f"{m[1]} {m[2]}{m[3]}{m[1]} {m[4]}", text)
+    # Explicitly enumerated AND clauses retain the OR grouping within each item.
+    if re.match(r"^\(a\)\s*", text, re.IGNORECASE):
+        parts = re.split(r";\s*and\s*\([a-z]\)\s*", text, flags=re.IGNORECASE)
+        if len(parts) > 1:
+            parts[0] = re.sub(r"^\(a\)\s*", "", parts[0], flags=re.IGNORECASE)
+            text = " AND ".join(f"({part.strip()})" for part in parts)
+    if relation_type == "exclusion":
+        # An exclusion list forbids any listed course; it is not an AND prerequisite.
+        text = text.replace(",", " OR ")
+    parsed = parse_requirement(text)
+    return ParsedRequirement(
+        raw or None, " ".join(raw.split()) or None, parsed.requirement_kind,
+        parsed.expression_json, parsed.course_codes,
+    )
+
+
 def _version_order(version: CourseCatalogVersion) -> tuple[Any, ...]:
     imported = version.imported_at
     if isinstance(imported, datetime):
@@ -296,12 +321,6 @@ def _relationship_records() -> tuple[dict[int, list[dict[str, Any]]], dict[str, 
         requirements_by_version.setdefault(requirement.catalog_version_id, {})[
             requirement.relation_type
         ] = requirement
-    edges_by_requirement: dict[int, list[CourseRequirementEdge]] = {}
-    for edge in CourseRequirementEdge.query.options(
-        joinedload(CourseRequirementEdge.from_course)
-    ).all():
-        edges_by_requirement.setdefault(edge.requirement_id, []).append(edge)
-
     records_by_course: dict[int, list[dict[str, Any]]] = {}
     for course in courses:
         source_course = course
@@ -315,24 +334,14 @@ def _relationship_records() -> tuple[dict[int, list[dict[str, Any]]], dict[str, 
         relation_records: list[dict[str, Any]] = []
         for relation_type, field_name in RELATION_FIELDS.items():
             stored = requirements_by_version.get(version.id, {}).get(relation_type) if version else None
-            if stored:
-                parsed = ParsedRequirement(
-                    raw_text=stored.raw_text,
-                    normalized_text=stored.normalized_text,
-                    requirement_kind=stored.requirement_kind,
-                    expression_json=stored.expression_json or {},
-                    course_codes=tuple(
-                        normalize_course_code(edge.from_course.normalized_code or edge.from_course.code)
-                        for edge in edges_by_requirement.get(stored.id, [])
-                    ),
-                )
-            else:
-                raw = getattr(version, field_name) if version else getattr(source_course, {
+            raw = stored.raw_text if stored else (
+                getattr(version, field_name) if version else getattr(source_course, {
                     "pre_requirement_raw": "pre_requirement",
                     "co_requirement_raw": "co_requirement",
                     "exclusion_raw": "exclusion",
                 }[field_name])
-                parsed = parse_requirement(raw)
+            )
+            parsed = parse_display_requirement(raw, relation_type)
             related = [course_by_code[code] for code in parsed.course_codes if code in course_by_code]
             relation_records.append({
                 "relation_type": relation_type,
@@ -463,20 +472,48 @@ def _layout_logic_components(
             component["y_coordinate"] = round((source_y + target_y) / 2)
 
 
-def build_relationship_graph() -> dict[str, Any]:
+def build_relationship_graph(*, official_only: bool = False) -> dict[str, Any]:
     records_by_course, course_by_code = _relationship_records()
+    official_ids = {
+        course_id for course_id, records in records_by_course.items()
+        if records and not records[0]["is_fallback"]
+    }
+    included_ids = set(official_ids)
+    if official_only:
+        for course_id in official_ids:
+            for record in records_by_course[course_id]:
+                included_ids.update(item["id"] for item in record["courses"])
     active_courses = sorted(
-        (course for course in course_by_code.values() if course.is_active),
+        (course for course in course_by_code.values()
+         if course.is_active and (not official_only or course.id in included_ids)),
         key=lambda course: normalize_course_code(course.normalized_code or course.code),
     )
     components: dict[str, dict[str, Any]] = {}
     courses_payload: list[dict[str, Any]] = []
+    # Place prerequisite chains in successive columns, including same-level courses.
+    active_codes = {normalize_course_code(course.normalized_code or course.code) for course in active_courses}
+    incoming: dict[str, set[str]] = {}
+    for course in active_courses:
+        code = normalize_course_code(course.normalized_code or course.code)
+        records = records_by_course.get(course.id, []) if not official_only or course.id in official_ids else []
+        incoming[code] = {
+            source for record in records if record["relation_type"] == "prerequisite"
+            for source in record["course_codes"] if source in active_codes and source != code
+        }
+    ranks: dict[str, int] = {}
+    remaining = set(active_codes)
+    while remaining:
+        ready = sorted(code for code in remaining if not (incoming[code] & remaining))
+        if not ready:
+            # Preserve visibility for catalog cycles; never loop indefinitely.
+            ready = [min(remaining)]
+        for code in ready:
+            ranks[code] = max((ranks.get(source, -1) + 1 for source in incoming[code]), default=0)
+            remaining.remove(code)
     by_level: dict[int, list[Course]] = {}
     for course in active_courses:
         code = normalize_course_code(course.normalized_code or course.code)
-        number_match = re.search(r"([0-9])", code[4:])
-        level = int(number_match.group(1)) if number_match else 0
-        by_level.setdefault(level, []).append(course)
+        by_level.setdefault(ranks[code], []).append(course)
         courses_payload.append({
             "course_code": code,
             "course_title_abbr": course.course_title_abbr,
@@ -489,7 +526,7 @@ def build_relationship_graph() -> dict[str, Any]:
             components[code] = {
                 "id": code,
                 "node_type": None,
-                "x_coordinate": column * 320,
+                "x_coordinate": column * 420,
                 "y_coordinate": row * 132,
                 "category": 0,
             }
@@ -498,6 +535,8 @@ def build_relationship_graph() -> dict[str, Any]:
     logic_counter = [0]
     for course in active_courses:
         target_code = normalize_course_code(course.normalized_code or course.code)
+        if official_only and course.id not in official_ids:
+            continue
         for record in records_by_course.get(course.id, []):
             if not record["course_codes"]:
                 continue
@@ -518,6 +557,8 @@ def build_relationship_graph() -> dict[str, Any]:
                             "start_id": code,
                             "end_id": target_code,
                             "category": RELATION_CATEGORIES[record["relation_type"]],
+                            "reference_only": True,
+                            "requirement_text": record["raw_text"],
                         })
 
     deduplicated = {
@@ -538,6 +579,8 @@ def build_relationship_graph() -> dict[str, Any]:
             "line_type": None,
             "x_coordinate": round((start["x_coordinate"] + end["x_coordinate"]) / 2),
             "category": category,
+            "reference_only": deduplicated[key].get("reference_only", False),
+            "requirement_text": deduplicated[key].get("requirement_text"),
         })
 
     official_versions = [
@@ -547,9 +590,10 @@ def build_relationship_graph() -> dict[str, Any]:
     latest = max(official_versions, key=_version_order) if official_versions else None
     fallback_relationship_count = sum(
         1
-        for records in records_by_course.values()
+        for course_id, records in records_by_course.items()
         for record in records
         if record["raw_text"] and record["is_fallback"]
+        and (not official_only or course_id in official_ids)
     )
     return {
         "components": list(components.values()),
@@ -565,6 +609,7 @@ def build_relationship_graph() -> dict[str, Any]:
             "effective_from_semester_id": latest.effective_from_semester_id if latest else None,
             "imported_at": latest.imported_at.isoformat() if latest and latest.imported_at else None,
             "is_fallback": latest is None or fallback_relationship_count > 0,
+            "catalog": "official" if official_only else "all",
             "course_count": len(courses_payload),
             "relationship_count": len(lines),
             "fallback_relationship_count": fallback_relationship_count,
