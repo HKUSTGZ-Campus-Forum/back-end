@@ -192,3 +192,55 @@ def test_offering_snapshot_version_cannot_override_official_rules(app):
         )
         assert prerequisite["raw_text"] == "TEST 1001"
         assert prerequisite["source"] == "sis_course_catalog"
+
+
+def test_read_notation_preserves_raw_rules_and_expands_catalog_shorthand():
+    from app.services.course_relationships import parse_display_requirement
+
+    raw = '(UFUG 1103 or 1106) AND (UFUG 1502 or 1504)'
+    parsed = parse_display_requirement(raw, 'prerequisite')
+    assert parsed.raw_text == raw
+    assert parsed.requirement_kind == 'course'
+    assert parsed.course_codes == ('UFUG1103', 'UFUG1106', 'UFUG1502', 'UFUG1504')
+    assert parsed.expression_json['op'] == 'AND'
+    assert [item['op'] for item in parsed.expression_json['items']] == ['OR', 'OR']
+    assert parse_display_requirement('[UFUG 2102 OR UFUG 2103] AND [UFUG 2601 OR UFUG 2602]', 'prerequisite').expression_json['op'] == 'AND'
+    enumerated = parse_display_requirement('(a) UFUG 1103 or UFUG 1106; and\n(b) UFUG 1502 or 1504; and\n(c) UFUG 1301', 'prerequisite')
+    assert enumerated.expression_json['op'] == 'AND'
+    assert len(enumerated.expression_json['items']) == 3
+    assert enumerated.expression_json['items'][0]['op'] == 'OR'
+    restricted = parse_display_requirement('(DSAA 1001 or AIAA 2205) OR (FTEC 3130 for FTEC Major Only)', 'prerequisite')
+    assert restricted.requirement_kind == 'mixed'
+    assert restricted.expression_json == {}
+    assert parse_display_requirement('UFUG 1301, UFUG 1302', 'prerequisite').requirement_kind == 'mixed'
+    assert parse_display_requirement('UFUG 1301, UFUG 1302', 'exclusion').expression_json['op'] == 'OR'
+
+
+def test_latest_graph_and_downstream_are_read_only_and_share_rules(app, client):
+    records = [
+        official_record('UFUG1103', 'Calculus II'),
+        official_record('UFUG1106', 'Honors Calculus II'),
+        official_record('AMAT2380', 'Applied Mathematics', prerequisite='UFUG 1103 or 1106'),
+        official_record('DSAA2011', 'Programming', prerequisite='UFUG 1103 for FTEC Major Only'),
+    ]
+    with app.app_context():
+        sync_official_course_catalog_records(records, term='2610', apply=True, min_courses=1)
+        historical = Course(code='OLDD1000', normalized_code='OLDD1000', name='Historical', credits=3, is_active=True, pre_requirement='UFUG 1106')
+        db.session.add(historical)
+        db.session.commit()
+        before = (CourseCatalogVersion.query.count(), CourseCatalogRequirement.query.count(), CourseRequirementEdge.query.count())
+        summary = relationship_summary(Course.query.filter_by(code='UFUG1106').one())
+        assert 'AMAT2380' in {item['code'] for item in summary['downstream']}
+
+    payload = client.get('/courses/relationships/graph?catalog=official').get_json()
+    components = {item['id']: item for item in payload['components']}
+    assert 'OLDD1000' not in components
+    assert components['AMAT2380']['x_coordinate'] > components['UFUG1106']['x_coordinate']
+    assert payload['metadata']['is_fallback'] is False
+    assert any(line['start_id'] == 'UFUG1106' for line in payload['lines'])
+    refs = [line for line in payload['lines'] if line['end_id'] == 'DSAA2011']
+    assert len(refs) == 1
+    assert refs[0]['reference_only'] is True
+    assert refs[0]['requirement_text'] == 'UFUG 1103 for FTEC Major Only'
+    with app.app_context():
+        assert before == (CourseCatalogVersion.query.count(), CourseCatalogRequirement.query.count(), CourseRequirementEdge.query.count())

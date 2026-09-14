@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Course relationship reads expand official shorthand and grouped clauses consistently for details, downstream links and graph; add official graph scope and conditional-reference metadata without database writes.
+
 - Add an owner-only published sync declaration catalog; validate selected resource fields, direction and version again on submission without opening data exchange.
 
 - Added account-owned profile visibility for favorites, created works and recent posts; favorites stay private by default. Production database approval received on 2026-09-08.

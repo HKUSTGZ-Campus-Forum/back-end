@@ -1,0 +1,116 @@
+[
+  {
+    "code": "AIAA2711",
+    "relation": "prerequisite",
+    "before": "UFUG 1103 OR UFUG 1106",
+    "after": "(UFUG 1103 OR UFUG 1106) AND (UFUG 2102 OR UFUG 2103)"
+  },
+  {
+    "code": "AIAA2711",
+    "relation": "exclusion",
+    "before": "",
+    "after": "DSAA 2088"
+  },
+  {
+    "code": "DSAA2088",
+    "relation": "prerequisite",
+    "before": "(DSAA 2011 OR DSAA 2012 OR AIAA 3111) AND UFUG 2103 AND UFUG 2104",
+    "after": "(DSAA 2011 OR DSAA 2012 OR AIAA 3111) AND (UFUG 2102 OR UFUG 2103) AND UFUG 2104"
+  },
+  {
+    "code": "DSAA2088",
+    "relation": "exclusion",
+    "before": "",
+    "after": "AIAA 2711"
+  },
+  {
+    "code": "DSAA3055",
+    "relation": "prerequisite",
+    "before": "DSAA 2012 OR AIAA 3111",
+    "after": "DSAA 2031"
+  },
+  {
+    "code": "DSAA4040",
+    "relation": "prerequisite",
+    "before": "DSAA 2031 AND UFUG 1601",
+    "after": "DSAA 2031 AND (UFUG1601 OR UFUG1603)"
+  },
+  {
+    "code": "FTEC2120",
+    "relation": "prerequisite",
+    "before": "UFUG 2103",
+    "after": "(UFUG 1102 OR UFUG 1105) AND (UFUG 1103 OR UFUG 1106)"
+  },
+  {
+    "code": "FTEC3310",
+    "relation": "prerequisite",
+    "before": "UFUG 1103 OR UFUG 1106; UFUG 2103",
+    "after": "UFUG 1103 OR UFUG 1106"
+  },
+  {
+    "code": "MICS3090",
+    "relation": "prerequisite",
+    "before": "ROAS 2200",
+    "after": "MICS 2010"
+  },
+  {
+    "code": "MICS4040",
+    "relation": "prerequisite",
+    "before": "ROAS 2200",
+    "after": "MICS 2010"
+  },
+  {
+    "code": "ROAS4220",
+    "relation": "prerequisite",
+    "before": "UFUG 2102 & UFUG 2601",
+    "after": "[UFUG 2102 OR UFUG 2103] AND [UFUG 2601 OR UFUG 2602]"
+  },
+  {
+    "code": "UFUG1301",
+    "relation": "exclusion",
+    "before": "UFUG 1302 and UFUG 1303",
+    "after": ""
+  },
+  {
+    "code": "UFUG1302",
+    "relation": "exclusion",
+    "before": "UFUG 1301",
+    "after": ""
+  },
+  {
+    "code": "UFUG1303",
+    "relation": "prerequisite",
+    "before": "UFUG 1302",
+    "after": ""
+  },
+  {
+    "code": "UFUG1303",
+    "relation": "exclusion",
+    "before": "UFUG 1301",
+    "after": ""
+  },
+  {
+    "code": "UFUG2102",
+    "relation": "prerequisite",
+    "before": "UFUG 1103 OR UFUG 1106",
+    "after": ""
+  },
+  {
+    "code": "UFUG2103",
+    "relation": "prerequisite",
+    "before": "UFUG 1103 OR UFUG 1106",
+    "after": ""
+  },
+  {
+    "code": "UFUG2106",
+    "relation": "prerequisite",
+    "before": "UFUG 1601",
+    "after": "UFUG 1601 or UFUG 1603"
+  },
+  {
+    "code": "UFUG2602",
+    "relation": "prerequisite",
+    "before": "UFUG 1601",
+    "after": "UFUG 1601 or UFUG 1603"
+  }
+]
