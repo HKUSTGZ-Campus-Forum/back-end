@@ -4,6 +4,8 @@
 
 [Posts](../../app/routes/post.py), [comments](../../app/routes/comment.py), [tags](../../app/routes/tag.py) and [reactions](../../app/routes/reaction.py) use the corresponding models. Public read paths and authenticated writes are chosen per handler. Preserve soft deletion, ownership and visibility when joining content. Course reviews also create structured offering targets; tags alone are not authoritative course/semester links.
 
+Posts carrying the reserved `platform-announcement` tag are platform announcements. Only an active administrator may create a post with this tag, and only an administrator may edit or delete an announcement. Other post ownership rules remain in force. The frontend displays these posts alongside four static historical snapshots; the snapshots do not create or modify database rows. See [post routes](../../app/routes/post.py) and [authorization tests](../../tests/test_announcement_posts.py).
+
 [Analytics](../../app/routes/analytics.py) provides hot posts and summaries; [search](../../app/routes/search.py) searches posts/users/tags/courses and prepares preview snippets. Their ordering and visibility should be checked against route code rather than historical scoring descriptions. [Gugu](../../app/routes/gugu.py) is a separate message/reply surface with deletion and admin handling.
 
 [Content moderation](../../app/services/content_moderation_service.py) integrates Aliyun Green. The current service allows content when its client is unavailable; callers and tests define the actual behavior. A docs refresh does not change this policy.
