@@ -7,6 +7,8 @@ Notable behavior and engineering changes belong here with their implementation. 
 
 ## Unreleased
 
+- Restrict creation, editing and deletion of `platform-announcement` posts to administrators, using existing post/tag tables without a schema or data migration.
+
 - Course relationship reads expand official shorthand and grouped clauses consistently for details, downstream links and graph; add official graph scope and conditional-reference metadata without database writes.
 
 ### Profile visibility

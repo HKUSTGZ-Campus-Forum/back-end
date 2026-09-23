@@ -20,6 +20,7 @@ bp = Blueprint('post', __name__, url_prefix='/posts')
 MAX_POST_TAG_COUNT = 5
 MAX_POST_TAG_LENGTH = 50
 SYSTEM_REVIEW_TAG = "course-review"
+SYSTEM_ANNOUNCEMENT_TAG = "platform-announcement"
 
 
 def _semester_id_from_offering_tag(tag_name):
@@ -137,6 +138,11 @@ def validate_and_get_tag(tag_name, allow_course_creation=False):
     if existing_tag:
         return existing_tag
 
+    if tag_name == SYSTEM_ANNOUNCEMENT_TAG:
+        return _get_or_create_system_tag(
+            tag_name,
+            description="Administrator-published platform announcements",
+        )
     if tag_name == SYSTEM_REVIEW_TAG:
         return _get_or_create_system_tag(
             tag_name,
@@ -287,6 +293,16 @@ def get_posts():
 @jwt_required()
 def create_post():
     data = request.get_json() or {}
+    try:
+        tag_names = normalize_post_tags(data.get('tags', []))
+    except ValueError as error:
+        return jsonify({"error": "Tag validation failed", "message": str(error)}), 400
+
+    if SYSTEM_ANNOUNCEMENT_TAG in tag_names:
+        from app.models.user import User
+        author = db.session.get(User, int(get_jwt_identity()))
+        if not author or author.is_deleted or not author.is_admin():
+            return jsonify({"error": "Admin access required"}), 403
     
     # Validation
     required_fields = ['title', 'content']
@@ -422,14 +438,6 @@ def create_post():
             file_record.entity_id = post.id
     
     # Handle tags with validation
-    try:
-        tag_names = normalize_post_tags(data.get('tags', []))
-    except ValueError as e:
-        return jsonify({
-            "error": "Tag validation failed",
-            "message": str(e)
-        }), 400
-
     tag_errors = []
     
     if tag_names:
@@ -581,7 +589,12 @@ def update_post(post_id):
     current_user_id = get_jwt_identity()
     
     # Check permissions
-    if post.user_id != current_user_id:
+    from app.models.user import User
+    actor = db.session.get(User, int(current_user_id))
+    is_announcement = any(tag.name == SYSTEM_ANNOUNCEMENT_TAG for tag in post.tags)
+    if is_announcement and (not actor or actor.is_deleted or not actor.is_admin()):
+        return jsonify({"error": "Admin access required"}), 403
+    if not is_announcement and str(post.user_id) != str(current_user_id):
         return jsonify({"error": "You don't have permission to update this post"}), 403
     
     data = request.get_json() or {}
@@ -606,7 +619,12 @@ def delete_post(post_id):
     current_user_id = get_jwt_identity()
     
     # Check permissions
-    if str(post.user_id) != str(current_user_id):
+    from app.models.user import User
+    actor = db.session.get(User, int(current_user_id))
+    is_announcement = any(tag.name == SYSTEM_ANNOUNCEMENT_TAG for tag in post.tags)
+    if is_announcement and (not actor or actor.is_deleted or not actor.is_admin()):
+        return jsonify({"error": "Admin access required"}), 403
+    if not is_announcement and str(post.user_id) != str(current_user_id):
         return jsonify({"error": "You don't have permission to delete this post"}), 403
     
     db.session.delete(post)
