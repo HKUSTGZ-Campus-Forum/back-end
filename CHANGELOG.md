@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Restrict creation, editing and deletion of `platform-announcement` posts to administrators, using existing post/tag tables without a schema or data migration.
+
 - Course relationship reads expand official shorthand and grouped clauses consistently for details, downstream links and graph; add official graph scope and conditional-reference metadata without database writes.
 
 - Add an owner-only published sync declaration catalog; validate selected resource fields, direction and version again on submission without opening data exchange.
