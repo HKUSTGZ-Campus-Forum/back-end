@@ -1,3 +1,5 @@
--c requirements.lock
 -r requirements.txt
 pytest
+
+# Match the production SQLAlchemy driver behavior (requirements.lock).
+SQLAlchemy==2.0.40
