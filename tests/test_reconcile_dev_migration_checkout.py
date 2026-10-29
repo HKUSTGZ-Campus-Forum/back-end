@@ -997,7 +997,7 @@ def test_fixed_parent_accepts_root_or_current_user_but_rejects_writable_owner(
         st_gid = os.getegid()
 
     try:
-        monkeypatch.setattr(reconciliation.os, "fstat", lambda _descriptor: Details())
+        monkeypatch.setattr(reconciliation.os, "fstat", lambda target: Details() if target == descriptor else real_fstat(target))
         assert reconciliation._validate_fixed_parent_descriptor(
             descriptor, str(parent)
         ) == (real_details.st_dev, real_details.st_ino)

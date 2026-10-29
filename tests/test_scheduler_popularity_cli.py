@@ -38,11 +38,14 @@ def test_regular_cli_requires_explicit_slot_and_deadline():
         sampler_cli.parse_args(["--expected-database", "prod_unikorn"])
 
 
-def test_regular_cli_preserves_exact_slot_and_deadline():
-    slot = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-    slot += timedelta(minutes=(5 - slot.minute % 5) % 5)
-    if slot <= datetime.now(timezone.utc):
-        slot += timedelta(minutes=5)
+def test_regular_cli_preserves_exact_slot_and_deadline(monkeypatch):
+    fixed = datetime(2026, 8, 13, 4, 0, tzinfo=timezone.utc)
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed.astimezone(tz) if tz else fixed.replace(tzinfo=None)
+    monkeypatch.setattr(sampler_cli, "datetime", Clock)
+    slot = fixed + timedelta(minutes=5)
     deadline = slot + timedelta(seconds=120)
     args = sampler_cli.parse_args([
         "--expected-database",
