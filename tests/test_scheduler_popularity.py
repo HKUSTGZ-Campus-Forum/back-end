@@ -38,6 +38,18 @@ from app.services.scheduler_popularity import (
 )
 
 
+@pytest.fixture
+def active_tracking_clock(monkeypatch):
+    # Keep these active-window cases independent of the real calendar date.
+    fixed = datetime(2026, 8, 13, 4, 0, tzinfo=timezone.utc)
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed.astimezone(tz) if tz else fixed.replace(tzinfo=None)
+    monkeypatch.setattr("app.services.scheduler_popularity.datetime", Clock)
+    return fixed
+
+
 TEST_UNIVERSE = PopularityHistoryUniverse(
     "0003f0e60d6edc8760e19c960d1bcae6795f98a0e84c55837aeeea18d511eb47",
     1,
@@ -433,7 +445,7 @@ def test_history_sampler_is_sparse_idempotent_and_counts_only_canonical_users(ap
             assert "user_id" not in model.__table__.columns
 
 
-def test_history_api_is_verified_cart_scoped_anonymous_and_preserves_gaps_and_zeros(client, app):
+def test_history_api_is_verified_cart_scoped_anonymous_and_preserves_gaps_and_zeros(client, app, active_tracking_clock):
     with app.app_context():
         _, offering, sections = create_offering(semester="2610")
         viewer = create_user("history_viewer", "history_viewer@hkust-gz.edu.cn")
@@ -800,12 +812,12 @@ def test_downsampled_coverage_counts_unaligned_baseline_as_additional_expected_s
     }
 
 
-def test_history_coverage_does_not_report_future_slots_as_missing(client, app):
+def test_history_coverage_does_not_report_future_slots_as_missing(client, app, active_tracking_clock):
     with app.app_context():
         _course, offering, sections = create_offering(semester="2610")
         viewer = create_user("history_future", "history_future@hkust-gz.edu.cn")
         add_cart(viewer, offering, sections)
-        now = datetime.now(timezone.utc)
+        now = active_tracking_clock
         observed_bucket = now - timedelta(minutes=5)
         observed_bucket = observed_bucket.replace(
             minute=observed_bucket.minute - observed_bucket.minute % 5,
